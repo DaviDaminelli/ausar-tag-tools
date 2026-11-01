@@ -419,6 +419,8 @@ fn every_tag_header_parses_and_checks() {
     // loaded by some zoneset (checked by `TagHeader::check`, `zoneset`).
     let (mut zonesets, mut zs_named, mut zs_tags, mut zs_tag_named) = (0usize, 0usize, 0usize, 0usize);
     let (mut zs_resources, mut zs_tags_with_resources) = (0usize, 0usize);
+    // Tags owning a resource that no zoneset lists: (class, module) → count.
+    let mut zs_unlisted: BTreeMap<(String, String), usize> = BTreeMap::new();
     let mut zs_per_tag: BTreeMap<usize, usize> = BTreeMap::new();
     // Q9: is the resource at position k of the entry's list named `[k:kind]`?
     let (mut resources, mut resources_named_by_position) = (0usize, 0usize);
@@ -468,6 +470,10 @@ fn every_tag_header_parses_and_checks() {
             let sid_names = tag.string_id_names();
             *zs_per_tag.entry(tag.zonesets.len()).or_default() += 1;
             zs_tags_with_resources += usize::from(e.resource_count > 0);
+            let listed: HashSet<u32> = tag.zonesets.iter().flat_map(|z| z.resources.iter().copied()).collect();
+            if (0..e.resource_count).any(|r| !listed.contains(&r)) {
+                *zs_unlisted.entry((class.clone(), found.rel_path.clone())).or_default() += 1;
+            }
             for (k, &file) in m.entry_resources(i).unwrap().iter().enumerate() {
                 resources += 1;
                 let name = m.name(file).unwrap_or("");
@@ -530,6 +536,7 @@ fn every_tag_header_parses_and_checks() {
     println!(
         "zonesets: {zonesets}, {zs_named} named by the tag's string_ids; zoneset tags: {zs_tags}, {zs_tag_named} named; {zs_resources} resource indices, from {zs_tags_with_resources} tags with resources"
     );
+    println!("tags with a resource no zoneset lists, by (class, module): {zs_unlisted:?}");
     println!("dependencies without a listed name: {deps_unnamed}");
     for d in &deps_other_name {
         println!("  name differs: {d}");

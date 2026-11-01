@@ -656,8 +656,8 @@ impl TagHeader {
     }
 
     /// The zoneset info holds exactly its header, entries, resource lists and
-    /// tag lists; the zonesets together list each of the entry's resources,
-    /// and only those (true of every sample tag, format-notes "Tags").
+    /// tag lists, and lists only the entry's resources (format-notes "Tags").
+    /// A resource no zoneset lists is allowed: some real tags have one.
     fn check_zonesets(&self, entry: &FileEntry, out: &mut Failures) {
         let resources: usize = self.zonesets.iter().map(|z| z.resources.len()).sum();
         let tags: usize = self.zonesets.iter().map(|z| z.tags.len()).sum();
@@ -678,21 +678,10 @@ impl TagHeader {
             );
         }
         let count = entry.resource_count;
-        let mut listed = vec![false; count as usize];
         for (z, zs) in self.zonesets.iter().enumerate() {
-            for &r in &zs.resources {
-                match listed.get_mut(r as usize) {
-                    Some(seen) => *seen = true,
-                    None => out.add(
-                        checks::ZONESET,
-                        item("zoneset", z),
-                        format!("lists resource {r}, the entry has {count}"),
-                    ),
-                }
+            for &r in zs.resources.iter().filter(|&&r| r >= count) {
+                out.add(checks::ZONESET, item("zoneset", z), format!("lists resource {r}, the entry has {count}"));
             }
-        }
-        if let Some(missing) = listed.iter().position(|&seen| !seen) {
-            out.add(checks::ZONESET, None, format!("no zoneset lists resource {missing} of {count}"));
         }
     }
 

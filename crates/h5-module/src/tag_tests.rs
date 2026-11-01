@@ -255,8 +255,9 @@ fn zoneset_resources_must_be_the_entrys_resources() {
     };
     // Index 1 doesn't exist: the entry owns one resource.
     assert_eq!(check(&two_zonesets(), 1), [checks::ZONESET]);
-    // Resource 2 is listed by no zoneset.
-    assert_eq!(check(&two_zonesets(), 3), [checks::ZONESET]);
+    // A resource no zoneset lists is not a failure: some real bitmaps own one
+    // resource that their only zoneset doesn't list (format-notes "Tags").
+    assert!(check(&two_zonesets(), 3).is_empty());
     // A zoneset section bigger than its contents.
     let (module, mut tag) = with_resources(&two_zonesets(), 2);
     tag.fields.zoneset_size += 4;
