@@ -162,6 +162,9 @@ pub struct Selected<'a, 'd> {
     pub path: String,
     pub node: &'a Node<'d>,
     pub entry: Option<u32>,
+    /// The structs around `node` and their paths, from the main struct to the
+    /// one holding it (block indices inside may point into any of them).
+    pub scopes: Vec<(&'a Body<'d>, String)>,
 }
 
 /// The entries `select` picks of block `node` (at `at`): (path, entry index, body).
@@ -192,12 +195,16 @@ fn entries<'a, 'd>(
 
 /// The nodes `path` selects in a read tag (several with `[*]`).
 pub fn select<'a, 'd>(root: &'a Body<'d>, path: &FieldPath) -> Result<Vec<Selected<'a, 'd>>, PathError> {
-    let mut current: Vec<(String, &'a Body<'d>)> = vec![(String::new(), root)];
+    // (path, body, the bodies around it)
+    type Scopes<'a, 'd> = Vec<(&'a Body<'d>, String)>;
+    let mut current: Vec<(String, &'a Body<'d>, Scopes<'a, 'd>)> = vec![(String::new(), root, Vec::new())];
     let mut out = Vec::new();
     for (k, step) in path.steps.iter().enumerate() {
         let last = k + 1 == path.steps.len();
         let mut next = Vec::new();
-        for (at, body) in &current {
+        for (at, body, outer) in &current {
+            let mut scopes = outer.clone();
+            scopes.push((*body, at.clone()));
             // Children follow the definition's fields, in order, until a problem.
             let Some(node) = body.children.get(step.field) else {
                 return Err(PathError::NotRead { at: at.clone() });
@@ -206,13 +213,13 @@ pub fn select<'a, 'd>(root: &'a Body<'d>, path: &FieldPath) -> Result<Vec<Select
             match (&node.content, last) {
                 (Content::Block(_), true) if step.select.is_some() => {
                     for (p, i, _) in entries(node, step.select, &here)? {
-                        out.push(Selected { path: p, node, entry: Some(i) });
+                        out.push(Selected { path: p, node, entry: Some(i), scopes: scopes.clone() });
                     }
                 }
-                (_, true) => out.push(Selected { path: here, node, entry: None }),
-                (Content::Struct(b) | Content::Array(b), false) => next.push((here, b)),
+                (_, true) => out.push(Selected { path: here, node, entry: None, scopes: scopes.clone() }),
+                (Content::Struct(b) | Content::Array(b), false) => next.push((here, b, scopes.clone())),
                 (Content::Block(_), false) => {
-                    next.extend(entries(node, step.select, &here)?.into_iter().map(|(p, _, b)| (p, b)));
+                    next.extend(entries(node, step.select, &here)?.into_iter().map(|(p, _, b)| (p, b, scopes.clone())));
                 }
                 (_, false) => return Err(PathError::NoFields { at: here }),
             }

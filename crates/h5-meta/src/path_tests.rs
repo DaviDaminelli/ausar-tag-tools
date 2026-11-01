@@ -135,3 +135,20 @@ fn sections_by_heading() {
     assert_eq!((s[0].start, s[0].end, s[0].kind), (1, 4, SectionKind::Group));
     assert!(find_sections(&d.fields, "nothing").is_empty());
 }
+
+#[test]
+fn a_selection_knows_its_enclosing_structs() {
+    // Block indices in a selected subtree may point outside it, so the view
+    // needs the structs around the selection, outermost first.
+    let d = def();
+    let (h, data) = build_tag(&tag());
+    let header = TagHeader::parse(&h).unwrap();
+    let r = read_tag(&d, &header, &data);
+    let p = parse_path(&d.fields, "barrels[1].rounds per second").unwrap();
+    let s = select(&r.root, &p).unwrap();
+    assert_eq!(s[0].scopes.len(), 2, "the main struct, then entry 1 of barrels");
+    assert!(std::ptr::eq(s[0].scopes[0].0, &r.root));
+    assert_eq!(s[0].scopes[1].1, "barrels[1]");
+    let p = parse_path(&d.fields, "magnification").unwrap();
+    assert_eq!(select(&r.root, &p).unwrap()[0].scopes.len(), 1);
+}
