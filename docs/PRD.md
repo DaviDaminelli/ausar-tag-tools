@@ -139,16 +139,19 @@ Use these terms consistently in code, docs and output. **"Block" alone is ambigu
   - `targetName` / `targetGuid` (block index fields): the tag block that the index points into (match `targetGuid` against tag block fields' `srcguid` in the same definition).
   - `srcName` / `srcguid` (struct and tag block fields): original struct name and type GUID.
 - Enum and flag options are `<item Name="...">` children. **An option's value (enum) or bit number (flags) is its position among the `<item>` children, starting at 0.**
-- **Name syntax.** A `name` attribute is: `display name` + optional markers + optional `:units` + optional `#help`. Parse in this order:
+- **Name syntax** (extended in M3 from all 68,781 real names, `docs/format-notes.md` "Names"). A `name` attribute is: `display name` + optional markers + optional `&label` + optional `{old name}` (repeatable) + optional `|editor hint` + optional `:units` + optional `#help`. Parse in this order:
   1. `#` and everything after it is **help text**.
-  2. In what remains, `:` and everything after it is **units**. If units start with `[min-max]`, that is the **range**; the rest is the unit (`auto-exposure delay:[0.1-1]seconds` → range `0.1-1`, unit `seconds`).
-  3. In what remains, the characters `^ * ! ~ &` are **markers**; remove them all to get the display name, then trim spaces. Keep the markers as a string.
+  2. Every `{…}` group is an **old name** (an earlier or alternate name); remove it. Braces can hold `:` and `|` and can follow the units, so they come out before steps 3–4.
+  3. `|` and everything after it is an **editor hint** (a colour or style); drop it.
+  4. In what remains, `:` and everything after it is **units**. If units start with `[min-max]` (also `[0,1]`, `[0,+inf]`), that is the **range**; the rest is the unit (`auto-exposure delay:[0.1-1]seconds` → range `0.1-1`, unit `seconds`).
+  5. An `&` with no space on either side splits the name from a **label** (`size class&Analytic Lightmap Size`). The display name is the part before it, the developer name (decisions D34); a spaced ` & ` is text.
+  6. The **trailing run** of `^ * ! ~ &` characters is the **markers**; the rest, trimmed, is the display name. Marker characters elsewhere are text. Keep the markers as a string.
   - `^` = this field labels its tag block's entries (confirmed by Reclaimer's behaviour).
   - `*`, `!`, `~`, `&` = **meaning unconfirmed** (§12, Q2). They appear on runtime/internal fields (`global tag ID!`, `vtable space*~!`, `unused label!`) and on unused options (`bit3!`, `(unused2)!`). **Provisional rule:** a field or option whose markers include `!` is **hidden**. Implement this rule in one place so it's easy to change.
   - Item names use the same syntax (help text after `#` is common on items).
 - **Sections** in definitions (all zero-size, in field order):
   - `_field_explanation`: `name` = heading (can be empty); element text content = explanation (can be multi-line or empty).
-  - `_field_custom`: either a **section label** or an **editor widget**. Rule: a custom whose name (after removing `$` and spaces at the ends) is all uppercase letters, digits, spaces and `_` is a **section label** (`OBJECT`, `$$$ DEVICE $$$` → `DEVICE`, `IMPACT AUDIO`); anything else is a widget (`show bitmap`, `import - directory`) and is ignored. Section labels **at the top level** of a definition are **class sections** (inherited parent classes, e.g. `dspn` = `OBJECT`, then `DEVICE`, then `DISPENSER`).
+  - `_field_custom`: a **section label**, a **group heading** or an **editor widget** (verified, `docs/format-notes.md` "Custom fields"). Rule, in this order: a custom with no name, with the same raw name as the next field (a control for that field), or starting with the word `import` or `show` (a tool button) is a **widget** and is ignored. Otherwise, a name that (after removing `$` and spaces at the ends) is all uppercase letters, digits, spaces and `_` is a **section label** (`OBJECT`, `$$$ DEVICE $$$` → `DEVICE`, `IMPACT AUDIO`). Any other name is a **group heading** (`Outlining`, `Unit Camera`): it heads the fields after it, like an explanation without text (§7.3). Section labels **at the top level** of a definition are **class sections** (inherited parent classes, e.g. `dspn` = `OBJECT`, then `DEVICE`, then `DISPENSER`).
 - **Common structs** (identified by `srcguid`):
   - `151d0146-479c-181f-3970-ec869043bc33` "internal struct" (global tag ID + local handle): at the top of every definition, together with the `vtable space` field before it. Always hidden.
   - `5a14a98f-4484-53fa-d468-10809e45f10a` mapping function (529 uses): contains only a `_field_data_64`. Shown as one line (§7.2).

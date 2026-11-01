@@ -110,6 +110,24 @@ Checked 2026-11-01 by the M2 test `copy_identity` on both samples: entries of th
   - So definitions are matched by code first, then by class name (PRD §5.3).
 - **Files** — verified (test `real_definitions`, 2026-11-01): all 307 files (289 `tags`, 18 `tag_resources`) are UTF-8 XML without a BOM and parse; 39,735 fields in 56 ms. They use **61** distinct field types (the PRD said 59), and only three element kinds: `<plugin>`, `<item>` and `<_field_*>`. The text uses the entities `&amp;`, `&lt;`, `&gt;`; explanation text spans lines. Only two files have non-ASCII text (`°`).
 
+### Names
+Verified 2026-11-01 (tests `name::tests` and `real_definitions::names_and_rules_over_every_definition`) over all 68,781 field and option names. The syntax is richer than PRD §5.3 first said, and is read in this order:
+1. **`#help`**: everything after the first `#` (9,002 names). Help can contain `:` and `#`.
+2. **`{old name}`**: an earlier or alternate name, e.g. `Radius{Offset}`, `Cubemap Bitmap DEPRECATED{Cubemap Bitmap}` (2,759 names; 551 have two, e.g. `editable{only render in editor}{only visible in editor}`). Braces can hold `:` and `|`, and can follow the units (`falloff begin:wus{sphere falloff begin}`), so they come out first.
+3. **`|hint`**: an editor colour or style (`|CCBBAA`, `|ABCDCC`, `|pink`, `|overlay`; 73 names), after the name or after the units. Dropped.
+4. **`:units`**, optionally starting with **`[range]`** (`[0.1-1]`, `[0,1]`, `[0,+inf]`): 3,140 with units, 329 with a range.
+5. **`X&Y`**: a name and a **label**, with no space around `&` (326 names, e.g. `size class&Analytic Lightmap Size`; a marker may come first: `structure lighting_info^&Structure Lights`). A spaced ` & ` is text (`GOAL & RESPAWN ZONE OBJECT BOUNDARY`); a trailing `&` is a marker.
+6. **Markers**: the trailing run of `^ * ! ~ &`. Marker characters elsewhere are text (`can you see me???^` → `can you see me???`). One definition has a stray backtick in the run (``name^` ``); it is dropped.
+- Counts: hidden (`!`) 4,431, labels entries (`^`) 1,134. No value field has an empty display name.
+- **Every class definition starts with `vtable space` + the internal struct** (289 of 289), and there are **529** mapping-function structs (PRD §5.3's number).
+- **Sibling names repeat:** 1,774 fields need `#2`, `#3`… to be unique among their siblings (compared case-insensitively, like paths).
+
+### Custom fields (`_field_custom`)
+Verified the same way (978 customs). Three roles, not two:
+- **Class section label** (93): all uppercase after trimming `$` and spaces (`OBJECT`, `$$$ UNIT $$$`).
+- **Group heading** (533; 217 distinct, e.g. `Misc`, `Outlining`, `Effects`, `Unit Camera`): any other name. It heads the fields after it (in `(bipd)biped.xml`, `Outlining` precedes the outline colour fields).
+- **Widget** (352): an editor control. Either it has the same raw name as the next field (`cutoff frequency:Hz` before the real field `cutoff frequency:Hz`), or it is a tool button (`import - directory`, `show bitmap`), or it has no name.
+
 ### Field types and sizes
 - **The field type table** (`h5-defs/src/field_type.rs`) gives each type's size. AusarDocs `CachedTag.md` "Tag Data" gives five: tag block 0x1C, data reference 0x1C, tag reference 0x20, pageable resource 0x10, string_id 4. The other 56 are candidates (natural sizes: `_field_string` 32, `_field_long_string` 256, `rgb_color`/`argb_color` 4, `point_2d` 4, `rectangle_2d` 8, …) **confirmed by the survey** (test `survey`, decisions D31, 2026-11-01):
   - **Main structs:** the definition's top-level size equals the main data block's size in **62,976 of 62,976 Forge tags** (210 classes, every class in the sample).

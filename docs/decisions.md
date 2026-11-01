@@ -120,3 +120,12 @@ The PRD planned to switch `guid_check` to `enforce` once Q3 (byte order) was ans
 
 ## D33. `definition_status` keeps the definition gap list (2026-11-01, requested by the user)
 New or changed tag layouts should be tracked so their definitions can be written or dumped later. The M3 survey found three kinds of gaps: classes with no definition (none in the samples yet), classes whose layout differs (5 Xbox classes), and struct GUIDs in no definition (3,840 Forge and 2,483 Xbox tag blocks). `definition_status` (M5, with the results cache) reports all three per class, with field paths, plus each class's main struct GUID per build, and can export the list as JSON. Dumping definitions is a research item in the PRD backlog (§10 item 10); its output must pass the same survey and checks. PRD §6.5 and §10 updated.
+
+## D34. Names and customs as the real definitions write them (2026-11-01)
+PRD §5.3 described a simpler name syntax than the 68,781 real names use (format-notes "Names", "Custom fields"). Choices where the PRD was silent:
+- **`X&Y`:** the display name is `X`, the developer name (PRD §4: field names are the original developer names). `Y` is kept as the field's label. Paths use `X`. Making `Y` searchable or shown is for M3's output step.
+- **`{old name}`:** kept, so `search_definitions` can find a field by an old name (`Radius{Offset}` is found by "offset"), but not part of the display name or of paths.
+- **`|hint`:** an editor colour or style, of no use to readers; dropped.
+- **Markers:** only the trailing run counts, so literal `&`, `?`, `!` inside names stay text.
+- **Group headings** (`_field_custom` that is neither a section label nor a widget, 533 of them): shown as `###` headings, like an explanation without text, so the AI sees the editor's grouping and `section=` can select them. The PRD had them ignored as widgets.
+PRD §5.3 updated.

@@ -181,3 +181,17 @@ The samples grew before M3's research step. **Forge:** 10 modules, adding two ma
 | Main struct GUIDs per class                         | exactly 1 (210 classes) | exactly 1 (214 classes) |
 
 Answers: the field type table is right (every Forge main struct and checked block fits); arrays are single-instance (Q7); `srcguid` is a Windows GUID (Q3). The 19 Xbox misfits are 5 UI/globals classes whose Xbox layout differs from the definitions (for M6). The GUID check stays `warn` (D32).
+
+**Step 1b: names and definition rules** (all 289 class and 18 resource definitions)
+
+| What                                                     | Number              |
+| -------------------------------------------------------- | ------------------- |
+| Field and option names parsed, display names clean       | 68,781 of 68,781    |
+| Help / units / ranges                                    | 9,002 / 3,140 / 329 |
+| Old names `{…}` (names with two)                         | 2,759 (551)         |
+| Labels `X&Y`                                             | 326                 |
+| Hidden (`!`) / labels entries (`^`)                      | 4,431 / 1,134       |
+| Customs: class section / group heading / widget          | 93 / 533 / 352      |
+| Definitions starting with vtable space + internal struct | 289 of 289          |
+| Mapping-function structs                                 | 529                 |
+| Fields renamed `#2`, `#3`… to be unique among siblings   | 1,774               |
