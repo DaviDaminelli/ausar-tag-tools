@@ -9,6 +9,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
+use h5_module::testutil::TempDir;
 use h5tags_core::filters::{Mode, Size};
 use h5tags_core::query::EntrySort;
 use h5tags_core::tools::args::{BuildArg, PageArgs};
@@ -17,16 +18,17 @@ use h5tags_core::tools::{
 };
 use h5tags_core::{Config, Format, Session};
 
-fn session() -> Session {
+/// A session on `H5_DEPLOY`, with its index cache in a folder deleted afterwards.
+fn session() -> (Session, TempDir) {
     let deploy = PathBuf::from(std::env::var("H5_DEPLOY").expect("set H5_DEPLOY to a folder with .module files"));
     let defs = std::env::var("H5_DEFS")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/H5Tags/tags"));
-    let cache = std::env::temp_dir().join(format!("h5tags-core-real-{}", std::process::id()));
+    let cache = TempDir::new("core-real");
     let start = Instant::now();
-    let s = Session::open(Config::single(deploy, defs, None, Some(cache))).unwrap();
+    let s = Session::open(Config::single(deploy, defs, None, Some(cache.0.clone()))).unwrap();
     println!("session opened in {:.2?}", start.elapsed());
-    s
+    (s, cache)
 }
 
 fn check(s: &mut Session, name: &str, tool: &impl Tool) {
@@ -45,7 +47,7 @@ fn page(limit: usize) -> PageArgs {
 #[test]
 #[ignore]
 fn every_m1_tool_runs() {
-    let mut s = session();
+    let (mut s, _cache) = session();
     let b = &s.builds()[0];
     let classes_without_definition: Vec<String> =
         b.classes.values().filter(|c| c.definition.is_none()).map(|c| format!("{} ({})", c.code, c.name)).collect();
