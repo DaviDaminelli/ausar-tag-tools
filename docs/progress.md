@@ -104,3 +104,37 @@ Every entry with copies in several modules (same kind and name), each copy compa
 | Copies with another global ID                 | 0                                       |
 
 Q10 is partly answered: no counterexample, but a single identical copy can't prove that an equal `assetChecksum` means identical data. Copy identity keeps comparing block checksums (PRD §6.4.6). Re-test on a full install.
+
+**Step 6: `header-dump`**
+
+| What                                                          | Number                           |
+| ------------------------------------------------------------- | -------------------------------- |
+| Small tag (carbine sight: 3 dependencies, 18 tag structs)     | 128–133 ms                       |
+| Largest Xbox header (5.2 MB `sbsp`, 34,000 rows, 6.6 MB JSON) | 195 ms JSON, 173 ms text         |
+| A call that reads no tag (`list_classes`), for comparison     | 119–130 ms                       |
+| Dependencies without a listed name (both samples)             | 0                                |
+| Dependencies listed with the class suffix                     | 0 of 154,227 Forge, 0 of 32 Xbox |
+
+Times are a release build, output to `/dev/null`, both builds configured.
+
+**M2 done-when checks**
+
+| Check                                                  | Result                                                                                                                                                                                     |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Every tag of every sample module: section sizes add up | Passed: 62,620 Forge and 73 Xbox tags, 0 parse errors, 0 check failures (header sizes equal the file entry's; lists, string table, zoneset info and trailing data fill the header section) |
+| Dependencies print as readable display names           | Passed: every dependency of both samples has a listed name, so `header-dump` names each one (from the index when indexed, else listed name + class). Seen on real tags of both builds      |
+
+**Zoneset fields decoded** (after the first `header-dump` review; every tag of both samples):
+
+| What                                                                  | Forge              | Xbox           |
+| --------------------------------------------------------------------- | ------------------ | -------------- |
+| Zonesets                                                              | 77,153             | 85             |
+| Zoneset names resolved from the tag's own string_ids                  | 77,153             | 85             |
+| Zoneset tags whose zoneset name resolves                              | 327,459 of 327,459 | 1,318 of 1,318 |
+| `unknown4` not 0                                                      | 0                  | 0              |
+| Resource indices listed (+0x08 count, +0x10 offset)                   | 24,601             | 43             |
+| Tags with resources whose zonesets list each resource, and only those | 19,495 of 19,495   | 32 of 32       |
+| Zoneset sections whose size is exactly their contents                 | 62,620 of 62,620   | 73 of 73       |
+| Resources named `[k:kind]` at position k of the resource list (Q9)    | 24,601 of 24,601   | 43 of 43       |
+
+New check `zoneset` (in `TagHeader::check`): 0 failures on both samples.
