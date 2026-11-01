@@ -1,0 +1,13 @@
+[package]
+name = "h5-meta"
+description = "Reads Halo 5 tag data with a definition: the node tree, field paths and checks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+h5-defs.workspace = true
+h5-module.workspace = true
+
+[dev-dependencies]
+h5-module = { workspace = true, features = ["testutil"] }

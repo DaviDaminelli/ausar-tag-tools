@@ -176,6 +176,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "h5-meta"
+version = "0.1.0"
+dependencies = [
+ "h5-defs",
+ "h5-module",
+]
+
+[[package]]
 name = "h5-module"
 version = "0.1.0"
 dependencies = [

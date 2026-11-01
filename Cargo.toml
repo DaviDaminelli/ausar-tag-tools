@@ -10,6 +10,7 @@ rust-version = "1.88"
 [workspace.dependencies]
 h5-module = { path = "crates/h5-module" }
 h5-defs = { path = "crates/h5-defs" }
+h5-meta = { path = "crates/h5-meta" }
 h5tags-core = { path = "crates/h5tags-core" }
 
 clap = { version = "4.6", features = ["derive"] }
