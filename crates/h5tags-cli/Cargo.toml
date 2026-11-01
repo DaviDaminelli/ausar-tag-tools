@@ -1,0 +1,15 @@
+[package]
+name = "h5tags-cli"
+description = "h5tags command-line tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "h5tags"
+path = "src/main.rs"
+
+[dependencies]
+h5tags-core.workspace = true
+clap.workspace = true
+tracing-subscriber.workspace = true
