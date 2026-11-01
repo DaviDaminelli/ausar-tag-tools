@@ -350,7 +350,7 @@ Two checks run for every struct field, tag block field and the main struct:
 
 ### 7.1 Formats
 
-- Every tool takes `format=text|json`. **MCP default: `text`. CLI default: `json`.**
+- Every tool takes `format=text|json`. **MCP default: `text`.** The CLI also has `table`, for people: the `text` content with space-padded columns, numbers right-aligned and the long name/path column last. **CLI default: `table` when stdout is a terminal, `json` when it is piped or redirected** (decisions D23). `table` is never offered over MCP.
 - The internal model is one tree of nodes (§7.7). `text` and `json` are two renderings of it. They MUST carry the same information at the same `detail` level.
 - A tool result MUST NOT contain the same content twice (e.g. text plus an identical structured copy).
 

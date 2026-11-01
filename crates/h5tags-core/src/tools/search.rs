@@ -102,6 +102,7 @@ impl Tool for SearchTags {
             columns: SEARCH_COLUMNS.to_vec(),
             rows,
             path_column: Some(2),
+            wide_column: Some(2),
             hints,
         }))
     }
@@ -161,6 +162,7 @@ impl Tool for Browse {
             ],
             offset: self.page.offset,
             columns: vec![col::NAME, col::CLASS, col::GLOBAL_ID, col::TAGS],
+            wide_column: Some(0),
             rows: self.page.page(&all, 100).to_vec(),
             ..Table::default()
         }))

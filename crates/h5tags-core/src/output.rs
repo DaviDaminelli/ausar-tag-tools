@@ -6,9 +6,22 @@ use serde_json::{Map, Value, json};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Format {
+    /// Aligned columns for people (CLI default in a terminal; decisions D23).
+    Table,
+    /// Tab-separated, what the AI reads (MCP default).
     Text,
+    /// Structured data (CLI default when the output is piped or redirected).
     #[default]
     Json,
+}
+
+/// How table rows are laid out in the two text renderings.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Layout {
+    /// Tab-separated (`text`, for the AI: fewest tokens).
+    Tabs,
+    /// Space-padded, numbers right-aligned, the wide column last (`table`, for people).
+    Aligned,
 }
 
 /// A table column: its header in text, its key in JSON.
@@ -160,6 +173,9 @@ pub struct Table {
     pub rows: Vec<Vec<Cell>>,
     /// Index of a path column that may be shortened with `in <prefix>:` (text only).
     pub path_column: Option<usize>,
+    /// The long name/path column: shown last in the `table` layout so the
+    /// short columns line up (D23). Column order is unchanged in `text` and JSON.
+    pub wide_column: Option<usize>,
     pub hints: Vec<String>,
 }
 
@@ -213,6 +229,28 @@ fn more_line(remaining: usize, next: usize) -> String {
     format!("… {remaining} more (offset={next})")
 }
 
+/// Space-pads `lines` (header first) into columns two spaces apart; `right`
+/// columns are right-aligned; `last` is moved to the end and not padded.
+fn align(lines: &[Vec<String>], right: &[bool], last: Option<usize>) -> String {
+    let count = right.len();
+    let order: Vec<usize> = (0..count).filter(|&i| Some(i) != last).chain(last).collect();
+    let widths: Vec<usize> =
+        (0..count).map(|i| lines.iter().map(|l| l[i].chars().count()).max().unwrap_or(0)).collect();
+    let mut out = String::new();
+    for line in lines {
+        let cells: Vec<String> = order
+            .iter()
+            .map(|&i| match right[i] {
+                true => format!("{:>w$}", line[i], w = widths[i]),
+                false => format!("{:<w$}", line[i], w = widths[i]),
+            })
+            .collect();
+        out.push_str(cells.join("  ").trim_end());
+        out.push('\n');
+    }
+    out
+}
+
 /// The longest folder prefix (ending in `\`) shared by every value.
 fn common_folder(values: &[String]) -> Option<String> {
     let first = values.first()?;
@@ -230,7 +268,27 @@ impl Table {
         self.total.saturating_sub(self.offset + self.rows.len())
     }
 
+    /// Tab-separated rows: what the AI reads.
     pub fn render_text(&self) -> String {
+        self.render_lines(Layout::Tabs)
+    }
+
+    /// Aligned rows for people; same lines and content as [`Table::render_text`].
+    pub fn render_table(&self) -> String {
+        self.render_lines(Layout::Aligned)
+    }
+
+    /// A column is right-aligned if every value in it is a number or a size.
+    fn numeric_columns(&self) -> Vec<bool> {
+        (0..self.columns.len())
+            .map(|i| {
+                let cells = || self.rows.iter().filter_map(|r| r.get(i)).filter(|c| **c != Cell::Empty);
+                cells().next().is_some() && cells().all(|c| matches!(c, Cell::Int(_) | Cell::Float(_) | Cell::Size(_)))
+            })
+            .collect()
+    }
+
+    fn render_lines(&self, layout: Layout) -> String {
         let mut out = String::new();
         if let Some(b) = &self.build {
             out.push_str(&format!("build: {b}\n"));
@@ -253,11 +311,16 @@ impl Table {
             }
         }
         if !self.rows.is_empty() {
-            out.push_str(&self.columns.iter().map(|c| c.header).collect::<Vec<_>>().join("\t"));
-            out.push('\n');
-            for r in rows {
-                out.push_str(&r.join("\t"));
-                out.push('\n');
+            let mut lines = vec![self.columns.iter().map(|c| c.header.to_owned()).collect::<Vec<_>>()];
+            lines.extend(rows);
+            match layout {
+                Layout::Tabs => {
+                    for line in lines {
+                        out.push_str(&line.join("\t"));
+                        out.push('\n');
+                    }
+                }
+                Layout::Aligned => out.push_str(&align(&lines, &self.numeric_columns(), self.wide_column)),
             }
         }
         if self.remaining() > 0 {
@@ -313,8 +376,9 @@ impl Output {
     pub fn render(&self, format: Format) -> String {
         match (self, format) {
             (Output::Table(t), Format::Text) => t.render_text(),
+            (Output::Table(t), Format::Table) => t.render_table(),
             (Output::Table(t), Format::Json) => pretty(&t.render_json()),
-            (Output::Report { build, items }, Format::Text) => {
+            (Output::Report { build, items }, Format::Text | Format::Table) => {
                 let mut out = build.as_ref().map(|b| format!("build: {b}\n")).unwrap_or_default();
                 for item in items {
                     let values: Vec<String> = item.values.iter().map(|(k, v)| format!("{k} {}", v.text())).collect();
@@ -342,7 +406,7 @@ impl ToolError {
     /// `!! error: <message>` + `hint: <next step>` (PRD §8).
     pub fn render(&self, format: Format) -> String {
         match format {
-            Format::Text => {
+            Format::Text | Format::Table => {
                 let mut out = format!("!! error: {}\n", self.message);
                 if let Some(h) = &self.hint {
                     out.push_str(&format!("hint: {h}\n"));
@@ -449,6 +513,30 @@ mod tests {
         for m in marker::ALL {
             assert!(guide.contains(&format!("`{m}")), "AGENT_GUIDE.md doesn't explain marker '{m}'");
         }
+    }
+
+    #[test]
+    fn table_layout_aligns_columns_and_puts_the_wide_one_last() {
+        let t = Table {
+            total: 3,
+            columns: vec![col::GLOBAL_ID, col::CLASS, col::DISPLAY_NAME, col::COPIES],
+            rows: vec![
+                vec!["0x00003B5D".into(), "trak".into(), r"camera\warthog_g_camera.camera_track".into(), Cell::Int(1)],
+                vec!["0x8551CDD8".into(), "effe".into(), r"fx\grinding\warthog\soft.effect".into(), Cell::Int(12)],
+            ],
+            wide_column: Some(2),
+            ..Table::default()
+        };
+        assert_eq!(
+            t.render_table(),
+            "total: 3\n\
+             global ID   class  copies  display name\n\
+             0x00003B5D  trak        1  camera\\warthog_g_camera.camera_track\n\
+             0x8551CDD8  effe       12  fx\\grinding\\warthog\\soft.effect\n\
+             … 1 more (offset=2)\n"
+        );
+        // The AI's text keeps the original column order and tabs.
+        assert!(t.render_text().contains("global ID\tclass\tdisplay name\tcopies\n"));
     }
 
     #[test]

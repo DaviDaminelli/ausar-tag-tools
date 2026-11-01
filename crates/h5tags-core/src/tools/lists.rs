@@ -90,6 +90,7 @@ impl Tool for ListModules {
             columns: vec![col::MODULE, col::VERSION, col::TAGS, col::LOAD_MANIFEST, col::STATUS],
             rows: self.page.page(&rows, 100).to_vec(),
             path_column: Some(0),
+            wide_column: Some(0),
             hints: (damaged > 0).then(|| present::damaged_modules_hint(damaged)).into_iter().collect(),
             ..Table::default()
         }))
@@ -203,6 +204,7 @@ impl Tool for ListEntries {
             columns: vec![col::ENTRY_TYPE, col::NAME, col::KIND, col::SIZE, col::COMPRESSED, col::MODULE],
             rows,
             path_column: Some(1),
+            wide_column: Some(1),
             hints,
         }))
     }

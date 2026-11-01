@@ -1,6 +1,7 @@
 //! `h5tags`: the command-line front end. Every command is a tool from
 //! `h5tags-core` (decisions D7); output goes to stdout, logs to stderr.
 
+use std::io::IsTerminal;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -27,9 +28,9 @@ struct Cli {
     /// Where the index cache is kept (overrides the config).
     #[arg(long, global = true)]
     cache_dir: Option<PathBuf>,
-    /// Output format.
-    #[arg(long, global = true, value_enum, default_value_t = Format::Json)]
-    format: Format,
+    /// Output format (default: table in a terminal, json when piped or redirected).
+    #[arg(long, global = true, value_enum)]
+    format: Option<Format>,
     /// More log output on stderr (-v, -vv). Or set H5TAGS_LOG.
     #[arg(short, long, global = true, action = ArgAction::Count)]
     verbose: u8,
@@ -93,13 +94,16 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // People get aligned tables; scripts reading a pipe or file get JSON (D23).
+    let default_format = if std::io::stdout().is_terminal() { Format::Table } else { Format::Json };
+    let format = cli.format.unwrap_or(default_format);
     match cli.command.run(&mut session) {
         Ok(out) => {
-            print!("{}", out.render(cli.format));
+            print!("{}", out.render(format));
             ExitCode::SUCCESS
         }
         Err(e) => {
-            print!("{}", e.render(cli.format));
+            print!("{}", e.render(format));
             ExitCode::from(1)
         }
     }
