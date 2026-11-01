@@ -469,3 +469,121 @@ fn values_are_plausible() {
         println!("    mixed: {class} | {field}: {kinds:?}");
     }
 }
+
+/// Check 5: a resolved string_id's text hashes back to the stored value.
+fn hashes_back(body: &Body<'_>, ok: &mut usize, bad: &mut Vec<String>) {
+    use h5_meta::Value;
+    for n in &body.children {
+        match &n.content {
+            Content::Value(Value::StringId(s)) => {
+                // Strings are Windows-1252; the 1-byte encoding of these texts is their chars.
+                if let Some(t) = &s.text {
+                    let bytes: Option<Vec<u8>> = t.chars().map(|c| u8::try_from(c as u32).ok()).collect();
+                    match bytes {
+                        Some(b) if h5_module::murmur3::murmur3_x86_32(&b, 0) == s.hash => *ok += 1,
+                        _ if bad.len() < 5 => bad.push(format!("{t:?} 0x{:08X}", s.hash)),
+                        _ => {}
+                    }
+                }
+            }
+            Content::Struct(b) | Content::Array(b) => hashes_back(b, ok, bad),
+            Content::Block(b) => b.entries.iter().for_each(|e| hashes_back(e, ok, bad)),
+            _ => {}
+        }
+    }
+}
+
+/// M3 done-when (PRD §9): checks 1–7 on every tag of weap, proj, bipd, vehi, effe.
+/// Checks 1, 2, 4 and 5 must have zero failures; checks 3 (GUIDs) and 6
+/// (plausibility) are reported per field, to compare with their explanations
+/// (decisions D32, format-notes "Values"). Check 7 is `every_tag_reads_with_its_definition`.
+#[test]
+#[ignore]
+fn m3_checks_on_the_five_classes() {
+    const CLASSES: [&str; 5] = ["weap", "proj", "bipd", "vehi", "effe"];
+    let deploy = PathBuf::from(std::env::var("H5_DEPLOY").expect("set H5_DEPLOY"));
+    let defs = Definitions::load(&tags_dir()).unwrap();
+    let mut parsed: HashMap<FourCc, Option<Definition>> = HashMap::new();
+    let start = Instant::now();
+    #[derive(Default)]
+    struct Class {
+        tags: usize,
+        divergences: usize,
+        header_failures: usize,
+        problems: usize,
+        sids_ok: usize,
+        sids_bad: Vec<String>,
+        found: Found,
+        values: Values,
+    }
+    let mut by_class: BTreeMap<&str, Class> = BTreeMap::new();
+    for module in find_modules(&deploy).unwrap() {
+        let map = map_file(&module.path).unwrap();
+        let m = Module::parse(&map).unwrap();
+        for (i, e) in m.entries.iter().enumerate().filter(|(_, e)| e.kind() == EntryKind::Tag) {
+            let Some(code) = CLASSES.iter().find(|c| FourCc::from_code(c) == Some(e.class_code)) else { continue };
+            let i = i as u32;
+            let name = m.name(i).unwrap();
+            let class = split_tag_name(name).1.unwrap_or_default();
+            let Some(def) = parsed
+                .entry(e.class_code)
+                .or_insert_with(|| {
+                    let file = defs.find(e.class_code, Some(class))?;
+                    Definition::parse(&std::fs::read_to_string(&file.path).ok()?).ok()
+                })
+                .as_ref()
+            else {
+                panic!("{code}: no definition");
+            };
+            let (h, data) = (m.read_section(i, Section::Header).unwrap(), m.read_section(i, Section::TagData).unwrap());
+            let header = TagHeader::parse(&h).unwrap();
+            let c = by_class.entry(code).or_default();
+            c.tags += 1;
+            // Check 2 (reference values) and the M2 header checks.
+            c.header_failures += header.check(e).len() + header.check_tag_data(&data).len();
+            let r = read_tag(def, &header, &data);
+            c.divergences += r.divergences.len();
+            let before = c.found.problems.values().map(|p| p.0).sum::<usize>();
+            walk(&r.root, "", name, &mut c.found);
+            c.problems += c.found.problems.values().map(|p| p.0).sum::<usize>() - before;
+            hashes_back(&r.root, &mut c.sids_ok, &mut c.sids_bad);
+            let kinds: Vec<String> = Vec::new();
+            let ctx = TagCtx { class: code, tag: name, resource_kinds: &kinds };
+            values(&r.root, &mut Vec::new(), "", &ctx, &mut c.values);
+        }
+    }
+    println!("checks 1–7 on {:?} in {:.2?}", CLASSES, start.elapsed());
+    let sum = |m: &BTreeMap<String, (usize, String)>| m.values().map(|e| e.0).sum::<usize>();
+    let mut failed = false;
+    for (code, c) in &by_class {
+        println!(
+            "{code}: {} tags | 1 divergences {} | 2 header/reference failures {} | 4 size problems {} | 5 string_ids hashing back {} (not {}) | 3 GUID mismatches {} at {} fields | 6 enum no option {}, block index out of range {} / no target {}, over max {}, not finite {}",
+            c.tags,
+            c.divergences,
+            c.header_failures,
+            c.problems,
+            c.sids_ok,
+            c.sids_bad.len(),
+            c.found.guid_mismatches.values().sum::<usize>(),
+            c.found.guid_mismatches.len(),
+            sum(&c.values.enum_missing),
+            sum(&c.values.index_out_of_range),
+            c.values.index_no_target.values().sum::<usize>(),
+            sum(&c.values.over_max),
+            sum(&c.values.not_finite),
+        );
+        for ((field, _), n) in &c.found.guid_mismatches {
+            println!("    GUID mismatch: {n:6} at {field}");
+        }
+        for (k, (n, ex)) in c.values.enum_missing.iter().chain(&c.values.index_out_of_range).chain(&c.values.not_finite)
+        {
+            println!("    plausibility: {n:6} {k}, e.g. {ex}");
+        }
+        for (k, n) in &c.values.index_no_target {
+            println!("    plausibility: {n:6} no target block: {k}");
+        }
+        failed |= c.divergences + c.header_failures + c.problems + c.sids_bad.len() > 0;
+    }
+    assert_eq!(by_class.len(), 5, "every class has sample tags");
+    assert!(!failed, "checks 1, 2, 4 or 5 failed: see above");
+}
