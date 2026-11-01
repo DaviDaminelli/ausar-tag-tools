@@ -1,0 +1,14 @@
+# Build output
+target/
+
+# Reference material (third-party repos, definition XMLs) — never committed
+reference/
+
+# Game files and Microsoft DLLs — never committed
+*.module
+*.dll
+deploy/
+
+# Local config and caches
+h5tags.toml
+cache/
