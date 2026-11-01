@@ -108,6 +108,22 @@ Checked 2026-11-01 by the M2 test `copy_identity` on both samples: entries of th
   - Trailing spaces are trimmed: class `mat ` → `(mat)material.xml`.
   - Characters not allowed in Windows file names are replaced by `_`: class `hsc*` (`lua`) → `(hsc_)lua.xml`. Whether `_fx_` and other codes with `_` are real or replaced is unknown until seen in a module.
   - So definitions are matched by code first, then by class name (PRD §5.3).
+- **Files** — verified (test `real_definitions`, 2026-11-01): all 307 files (289 `tags`, 18 `tag_resources`) are UTF-8 XML without a BOM and parse; 39,735 fields in 56 ms. They use **61** distinct field types (the PRD said 59), and only three element kinds: `<plugin>`, `<item>` and `<_field_*>`. The text uses the entities `&amp;`, `&lt;`, `&gt;`; explanation text spans lines. Only two files have non-ASCII text (`°`).
+
+### Field types and sizes
+- **The field type table** (`h5-defs/src/field_type.rs`) gives each type's size. AusarDocs `CachedTag.md` "Tag Data" gives five: tag block 0x1C, data reference 0x1C, tag reference 0x20, pageable resource 0x10, string_id 4. The other 56 are candidates (natural sizes: `_field_string` 32, `_field_long_string` 256, `rgb_color`/`argb_color` 4, `point_2d` 4, `rectangle_2d` 8, …) **confirmed by the survey** (test `survey`, decisions D31, 2026-11-01):
+  - **Main structs:** the definition's top-level size equals the main data block's size in **62,976 of 62,976 Forge tags** (210 classes, every class in the sample).
+  - **Tag blocks** whose GUID matches the definition: data block size = entry count (`int32` at +0x10 of the tag block field, PRD §5.2) × the definition's entry size in **790,750 of 790,750** Forge blocks.
+  - So every size used in those structs is right. A type that only occurs in structs not covered (classes without sample tags, unmatched blocks) is not proven by this.
+- **Arrays are one instance of their children** (PRD §12 Q7) — verified by the same numbers: the 274 array fields have no count attribute, and treating each as one instance gives the exact sizes.
+- **Xbox:** 57,518 of 57,537 main structs and 975,247 of 975,249 tag blocks match. The 19 that don't are in 5 UI and globals classes (`cnmp` −24 bytes, `rasg` −32, `sngl` −32, `wgtz` −32, `wigl` −72, plus 2 `wigl` blocks): the definitions describe the Forge layout, and these Xbox tags are smaller. The size check (§6.4.5) catches them.
+
+### GUIDs (PRD §12 Q3)
+- **`srcguid` is a Windows GUID** — verified (survey): tag struct GUIDs equal the definition's `srcguid` with the first three groups little-endian (`151d0146-479c-181f-…` is stored `46 01 1d 15 9c 47 1f 18 …`): 1,880,332 matches on Forge, 2,408,432 on Xbox, and **0** in the as-written order.
+- Custom structs (kind 3) match a `srcguid` of the class's definition in 5,353 of 5,353 (Forge) and 5,525 of 5,525 (Xbox).
+- **Tag blocks (kind 1) match in 99.8%:** 1,874,979 of 1,878,819 Forge. The 3,840 others have GUIDs found in **no** definition: 11 classes, mostly `coll` collision models (3,633), plus `vehi`, `subt`, `cmps`, `comp`, `motl`, `scnr`, `cusc`, `gpso`, `cust`, `lgtd`. Xbox: 2,483, the same classes plus `dctr`. So a GUID mismatch is not proof of a misread: at these fields the tag's struct type differs from what the definition says, and the size check decides (decisions D32).
+- **Main structs (kind 0):** each class has exactly **one** main struct GUID across all its tags (210 of 210 Forge classes, 214 of 214 Xbox), and it appears in no definition. It identifies the class's layout. Lead for M6: a class whose main GUID differs between builds probably has a different layout.
+- **Resource structs (kind 2):** their GUIDs appear in no definition, `tag_resources` included (25,332 Forge, 27,822 Xbox). So they don't identify the resource layout (PRD §12 Q6 stays open).
 
 ## Map info files (`.mapinfo`)
 - Observed on `ng25r_ss_pistons_remixed.mapinfo` (Forge, 2377 bytes, 2026-10-31). Binary format, not documented in AusarDocs; only its readable strings have been looked at. It contains the map name, its scenario path (`levels\multi\ng25r_ss_pistons_remixed\ng25r_ss_pistons_remixed`), and an ordered list of module paths: the map's **module stack**.

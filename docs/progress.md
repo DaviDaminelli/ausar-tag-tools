@@ -155,3 +155,29 @@ The samples grew before M3's research step. **Forge:** 10 modules, adding two ma
 
 - **One fact corrected:** "the zonesets list every resource" fails for 31 bitmaps in one Forge update module, so the `zoneset` check no longer requires it (format-notes "Tags").
 - **One module moved:** a v23 module (the Xbox layout) was in the Forge folder by mistake; it is now in the Xbox folder. The module version in the header tells the two builds apart.
+
+## M3: `read_tag`, definitions, outline (in progress, 2026-11-01)
+
+**Step 1a: definition parsing and the field type table**
+
+| What                                   | Number                                 |
+| -------------------------------------- | -------------------------------------- |
+| Definition files parsed                | 307 of 307 (289 classes, 18 resources) |
+| Fields                                 | 39,735, parsed in 56 ms                |
+| Field types used / in the table        | 61 / 61 (none unknown)                 |
+| Definitions whose size can be computed | 307 of 307                             |
+
+**Step 0: the survey** (decisions D31; one run per sample, about 1.5 s each)
+
+| What                                                | Forge                   | Xbox                    |
+| --------------------------------------------------- | ----------------------- | ----------------------- |
+| Tags / classes with a definition                    | 62,976 / 210            | 57,537 / 214            |
+| Classes without a definition                        | 0                       | 0                       |
+| Main struct size = definition size                  | 62,976 of 62,976        | 57,518 of 57,537        |
+| Tag blocks: size = entry count × entry size         | 790,750 of 790,750      | 975,247 of 975,249      |
+| GUID matches in the Windows byte order / as written | 1,880,332 / 0           | 2,408,432 / 0           |
+| Custom struct GUIDs matching the definition         | 5,353 of 5,353          | 5,525 of 5,525          |
+| Tag block GUIDs matching the definition             | 1,874,979 of 1,878,819  | 2,402,907 of 2,405,390  |
+| Main struct GUIDs per class                         | exactly 1 (210 classes) | exactly 1 (214 classes) |
+
+Answers: the field type table is right (every Forge main struct and checked block fits); arrays are single-instance (Q7); `srcguid` is a Windows GUID (Q3). The 19 Xbox misfits are 5 UI/globals classes whose Xbox layout differs from the definitions (for M6). The GUID check stays `warn` (D32).
