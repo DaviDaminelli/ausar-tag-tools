@@ -1,0 +1,16 @@
+[package]
+name = "h5tags-mcp"
+description = "h5tags MCP server (stdio)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "h5tags-mcp"
+path = "src/main.rs"
+
+[dependencies]
+h5tags-core.workspace = true
+rmcp.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true

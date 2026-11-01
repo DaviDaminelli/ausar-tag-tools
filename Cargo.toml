@@ -28,6 +28,10 @@ thiserror = "2"
 toml = "1.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+lru = "0.19"
+rmcp = { version = "3.8", features = ["server", "transport-io"] }
+schemars = "1.2"
+tokio = { version = "1.54", features = ["rt", "macros", "io-std"] }
 
 # Decompressing large modules in debug builds (tests) is slow without this.
 [profile.dev.package."*"]
