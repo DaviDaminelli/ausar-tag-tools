@@ -3,53 +3,63 @@
 Where each piece of format knowledge comes from. Status: **verified** (checked on real files, named below), **doc only** (from AusarDocs or H5Tags, not yet checked), **contradicts doc** (our files disagree with the source).
 
 Test files (not committed):
-- Forge PC: `globals-rtx-1.module` (v27, 86930 files, 24596 resources, 1 GB), `globals-rtx-11587-1.module`, `globals-rtx-12719-1.module`, `ng25r_ss_pistons_remixed.mapinfo`
-- Xbox One Guardians: `w1_meridian-rtx-76333-5.module`, `w1_unconfirmed_reports-rtx-81409-2.module`
+- Forge PC (v27): `globals-rtx-1.module` (86930 files: 62334 tags, 24596 resources; 1,133,953,321 bytes), `globals-rtx-11587-1.module` (267 files), `globals-rtx-12719-1.module` (24 files), `ng25r_ss_pistons_remixed.mapinfo`
+- Xbox One Guardians (v23): `w1_meridian-rtx-76333-5.module`, `w1_unconfirmed_reports-rtx-81409-2.module`, `fo06_deepsea-rtx-94653-1.module`, `fo06_deepsea-rtx-96053-1.module`, `fo06_deepsea-rtx-96490-1.module`, `fo06_deepsea-rtx-97230-1.module` (the last three hold only a `loadmanifest`)
 
-Checks so far were made by hand with `od` hex dumps (2026-10-31). They will be repeated by the integration tests.
+How things were checked:
+- **hex**: by hand with `od` hex dumps (2026-10-31).
+- **test**: the `h5-module` integration tests (`crates/h5-module/tests/real_modules.rs`): every cross-check, full decompression of every entry, and the format facts report (2026-10-31).
 
 ## Modules
 
 ### Header
-- **Magic** — verified, all 4 files. Bytes on disk are `6d 6f 68 64` (`mohd`). Read as a little-endian `u32` this is `0x64686F6D`, the four-character code `'dhom'` (AusarDocs `Module.md`). Compare it as a `u32`, not as a byte string.
-- **Version at +0x04** — verified. **27** in both Forge files, **23** in both Xbox files.
-- **v27 header layout (0x38 bytes)** — AusarDocs `Module.md`, "File Header Structure". Verified so far: `numFiles` +0x10, `numLoadedTags` +0x14, `firstResourceIndex` +0x18, `fileNamesSize` +0x1C, `numResources` +0x20, `numFileBlocks` +0x24. `firstResourceIndex = numFiles − numResources` holds in both Forge files (267 − 5 = 262, 24 − 0 = 24).
-- **v23 header layout (0x30 bytes)** — verified, both Xbox files. Fields +0x00 to +0x2F have the same layout as v27; there is no `checksum` field. Evidence: the layout computed from these fields ends exactly at the end of each file (see "Data area"), and `firstResourceIndex = numFiles − numResources` (4 − 2 = 2, 61 − 34 = 27).
-- **`buildVersionId` (+0x28)** — contradicts doc. AusarDocs says it is always `0xC631DDD9825AF534`. Both Forge files have `0x20A932F3A0855914`. The Xbox files have different values (`0xE64A33B31AFD07B0`, `0x705F93DD3519DAF3`). We don't use this field.
+- **Magic** — verified (hex, test), all files. Bytes on disk are `6d 6f 68 64` (`mohd`). Read as a little-endian `u32` this is `0x64686F6D`, the four-character code `'dhom'` (AusarDocs `Module.md`). Compare it as a `u32`, not as a byte string.
+- **Version at +0x04** — verified. **27** in every Forge file, **23** in every Xbox file.
+- **v27 header layout (0x38 bytes)** — AusarDocs `Module.md`, "File Header Structure". Verified (test) on the 3 Forge files: every field used (`numFiles`, `numLoadedTags`, `firstResourceIndex`, `fileNamesSize`, `numResources`, `numFileBlocks`) yields a layout that passes every cross-check; `firstResourceIndex = numFiles − numResources` holds.
+- **v23 header layout (0x30 bytes)** — verified (hex, test), the Xbox files. Fields +0x00 to +0x2F have the same layout as v27; there is no `checksum` field.
+- **`buildVersionId` (+0x28)** — contradicts doc. AusarDocs says it is always `0xC631DDD9825AF534`. Every Forge file has `0x20A932F3A0855914`. The Xbox files each have a different value. We don't use this field.
+- **Lists are stored uncompressed** — verified (hex, test): the header, file list, file name table, resource list and block list are read directly. Indexing needs no decompression.
 
 ### File entry
-- **v27 layout (0x58 bytes)** — AusarDocs `Module.md`, "File Entry Structure". Size checked indirectly: the Forge data area offsets computed with 0x58 point at zlib headers.
-- **v23 layout (0x58 bytes, same fields as v27)** — verified on `w1_meridian` (all 4 entries):
-  - The file name table starts at 0x190 = 0x30 + 4 × 0x58.
-  - Entry 0 (`loadmanifest`): `totalUncompressedSize` 136596 = `numLoadedTags` (34149) × 4.
-  - Entries 1–3: `uncompressedHeaderSize + uncompressedTagDataSize + uncompressedResourceDataSize = totalUncompressedSize`. `headerBlockCount + tagDataBlockCount + resourceBlockCount = blockCount`.
-  - The resource list `[2, 3]` matches entry 1's `resourceCount` = 2 and entries 2 and 3's `parentFileIndex` = 1.
-- **Flags** — verified on `w1_meridian`. `loadmanifest` = `0x05` (Compressed | RawFile, no HasBlocks: one block described by the entry itself). Tag and resource entries = `0x03` (Compressed | HasBlocks).
-- **Class code (`groupTag`, +0x40)** — verified on 1 entry (`w1_meridian` entry 1). Stored as a little-endian `u32` four-character code: bytes `70 73 62 73` (`psbs`) = class `sbsp`. Non-tag entries have `-1`.
-- **Resource entries** — verified on `w1_meridian` entries 2 and 3: `globalTagId` = -1, `assetId` = -1, `groupTag` = -1, `parentFileIndex` = owning file. So resources are non-tag files under the "global ID ≠ -1" rule.
-- **Alignment fields (+0x28..+0x2A)** — verified on `w1_meridian`: they don't add padding to the stored data. Entry 2 has `resourceDataAlignment` = 4 (16 bytes), but its resource section starts at uncompressed offset 0x5B38, which isn't a multiple of 16. Entry 3 has `tagDataAlignment` = 7, and its tag data starts at 0x3E8. In the stored (uncompressed) file, sections are concatenated with no padding. The alignment fields probably apply to runtime buffers.
+- **Layout (0x58 bytes, same fields in v23 and v27)** — AusarDocs `Module.md`, "File Entry Structure". Verified (test) on all Forge and Xbox files: section sizes add up to `totalUncompressedSize`, section block counts add up to `blockCount`, resources point back to their owner, and every entry decompresses to its stated size. v23 first checked by hex on `w1_meridian`.
+- **Flags** — verified (test). Tags and resources: always `0x03` (Compressed | HasBlocks) in every sample file. `loadmanifest`: `0x05` (Compressed | RawFile, no HasBlocks: one block described by the entry itself), Xbox only (no Forge sample has one).
+- **Class code (`groupTag`, +0x40)** — verified (hex, test). A little-endian `u32` four-character code: bytes `70 73 62 73` (`psbs`) = class `sbsp`. Non-tag entries have `-1`. Each of the 205 codes seen always comes with the same class name in the file names. Codes include symbols and a trailing space: `ant!`, `jpt!`, `sfx+`, `sgp!`, `snd!`, `hsc*`, `mat `, mixed case (`GobS`, `LigS`, `SDzs`), digits (`prt3`).
+- **Resource entries** — verified (test) on all files: no entry with a parent is a tag (`globalTagId` = -1, `groupTag` = -1, `parentFileIndex` = owner). So resources are non-tag files.
+- **Alignment fields (+0x28..+0x2A)** — verified (hex) on `w1_meridian`: they don't add padding to the stored data (a resource section with alignment 16 starts at 0x5B38). The test's section-size check confirms no padding on every entry of every sample file. The fields probably apply to runtime buffers.
+
+### Entries not stored here
+- Verified (test) on `fo06_deepsea-rtx-94653-1` (v23), entries 47 and 49: two `mesh resource` entries have `totalCompressedSize` = `totalUncompressedSize` = 0, but nonzero section sizes (4,835,320 and 7,266,178 bytes) and a block list that tiles those sections exactly. Their `dataOffset` points at the data of the next entry (48, 50), and entry 49's blocks would run past the end of the file. So their data is **not stored in this module**; the entry only describes it. Where it is stored is unknown (another module, or streamed).
+- Rule used: totals 0 + section sizes > 0 = "not stored here". The size shown is the sum of the section sizes; reading it is an error ("not stored in this module"). Not seen in v27 samples. Not in AusarDocs.
 
 ### File names
-- Verified on `w1_meridian` (v23); **not yet checked on Forge**.
-  - A **tag's** file name is `tag path` + `.` + `class name`, e.g. `__chore\gen__\levels\campaignworld010\w1_meridian\w1_meridian_elevator_intro{pm}{b2p}.scenario_structure_bsp`.
-  - A **resource's** file name is the owner's file name + `[index:type]`, e.g. `...scenario_structure_bsp[0:mesh resource!*]`, `...[1:tag_resources]`. This may answer PRD §12 Q6.
+- Verified (test) on every tag and resource of every sample file, v23 and v27:
+  - A **tag's** file name is `tag path` + `.` + `class name`, e.g. `__chore\gen__\levels\campaignworld010\w1_meridian\w1_meridian_elevator_intro{pm}{b2p}.scenario_structure_bsp`. No tag lacks the suffix.
+  - A **resource's** file name is the owner's file name + `[index:kind]`, e.g. `...scenario_structure_bsp[0:mesh resource!*]`. Every resource name matches.
   - Tag paths can contain `{` and `}`.
+- **Resource kinds seen** (raw, with markers): `api resource*`, `coefficientresource*`, `facial animation resource`, `font file resource`, `mesh resource!*`, `regions resource`, `resource data`, `tag_resource`, `tag_resources`. Markers (`*`, `!`) are stripped for display (decisions D12). May answer PRD §12 Q6.
 
 ### Resource list
-- Array of `int32` file indices — AusarDocs `Module.md`. Verified on `w1_meridian` (see "File entry").
+- Array of `int32` file indices — AusarDocs `Module.md`. Verified (test): every item is a valid file index, and each owner's resources point back to it.
 
 ### Compression block entry
-- **v27 layout (0x20 bytes)** — AusarDocs `Module.md`, "Block Definition Structure". Not yet checked.
-- **v23 layout (0x14 bytes)** — verified on `w1_meridian` blocks 0–7. Fields: `compressedOffset` u32, `compressedSize` u32, `uncompressedOffset` u32, `uncompressedSize` u32, `compressed` u32 (1 = zlib). No checksum. Each block's compressed offset = previous offset + size, and the uncompressed sizes equal the entry's section sizes.
+- **v27 layout (0x20 bytes)** — AusarDocs `Module.md`, "Block Definition Structure". Verified (test) on the Forge files: blocks tile each entry's uncompressed data exactly, stay inside its compressed data, and decompress to their stated sizes. The `checksum` field isn't checked yet.
+- **v23 layout (0x14 bytes)** — verified (hex on `w1_meridian`, test on all Xbox files). Fields: `compressedOffset` u32, `compressedSize` u32, `uncompressedOffset` u32, `uncompressedSize` u32, `compressed` u32 (1 = zlib). No checksum.
 
 ### Data area
-- **Starts right after the block list, no padding** — verified on both Xbox files. `max(dataOffset + totalCompressedSize)` over all file entries, plus the data area start, equals the file size exactly (5657163 and 332888118 bytes). Not yet checked on Forge.
+- **Starts right after the block list, no padding; the last entry's data ends exactly at the end of the file** — verified (test) on `globals-rtx-11587-1`, `globals-rtx-12719-1` and the complete Xbox files.
+- `globals-rtx-1.module` (1,133,953,321 bytes): verified (test). The data area ends exactly at the end of the file, every check passes, and all 86930 entries decompress (2.1 GB).
 
 ### Compression
-- **zlib** — AusarDocs `Module.md`. Verified as far as headers go: every block start checked (all of `w1_meridian`, and the first file of each Forge file) begins `48 0D`. That is a valid zlib header (CM = 8 deflate, CINFO = 4: 4 KiB window, FCHECK valid). Nothing has been decompressed yet.
+- **zlib** — AusarDocs `Module.md`. Verified (test): every block of every sample file decompresses with zlib to its stated size (Forge: 2.0 GB from `globals-rtx-1` alone). Every stream starts `48 0D` (CM = 8 deflate, CINFO = 4: 4 KiB window).
 
 ### Load manifest
-- AusarDocs `Module.md`. Verified on `w1_meridian` (v23): file 0 is `loadmanifest`, and its size is `numLoadedTags × 4`. Neither Forge test file has one (`numLoadedTags` = 0).
+- AusarDocs `Module.md`. Verified (test) on the Xbox files: `loadmanifest` is a raw file (flags `0x05`), and its size is `numLoadedTags × 4`. No Forge sample has one (`numLoadedTags` = 0).
+
+## Definitions (Lord Zedd's H5Tags)
+- **File names are `(code)class name.xml`, with two caveats** — verified (test + `reference/H5Tags/tags`) against the 205 (code, class name) pairs seen in the sample modules:
+  - Trailing spaces are trimmed: class `mat ` → `(mat)material.xml`.
+  - Characters not allowed in Windows file names are replaced by `_`: class `hsc*` (`lua`) → `(hsc_)lua.xml`. Whether `_fx_` and other codes with `_` are real or replaced is unknown until seen in a module.
+  - So definitions are matched by code first, then by class name (PRD §5.3).
 
 ## Map info files (`.mapinfo`)
 - Observed on `ng25r_ss_pistons_remixed.mapinfo` (Forge, 2377 bytes, 2026-10-31). Binary format, not documented in AusarDocs; only its readable strings have been looked at. It contains the map name, its scenario path (`levels\multi\ng25r_ss_pistons_remixed\ng25r_ss_pistons_remixed`), and an ordered list of module paths: the map's **module stack**.
@@ -57,6 +67,3 @@ Checks so far were made by hand with `od` hex dumps (2026-10-31). They will be r
   - `%(Platform)` is a placeholder for the platform folder of the deploy folder.
   - Unverified guess: the `-11587-1` and `-12719-1` modules are update layers over the base `-1` modules, and later layers win when copies differ (PRD §12 Q5).
 - The `.mapinfo` is **not** the load manifest. The `loadmanifest` is a file inside the map's own module (AusarDocs `Module.md`).
-
-## Module header (more)
-- The header, file list, file name table, resource list and block list are stored uncompressed. Verified: they were read directly with hex dumps on all test modules. So indexing needs no decompression.

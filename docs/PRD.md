@@ -97,7 +97,7 @@ Use these terms consistently in code, docs and output. **"Block" alone is ambigu
   - Version 27: header 0x38 bytes; file entry 0x58 bytes; compression block entry 0x20 bytes.
   - Version 23: header 0x30 bytes (same fields as v27 up to +0x2F, no checksum); file entry 0x58 bytes (same fields as v27); compression block entry 0x14 bytes (compressed offset, compressed size, uncompressed offset, uncompressed size, `compressed` as u32; no checksum). Verified on two Xbox modules (`docs/format-notes.md`).
 - Order after the header: file list → file name table (null-terminated ASCII strings; each file entry has an offset into it) → resource list (int32 file indices) → compression block list → data area. No padding between them. The header, file list, file name table, resource list and block list are stored **uncompressed**, so listing a module's files never needs decompression.
-- File names: a tag's file name is `tag path` + `.` + `class name`; a resource's is its owner's file name + `[index:kind]` (e.g. `[0:mesh resource!*]`). Verified on v23; check on v27.
+- File names: a tag's file name is `tag path` + `.` + `class name`; a resource's is its owner's file name + `[index:kind]` (e.g. `[0:mesh resource!*]`). Verified on v23 and v27 (every tag and resource name in the sample modules).
 - File entry (v27) holds, among others: name offset, parent file index (for resources, -1 otherwise), resource count + first resource index, compression block count + first block index, data offset (relative to the data area), total compressed/uncompressed sizes, flags, **global ID** (-1 if not a tag), asset ID, asset checksum, **class code** (group tag), and the uncompressed sizes and compression block counts of three sections: header, tag data, resource data.
 - File entry flags: bit 0 `Compressed`, bit 1 `HasBlocks` (if unset, the file has exactly one compression block, described by the entry itself), bit 2 `RawFile` (not split into header/tag data/resource sections; read whole).
 - File entry alignment fields (header/tag data/resource data alignment) add **no padding** to the stored data: the three sections are stored back to back (verified on v23).
@@ -126,7 +126,7 @@ Use these terms consistently in code, docs and output. **"Block" alone is ambigu
 ### 5.3 Definitions (Lord Zedd's H5Tags)
 
 - Two folders:
-  - `tags/`: 289 class definitions, file name **`(code)class_name.xml`**, e.g. `(weap)weapon.xml`, `(_fx_)sound_effect_template.xml`. **The file names are the class code → class name mapping.** Codes can contain `_`, `!`, spaces or other symbols; parse the code as the text between the first `(` and `)`.
+  - `tags/`: 289 class definitions, file name **`(code)class_name.xml`**, e.g. `(weap)weapon.xml`, `(_fx_)sound_effect_template.xml`. The file names are **almost** the class code → class name mapping: codes can contain `_`, `!`, spaces or other symbols; parse the code as the text between the first `(` and `)`. Two caveats (verified, `docs/format-notes.md`): trailing spaces are trimmed (`(mat)material.xml` is class `mat `; pad codes to 4 characters with spaces), and characters not allowed in file names are replaced by `_` (`(hsc_)lua.xml` is class `hsc*`). So match a class to its definition by code first, then by class name.
   - `tag_resources/`: 18 resource layouts, file name `(NNNN)name.xml`, e.g. `(0008)bitmap_data_resource_definition.xml`. See §5.4.
 - Root element `<plugin>`. Each child element is a field; **the element name is the field type** (`_field_real`, `_field_block_64`, ...). 59 distinct types are used; the code MUST support every one (generate the list with a script at build time and fail tests if one is missing).
 - Field offsets: a field's offset is the sum of the sizes of the fields before it in the same struct. A tag block entry's size and a struct field's size are the sum of their children. Zero-size fields (`_field_explanation`, `_field_custom`) take no space.
@@ -202,7 +202,7 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
   - per module: path, version, file count, tag count, and whether it has a `loadmanifest`.
 - Non-tag files (global ID -1) are stored separately and never appear in tag search or browse results. Resources are non-tag files; they are listed under their owning tag (above).
 - **Asset data is never read unless a call needs its contents.** Reading a tag decompresses only its header and tag data sections; its resource data section and resource file entries stay untouched (only `view_bitmap` / `export_bitmap` read them, §6.8).
-- Class names come from definition file names (§5.3). A class with no definition shows its code as its name.
+- Class names come from the tags' own file names (`<tag path>.<class name>`, §5.1; every tag in the sample modules has one, and each class code always has the same name). Fallback if a class's tags have no suffix: the definition file name (§5.3), then the class code. A class's definition is found by code, then by class name (§5.3).
 - **Header scan** (second stage, builds the reverse reference index and the string index): reads every tag's tag header (decompressing only the header section) and stores its dependency list and string table. Run on the first call that needs it (`find_references` with `in`/`both`, `search_values`, `tag_copies`), then cache it to disk next to the index. That first call MAY take a long time; its result says `(header scan built: N tags, T s)`.
 - `reindex(what=all|index|header_scan|results, module?, class?, build?)`: forces a rebuild, for when the automatic checks aren't enough (e.g. a file was replaced with the same size and time).
   - `what`: `index` = module file lists (§6.2 first stage); `header_scan` = the header scan; `results` = the results cache (§6.9); `all` = everything.
@@ -229,11 +229,11 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
   - Always returns the total count.
 - `browse(path="", build?, offset=0, limit=100)`: treats tag paths as folders. `path` is a folder prefix (case-insensitive, `\` separated, no trailing `\` needed). Returns (1) the immediate subfolders, each with the number of tags under it recursively, and (2) the tags directly in that folder. Never the full tree.
 - `list_classes(build?)`: class code, class name, tag count, whether a definition exists.
-- `list_modules(build?, offset=0, limit=100)`: module path, version, tag count, has load manifest.
+- `list_modules(build?, offset=0, limit=100)`: module path, version, tag count, has load manifest, **status**: `ok`, or `!!` when the module's structural checks (§9, M1) failed or it couldn't be indexed (`docs/decisions.md` D14).
 - `list_entries(tag?, query?, mode=default|regex|exact, kind?, module?, min_size?, max_size?, sort=name|size, build?, offset=0, limit=100)`: file entries (tags, resources, other files) with their kind and size, from the index only (nothing is decompressed). Common filters combine; with none, every entry of the build (paged).
   - `tag`: that tag's entry and its resources (default copy, §6.4.6; `module` chooses another).
   - `query` matches a resource by its owner's tag path, so `query="magnum", kind="bitm"` and `query="magnum", sort=size` work as expected.
-  - Columns: entry type (`tag` / `resource` / `file`), name (display name; for a resource: owner display name + `[index:kind]`), kind, uncompressed size, compressed size, module. `sort=size` sorts largest first.
+  - Columns: entry type (`tag` / `resource` / `file`), name (display name; for a resource: owner display name + `[index:kind]`), kind, uncompressed size, compressed size (or `(not stored in this module)`, D17), module. `sort=size` sorts largest first.
   - Always returns the total count and the total uncompressed size of all matches.
 - `list_resource_kinds(build?)`: each resource kind with its entry count and total size. Answers "what kinds of assets exist, and how much of each?".
 - Sizes: text output shows decimal units with one decimal (`6.1 MB`, `512 B`); JSON gives bytes.
@@ -482,6 +482,9 @@ A read failure in one struct MUST NOT stop the rest of the tag from being read (
 | Field with empty name in the definition          | `(unnamed @0x1C)`                                                         | `unnamed`             |
 | Section whose fields are all hidden              | `### HEADING  (N hidden fields)`                                          | `hidden_only`         |
 | Class with no definition                         | tag info, then `(no definition for class 'xxxx')`                         | `no_definition`       |
+| Entry described but not stored in its module (D17) | `(not stored in this module)`                                           | `stored: false`       |
+| Module file incomplete / damaged / unreadable (D14) | `!! incomplete file: …` / `!! damaged: …` / `!! not indexed: …` (`list_modules` status) | `status` |
+| No tags of a class in the indexed modules (D18)  | empty result + `hint:` (says whether the class has a definition)          | `hints`               |
 | Unknown field type                               | `!! read stopped at <field path>: unknown field type _field_xyz`          | `error` + `reason`    |
 | Size mismatch (§6.4.5)                           | `!! definition size mismatch at <path> (definition N bytes, tag M bytes)` | `error`               |
 | GUID mismatch, `warn` mode                       | value shown + `warning: definition GUID mismatch`                         | `warning` key         |
@@ -611,7 +614,7 @@ h5tags/
     h5-defs/       # definition loading, name parsing, field type table, custom-label rule
     h5-meta/       # tag reading: node tree, field paths, sections, checks, states, text/JSON renderers
     h5-bitmap/     # bitmap resource reading, decoding, preview sheet, export
-    h5tags-core/   # config, builds, tool logic shared by CLI and MCP (search, browse, lists, paging, result rendering)
+    h5tags-core/   # config, builds, tools shared by CLI and MCP; layers: input (tools/args), domain (catalog, filters, query), presentation (tools/present, output) (decisions D21)
     h5tags-cli/    # clap CLI
     h5tags-mcp/    # rmcp stdio server: thin wrappers over the library crates
   docs/
@@ -630,6 +633,21 @@ h5tags/
 - Memory-map module files. Decompress only what a call needs. LRU cache of decompressed tags (size configurable).
 - The library crates MUST NOT depend on MCP; everything is usable from the CLI.
 - **OS-agnostic:** every crate MUST build and pass its tests on Windows, Linux and macOS. No OS-specific code outside an opt-in cargo feature (the only planned one: `xg.dll` de-tiling, backlog 8). File system paths use `std::path`; tag paths (`\`-separated game data) are never treated as file system paths. Prefer pure-Rust dependencies (no C toolchain needed). A CI workflow (GitHub Actions) builds and runs the unit tests on all three OSes from M1 on.
+
+**Code conventions** (MUST; background in `docs/decisions.md` D7, D9, D21)
+- **Domain apart from input and output.** Three layers:
+  - *Input*: tool parameters and the parsing of raw arguments into domain values (`h5tags-core/src/tools/args.rs`). Bad input is rejected here, and only here, as a tool error with a hint.
+  - *Domain*: `h5-module`, `h5-defs`, and `catalog` / `filters` / `query` in `h5tags-core`. They take typed values and return typed results or typed errors. They never format text, write hints, read CLI/MCP arguments or print.
+  - *Presentation*: `tools/present.rs` and `output.rs` turn results into text and JSON.
+- **One definition per rule (DRY).** A format fact, naming convention, filter, check name, marker or column name is written in exactly one place and used everywhere else. Before writing a rule, search for an existing one. Markers and column names live in `output::marker` / `output::col`, and a test checks each is explained in `AGENT_GUIDE.md`.
+- **One definition per tool** (D7): a tool's parameter struct is both its CLI command and its MCP arguments. Parameters shared by several tools are shared structs (`BuildArg`, `PageArgs`).
+- **Text and JSON from the same data:** every result is built once and rendered twice. Never assemble the two separately.
+- **Newtypes where values can be mixed up** (`GlobalId`, `FourCc`, `Size`), not for every number. Sentinel values (`-1`) are turned into `Option` or a named constant at the parsing boundary.
+- **Names from the glossary (§4):** module, file entry, tag, resource, class, copy, compression block, data block, etc. The same name in code, output and docs.
+- **Idiomatic Rust over checklists:** `match` on enums rather than trait hierarchies; no method-length or field-count quotas; no abstraction until a second use exists.
+- **Tests:** unit tests run on synthetic data built by the tests (never game files). Real-file tests are `#[ignore]`d and read `H5_DEPLOY`. New format parsing (M2 on) is written test-first: the expected facts become the tests, then the code. Every PRD §9 check is an automated test.
+- **Errors:** library code doesn't `unwrap` or panic on file contents; malformed data becomes a typed error with the location (module, entry, block, field path). `unwrap` is for invariants the code itself guarantees.
+- **Format facts:** every fact the code relies on has an entry in `docs/format-notes.md` stating how it was verified. Docs, comments and commit messages describe the files' format, never where game files were obtained.
 
 ## 14. User documentation (README)
 

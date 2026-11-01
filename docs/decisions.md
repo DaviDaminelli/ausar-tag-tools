@@ -37,3 +37,38 @@ Complex questions are answered by combinable filters (AND) plus the agent chaini
 - The index updates per module on startup (only new, changed or removed modules are re-read).
 - `reindex(what=all|index|header_scan|results, module?, class?)` rebuilds only what is asked.
 - PRD §6.2, §6.9, §9 (M4), §9a, backlog 7 and `AGENT_GUIDE.md` §4.6 updated.
+
+## D12. Resource kinds are shown without markers (2026-10-31)
+Resource file names end in `[index:kind]`, and some kinds carry trailing markers (`mesh resource!*`, `api resource*`). Their meaning is unknown (like definition markers, PRD §12 Q2). Output and the `kind` filter use the kind without trailing markers (`mesh resource`); the file name in the `name` column keeps them.
+
+## D13. Class names from tag file names; definitions found by code, then by name (2026-10-31)
+Verified on all samples: every tag's file name ends in `.<class name>`, and each class code always has the same name. Definition file names don't always spell the code (`(hsc_)lua.xml` is `hsc*`; `(mat)material.xml` is `mat `). So a class's name comes from its tags' file names (fallbacks: definition file name, then code), and its definition is found by code, then by class name. PRD §5.3 and §6.2 corrected.
+
+## D14. Structural checks at index time; module status (2026-10-31)
+The M1 cross-checks only read the uncompressed lists, so the index runs them on every module and keeps a summary. `list_modules` has a `status` column: `ok`, `!! incomplete file: <size> missing; N entries are past the end and can't be read`, `!! damaged: <first failed check>`, or `!! not indexed: <error>`, plus a `hint:` when any module isn't ok. Reason: a damaged or incomplete module file is then visible up front instead of surfacing later as confusing read errors. PRD §6.3 updated.
+
+## D15. Default cache folder; relative config paths (2026-10-31)
+`cache_dir` may be omitted: the OS cache folder is used (`%LOCALAPPDATA%\h5tags`, `~/Library/Caches/h5tags`, `$XDG_CACHE_HOME/h5tags` or `~/.cache/h5tags`). The CLI's `--cache-dir` overrides it. Relative paths in `h5tags.toml` are relative to the config file. Unknown keys in the config are an error (catches typos).
+
+## D16. List result layout (2026-10-31)
+Text: optional `build: <name>` line (more than one build configured), then `total: N` plus tool-specific summary values on one line (`total: 6380  total size: 1.3 GB`), then optional `in <prefix>:`, the tab-separated header and rows, the paging line, and `hint:` lines. JSON: `{ "build"?, "total", <summary keys>, "offset", "rows": [ {column key: value} ], "more"?: { "remaining", "next_offset" }, "hints"? }`; sizes are bytes; empty cells are omitted. Column headers and keys are defined in one list (`output::col`). `AGENT_GUIDE.md` §4.2 and §4.7 describe it.
+
+## D17. Entries not stored in their module (2026-10-31)
+Entries whose totals are 0 but whose sections and blocks describe data (format-notes "Entries not stored here") are kept in the index with their real size (sum of sections) and `stored = false`. `list_entries` shows `(not stored in this module)` in the `compressed` column, with a hint; reading such an entry is an error, never "0 bytes".
+
+## D18. A class with no tags is an empty result, not an error (2026-10-31)
+`search_tags(class=X)` and `list_entries(kind=X)` with no matching tags return 0 rows plus a `hint:`. If a definition exists for X, the hint says the class exists but its tags aren't in the indexed modules, and tells the agent not to claim the game has none. Otherwise it suggests checking the spelling.
+
+## D19. `browse` details (2026-10-31)
+Folders are matched case-insensitively and shown with the casing first seen (tags are sorted by path). Folders come first, then the tags directly in the folder; folder names end in `\`. The summary gives the folder, the number of subfolders and of tags directly in it. A folder with no tags under it is an error with a hint.
+
+## D20. `reindex` in M1 (2026-10-31)
+Only `what=index` (or `all`) does work in M1: it re-reads the matching modules even if unchanged. `header_scan` and `results` report "nothing to rebuild (not available in this version)" until those exist.
+
+## D21. Layers inside `h5tags-core`; one definition per rule (2026-10-31, requested by the user)
+Domain rules are kept apart from program inputs, and every rule is written once:
+- **Input** (`tools/args.rs`): parameters shared by several tools (`BuildArg`, `PageArgs`), and turning raw arguments into domain values (`[build:]<tag>`, `query`+`mode`, `module`). Bad input becomes a tool error with a hint here, and only here.
+- **Domain** (`catalog.rs`, `filters.rs`, `query.rs`, and the `h5-module` / `h5-defs` crates): typed inputs (`GlobalId`, `TagSpec`, `Filters`, `EntryScope`) and typed results (`TagLookupError`, `ClassLookup`, `ModuleStatus`). No text, hints or rendering.
+- **Presentation** (`tools/present.rs`, `output.rs`): results and errors as the text the agent reads; markers and column names come from one list each (`output::marker`, `output::col`).
+- Rules defined once: what a file entry is (`EntryKind::of`), file name conventions (`names.rs`, `EntryRecord::owner_name`/`tag_path`), where entry data ends (`Module::data_end`), check names (`checks::*`), global ID parsing and display (`GlobalId`), the common filters (`Filters::matches_tag`/`matches_entry`), the copy choice (`query::choose_copy`). Reports render text and JSON from the same items.
+- Not followed from SOLID/clean-code checklists, deliberately: method and field count limits, "no `else`", polymorphism instead of `match`, and newtypes for every number. Newtypes are used where values could be mixed up (global IDs, class codes, sizes).

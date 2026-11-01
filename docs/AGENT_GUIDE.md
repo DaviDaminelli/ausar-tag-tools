@@ -77,7 +77,19 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 - `copies: N (identical)` = all copies are the same. `copies: N (differ; reading <module>; use module= to choose)` = they differ; say which module's copy your numbers come from.
 
 ### 4.2 Brief format
-`detail=brief` drops headings: each line is `<full field path>  <value>`, e.g. `barrels[0].rounds per second  8.5..8.5`. Lists (search results, `query_field`, references) are tab-separated tables with a header line, sometimes with an `in <prefix>:` line that shortens repeated paths.
+`detail=brief` drops headings: each line is `<full field path>  <value>`, e.g. `barrels[0].rounds per second  8.5..8.5`.
+
+**Lists** (search results, `browse`, `list_*`, `query_field`, references) look like this:
+```
+build: forge                                      ← only when several builds are configured
+total: 6380  total size: 1.3 GB                   ← all matches, not just this page; plus tool-specific totals
+in objects\weapons\rifle\:                        ← prepend this to the name/path column of every row
+type	name	kind	size	compressed	module        ← tab-separated header
+resource	assault_rifle\assault_rifle.render_model[0:mesh resource!*]	mesh resource	6.1 MB	3.2 MB	any\levels\globals-rtx-1.module
+… 6379 more (offset=1)                            ← next page
+hint: …                                           ← only for unusual results; read it
+```
+Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 
 ### 4.3 Short type names
 | Short type | Field types | Value shown as |
@@ -130,6 +142,12 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | `total` (lists) | How many rows match in all, not just this page | Use it for "how many" answers |
 | `list_entries` entry type `tag` / `resource` / `file` | A tag; an asset owned by a tag (texture data, mesh, sound…); another file (e.g. `loadmanifest`) | Resources are part of their owner tag, not separate tags |
 | `list_entries` sizes | Uncompressed and compressed (on-disk) size of the entry | Size only; contents are not loaded |
+| `(not stored in this module)` (`list_entries` compressed column) | The module describes this data and its size, but doesn't contain it. Where it is stored is unknown | Its size is real; don't say the data is missing from the game |
+| `list_modules` status `ok` | Every structural check of the module passed | — |
+| `list_modules` status `!! incomplete file: …` | The module file is shorter than its own file list says (e.g. a copy that didn't finish); entries past the end can't be read | Tell the user; a fresh copy of the file usually fixes it. Tags in it may fail to read |
+| `list_modules` status `!! damaged: …` / `!! not indexed: …` | A structural check failed, or the file couldn't be read as a module at all | Same: the tool's problem with this file, not a fact about the game |
+| Empty result with `hint: … The class exists (it has a definition) …` | No tags of that class are in the indexed modules | Don't say the game has none; its tags are in modules that aren't indexed |
+| `browse` rows ending in `\` | Subfolders, with the number of tags under each (recursively) | — |
 | `list_resource_kinds` | Each asset kind with its count and total size | — |
 | `definition_status` `has definition` | Whether a definition XML exists for the class | No → that class's tags can't be read field by field, only listed and followed by references |
 | `definition_status` mismatches + `checked N of M tags` | Size or GUID mismatches found so far between the definition and real tags of that class, and how many of its tags have been checked (kept across sessions) | Mismatches → values from that class may be wrong where flagged. "None found" only covers the N tags checked, not the whole class |
@@ -140,6 +158,28 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | `query_field` / batch `skipped` | Tags that failed to read, with the reason | They are missing from the results; say so if it matters |
 | `(header scan built: N tags, T s)` | This call first had to scan all tag headers; later calls are fast | — |
 | `reindex` result | What was rebuilt or dropped, and how long it took | — |
+
+### 4.7 List columns
+| Column | Meaning |
+|---|---|
+| `global ID` | The tag's global ID (`0x00A1B2C3`), the same in every module |
+| `class` | Class code (`weap`). Codes can contain symbols and a trailing space (`mat `, `snd!`, `hsc*`) |
+| `class name` | Class name (`weapon`) |
+| `display name` | Tag path + `.` + class name |
+| `name` | Display name, file name or folder (depends on the tool) |
+| `copies` | In how many modules the tag is stored |
+| `tags` | Number of tags (of a class, a module, or under a folder) |
+| `definition` | Whether a definition exists for the class (`yes`/`no`) |
+| `module` | Module path, relative to the build's deploy folder |
+| `version` | Module format version (27 = Forge PC, 23 = Xbox One) |
+| `load manifest` | Whether the module lists the tags a map loads |
+| `status` | `ok`, or `!! …` (§4.6) |
+| `type` | `tag`, `resource` (an asset owned by a tag) or `file` (e.g. `loadmanifest`) |
+| `kind` | Class code for tags, asset kind for resources (`mesh resource`), `file` otherwise |
+| `size` | Uncompressed size |
+| `compressed` | Size stored in the module, or `(not stored in this module)` |
+| `count` | Number of entries |
+| `total size` | Sum of the uncompressed sizes |
 
 Results may come from the tool's cache (kept across sessions). A cached result is always identical to a fresh one, so you never need to "refresh" it. Only `reindex` forces a rebuild, and the tool keeps itself up to date when game files change.
 
