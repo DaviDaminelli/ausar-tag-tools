@@ -1,6 +1,8 @@
 //! Tool results and their text and JSON renderings (PRD §7.1, §7.4, §8).
 //! Text and JSON carry the same information.
 
+use std::ops::Range;
+
 use serde_json::{Map, Value, json};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize)]
@@ -100,11 +102,28 @@ pub enum Cell {
         items: Vec<(String, usize)>,
         more: usize,
     },
+    /// Text with the parts that matched the query (byte ranges). The marks are
+    /// highlighted in the colored `table` layout only; text and JSON show the text.
+    Marked {
+        text: String,
+        marks: Vec<Range<usize>>,
+    },
     /// No value for this row (empty in text, omitted in JSON).
     Empty,
 }
 
 impl Cell {
+    pub fn marked(text: String, marks: Vec<Range<usize>>) -> Cell {
+        Cell::Marked { text, marks }
+    }
+
+    fn marks(&self) -> &[Range<usize>] {
+        match self {
+            Cell::Marked { marks, .. } => marks,
+            _ => &[],
+        }
+    }
+
     /// The first `max` of `counts`, with how many were left out.
     pub fn counts(counts: Vec<(String, usize)>, max: usize) -> Cell {
         let more = counts.len().saturating_sub(max);
@@ -113,7 +132,7 @@ impl Cell {
 
     fn text(&self) -> String {
         match self {
-            Cell::Text(s) => s.clone(),
+            Cell::Text(s) | Cell::Marked { text: s, .. } => s.clone(),
             Cell::Int(n) => n.to_string(),
             Cell::Float(x) => format!("{x:.2}"),
             Cell::Size(n) => format_size(*n),
@@ -129,7 +148,7 @@ impl Cell {
 
     fn json(&self) -> Option<Value> {
         match self {
-            Cell::Text(s) => Some(json!(s)),
+            Cell::Text(s) | Cell::Marked { text: s, .. } => Some(json!(s)),
             Cell::Int(n) => Some(json!(n)),
             Cell::Float(x) => Some(json!(x)),
             Cell::Size(n) => Some(json!(n)),
@@ -234,26 +253,96 @@ fn more_line(remaining: usize, next: usize) -> String {
     format!("… {remaining} more (offset={next})")
 }
 
+/// Terminal colors for the `table` layout (decisions D24). Only applied when
+/// the caller asks for color; text and JSON never contain them.
+mod style {
+    use anstyle::{AnsiColor, Style};
+    pub const MATCH: Style = Style::new().bold().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Yellow)));
+    pub const HEADER: Style = Style::new().bold();
+    pub const ERROR: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Red)));
+    pub const HINT: Style = Style::new().fg_color(Some(anstyle::Color::Ansi(AnsiColor::Cyan)));
+    pub const DIM: Style = Style::new().dimmed();
+}
+
+fn paint(text: &str, style: anstyle::Style, color: bool) -> String {
+    if color && !text.is_empty() {
+        format!("{}{text}{}", style.render(), style.render_reset())
+    } else {
+        text.to_owned()
+    }
+}
+
+/// `text` with the byte ranges `marks` highlighted.
+fn paint_marks(text: &str, marks: &[Range<usize>], color: bool) -> String {
+    if !color || marks.is_empty() {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut at = 0;
+    for m in marks {
+        // Skip marks that overlap the previous one or don't fit the text.
+        let fits =
+            m.start >= at && m.end <= text.len() && text.is_char_boundary(m.start) && text.is_char_boundary(m.end);
+        if !fits {
+            continue;
+        }
+        out.push_str(&text[at..m.start]);
+        out.push_str(&paint(&text[m.clone()], style::MATCH, true));
+        at = m.end;
+    }
+    out.push_str(&text[at..]);
+    out
+}
+
 /// Space-pads `lines` (header first) into columns two spaces apart; `right`
 /// columns are right-aligned; `last` is moved to the end and not padded.
-fn align(lines: &[Vec<String>], right: &[bool], last: Option<usize>) -> String {
+/// With `color`, the header is bold, `!!` cells are red, and `last_marks`
+/// (one entry per data line) are highlighted in the last column. Colors are
+/// added after padding, so they never shift columns.
+fn align(
+    lines: &[Vec<String>],
+    right: &[bool],
+    last: Option<usize>,
+    last_marks: &[Vec<Range<usize>>],
+    color: bool,
+) -> String {
     let count = right.len();
     let order: Vec<usize> = (0..count).filter(|&i| Some(i) != last).chain(last).collect();
     let widths: Vec<usize> =
         (0..count).map(|i| lines.iter().map(|l| l[i].chars().count()).max().unwrap_or(0)).collect();
     let mut out = String::new();
-    for line in lines {
+    for (n, line) in lines.iter().enumerate() {
         let cells: Vec<String> = order
             .iter()
-            .map(|&i| match right[i] {
-                true => format!("{:>w$}", line[i], w = widths[i]),
-                false => format!("{:<w$}", line[i], w = widths[i]),
+            .enumerate()
+            .map(|(k, &i)| {
+                let is_last = k + 1 == order.len();
+                let padded = match (is_last, right[i]) {
+                    (true, _) => line[i].clone(),
+                    (false, true) => format!("{:>w$}", line[i], w = widths[i]),
+                    (false, false) => format!("{:<w$}", line[i], w = widths[i]),
+                };
+                if n == 0 {
+                    paint(&padded, style::HEADER, color)
+                } else if line[i].starts_with("!!") {
+                    paint(&padded, style::ERROR, color)
+                } else if is_last && Some(i) == last {
+                    paint_marks(&padded, last_marks.get(n - 1).map_or(&[], |m| m), color)
+                } else {
+                    padded
+                }
             })
             .collect();
         out.push_str(cells.join("  ").trim_end());
         out.push('\n');
     }
     out
+}
+
+/// Marks shifted left by `shift` bytes (after a prefix was cut); marks inside
+/// the prefix are dropped, marks crossing it are clipped.
+fn shift_marks(marks: &[Range<usize>], shift: usize) -> Vec<Range<usize>> {
+    marks.iter().filter(|m| m.end > shift).map(|m| m.start.saturating_sub(shift)..m.end - shift).collect()
 }
 
 /// The longest folder prefix (ending in `\`) shared by every value.
@@ -273,14 +362,15 @@ impl Table {
         self.total.saturating_sub(self.offset + self.rows.len())
     }
 
-    /// Tab-separated rows: what the AI reads.
+    /// Tab-separated rows: what the AI reads. Never colored.
     pub fn render_text(&self) -> String {
-        self.render_lines(Layout::Tabs)
+        self.render_lines(Layout::Tabs, false)
     }
 
     /// Aligned rows for people; same lines and content as [`Table::render_text`].
-    pub fn render_table(&self) -> String {
-        self.render_lines(Layout::Aligned)
+    /// `color` adds terminal colors (D24).
+    pub fn render_table(&self, color: bool) -> String {
+        self.render_lines(Layout::Aligned, color)
     }
 
     /// A column is right-aligned if every value in it is a number or a size.
@@ -293,7 +383,7 @@ impl Table {
             .collect()
     }
 
-    fn render_lines(&self, layout: Layout) -> String {
+    fn render_lines(&self, layout: Layout, color: bool) -> String {
         let mut out = String::new();
         if let Some(b) = &self.build {
             out.push_str(&format!("build: {b}\n"));
@@ -304,14 +394,32 @@ impl Table {
         out.push('\n');
 
         let mut rows: Vec<Vec<String>> = self.rows.iter().map(|r| r.iter().map(Cell::text).collect()).collect();
+        // Highlights of the wide column, kept in step with the prefix cut below.
+        let mut wide_marks: Vec<Vec<Range<usize>>> = match self.wide_column {
+            Some(w) => self.rows.iter().map(|r| r.get(w).map_or_else(Vec::new, |c| c.marks().to_vec())).collect(),
+            None => Vec::new(),
+        };
         if let Some(c) = self.path_column
             && rows.len() >= 2
         {
             let values: Vec<String> = rows.iter().map(|r| r[c].clone()).collect();
             if let Some(prefix) = common_folder(&values) {
-                out.push_str(&format!("in {prefix}:\n"));
+                let cut = prefix.len();
+                let prefix_marks: Vec<Range<usize>> = match self.wide_column {
+                    Some(w) if w == c => self.rows[0][c]
+                        .marks()
+                        .iter()
+                        .filter(|m| m.start < cut)
+                        .map(|m| m.start..m.end.min(cut))
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                out.push_str(&format!("in {}:\n", paint_marks(&prefix, &prefix_marks, color)));
                 for r in &mut rows {
-                    r[c] = r[c][prefix.len()..].to_owned();
+                    r[c] = r[c][cut..].to_owned();
+                }
+                if self.wide_column == Some(c) {
+                    wide_marks = wide_marks.iter().map(|m| shift_marks(m, cut)).collect();
                 }
             }
         }
@@ -325,15 +433,18 @@ impl Table {
                         out.push('\n');
                     }
                 }
-                Layout::Aligned => out.push_str(&align(&lines, &self.numeric_columns(), self.wide_column)),
+                Layout::Aligned => {
+                    out.push_str(&align(&lines, &self.numeric_columns(), self.wide_column, &wide_marks, color))
+                }
             }
         }
         if self.remaining() > 0 {
-            out.push_str(&more_line(self.remaining(), self.offset + self.rows.len()));
+            out.push_str(&paint(&more_line(self.remaining(), self.offset + self.rows.len()), style::DIM, color));
             out.push('\n');
         }
         for h in &self.hints {
-            out.push_str(&format!("hint: {h}\n"));
+            out.push_str(&paint(&format!("hint: {h}"), style::HINT, color));
+            out.push('\n');
         }
         out
     }
@@ -378,10 +489,16 @@ impl Table {
 }
 
 impl Output {
+    /// Renders without colors (MCP, files, tests).
     pub fn render(&self, format: Format) -> String {
+        self.render_with(format, false)
+    }
+
+    /// `color` applies to the `table` format only (D24).
+    pub fn render_with(&self, format: Format, color: bool) -> String {
         match (self, format) {
             (Output::Table(t), Format::Text) => t.render_text(),
-            (Output::Table(t), Format::Table) => t.render_table(),
+            (Output::Table(t), Format::Table) => t.render_table(color),
             (Output::Table(t), Format::Json) => pretty(&t.render_json()),
             (Output::Report { build, items }, Format::Text | Format::Table) => {
                 let mut out = build.as_ref().map(|b| format!("build: {b}\n")).unwrap_or_default();
@@ -408,13 +525,21 @@ impl Output {
 }
 
 impl ToolError {
-    /// `!! error: <message>` + `hint: <next step>` (PRD §8).
+    /// `!! error: <message>` + `hint: <next step>` (PRD §8), without colors.
     pub fn render(&self, format: Format) -> String {
+        self.render_with(format, false)
+    }
+
+    /// `color` applies to the `table` format only (D24).
+    pub fn render_with(&self, format: Format, color: bool) -> String {
+        let color = color && format == Format::Table;
         match format {
             Format::Text | Format::Table => {
-                let mut out = format!("!! error: {}\n", self.message);
+                let mut out = paint(&format!("!! error: {}", self.message), style::ERROR, color);
+                out.push('\n');
                 if let Some(h) = &self.hint {
-                    out.push_str(&format!("hint: {h}\n"));
+                    out.push_str(&paint(&format!("hint: {h}"), style::HINT, color));
+                    out.push('\n');
                 }
                 out
             }
@@ -533,7 +658,7 @@ mod tests {
             ..Table::default()
         };
         assert_eq!(
-            t.render_table(),
+            t.render_table(false),
             "total: 3\n\
              global ID   class  copies  display name\n\
              0x00003B5D  trak        1  camera\\warthog_g_camera.camera_track\n\
@@ -542,6 +667,70 @@ mod tests {
         );
         // The AI's text keeps the original column order and tabs.
         assert!(t.render_text().contains("global ID\tclass\tdisplay name\tcopies\n"));
+    }
+
+    fn painted(text: &str, s: anstyle::Style) -> String {
+        format!("{}{text}{}", s.render(), s.render_reset())
+    }
+
+    /// Rows whose names share `objects\vehicles\` and match `warthog`.
+    fn marked_table() -> Table {
+        let row = |name: &str| {
+            let marks: Vec<Range<usize>> = name.match_indices("warthog").map(|(i, m)| i..i + m.len()).collect();
+            vec![Cell::marked(name.to_owned(), marks), Cell::Int(1)]
+        };
+        Table {
+            total: 3,
+            columns: vec![col::DISPLAY_NAME, col::COPIES],
+            rows: vec![
+                row(r"objects\vehicles\warthog\warthog.vehicle"),
+                row(r"objects\vehicles\warthog\fx\horn.sound"),
+            ],
+            path_column: Some(0),
+            wide_column: Some(0),
+            hints: vec!["read this".into()],
+            ..Table::default()
+        }
+    }
+
+    #[test]
+    fn colors_highlight_matches_after_the_prefix_cut() {
+        let out = marked_table().render_table(true);
+        // The shared prefix holds a match: highlighted on the `in` line.
+        assert!(out.contains(&format!("in objects\\vehicles\\{}\\:\n", painted("warthog", style::MATCH))), "{out}");
+        // Row matches are shifted with the cut.
+        assert!(out.contains(&format!("{}.vehicle", painted("warthog", style::MATCH))), "{out}");
+        assert!(
+            out.contains(&format!("{}  {}", painted("copies", style::HEADER), painted("display name", style::HEADER))),
+            "{out}"
+        );
+        assert!(out.contains(&painted("hint: read this", style::HINT)), "{out}");
+        assert!(out.contains(&painted("… 1 more (offset=2)", style::DIM)), "{out}");
+    }
+
+    #[test]
+    fn no_color_means_no_escape_codes() {
+        let t = marked_table();
+        assert!(!t.render_table(false).contains('\u{1b}'));
+        assert!(!t.render_text().contains('\u{1b}'));
+        assert!(!pretty(&t.render_json()).contains('\u{1b}'));
+        // Same text with and without colors, once the codes are removed.
+        let stripped: String = anstream::adapter::strip_str(&t.render_table(true)).to_string();
+        assert_eq!(stripped, t.render_table(false));
+    }
+
+    #[test]
+    fn errors_are_red_only_in_colored_tables() {
+        let e = ToolError::new("no tag 'x'").hint("search_tags");
+        assert_eq!(
+            e.render_with(Format::Table, true),
+            format!(
+                "{}\n{}\n",
+                painted("!! error: no tag 'x'", style::ERROR),
+                painted("hint: search_tags", style::HINT)
+            )
+        );
+        assert!(!e.render_with(Format::Text, true).contains('\u{1b}'));
     }
 
     #[test]

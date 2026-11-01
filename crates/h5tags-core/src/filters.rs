@@ -2,6 +2,7 @@
 //! (decisions D9). Domain values: tools parse their inputs into these.
 
 use std::borrow::Cow;
+use std::ops::Range;
 use std::str::FromStr;
 
 use h5_module::FourCc;
@@ -85,6 +86,22 @@ impl NameMatcher {
             NameMatcher::Contains { finder, .. } => finder.0.is_match(path),
             NameMatcher::Regex(r) => r.is_match(path),
             NameMatcher::Exact(q) => path.eq_ignore_ascii_case(q) || Self::equals_display(q, path, class),
+        }
+    }
+
+    /// Where the query matched, as byte ranges in the display name
+    /// `<path>.<class>` (the text shown to the user, which starts with `path`).
+    pub fn find(&self, path: &str, class: &str) -> Vec<Range<usize>> {
+        match self {
+            NameMatcher::Contains { finder, .. } => {
+                finder.0.find_iter(path).filter(|m| !m.is_empty()).map(|m| m.range()).collect()
+            }
+            NameMatcher::Regex(r) => r.find_iter(path).filter(|m| !m.is_empty()).map(|m| m.range()).collect(),
+            NameMatcher::Exact(q) if path.eq_ignore_ascii_case(q) => std::iter::once(0..path.len()).collect(),
+            NameMatcher::Exact(q) if Self::equals_display(q, path, class) => {
+                std::iter::once(0..path.len() + 1 + class.len()).collect()
+            }
+            NameMatcher::Exact(_) => Vec::new(),
         }
     }
 
@@ -309,5 +326,18 @@ mod tests {
     fn module_filter() {
         assert!(ModuleFilter::new("GLOBALS").matches(r"any\levels\globals-rtx-1.module"));
         assert!(!ModuleFilter::new("y").matches("x"));
+    }
+
+    #[test]
+    fn match_positions_for_highlighting() {
+        let path = r"objects\vehicles\human\warthog\fx\warthog_horn";
+        let display = format!("{path}.sound");
+        let find = |q: &str, mode| NameMatcher::new(q, mode).unwrap().find(path, "sound");
+        assert_eq!(find("WARTHOG", Mode::Default), [23..30, 34..41]);
+        assert_eq!(find("human|horn", Mode::Regex), [17..22, 42..46]);
+        assert_eq!(find(path, Mode::Exact), Vec::from_iter(std::iter::once(0..path.len())));
+        assert_eq!(find(&display, Mode::Exact), Vec::from_iter(std::iter::once(0..display.len())));
+        assert!(find("", Mode::Default).is_empty());
+        assert!(find("x*", Mode::Regex).iter().all(|r| !r.is_empty()));
     }
 }

@@ -86,10 +86,13 @@ impl Tool for SearchTags {
             .page(&hits, 50)
             .iter()
             .map(|t| {
+                let display = b.display_name(t);
+                let marks =
+                    filters.name.as_ref().map_or_else(Vec::new, |n| n.matcher.find(&t.path, &b.class_name(t.class)));
                 vec![
                     t.global_id.to_string().into(),
                     t.class.to_string().into(),
-                    b.display_name(t).into(),
+                    Cell::marked(display, marks),
                     Cell::Int(t.copies.len() as i64),
                 ]
             })

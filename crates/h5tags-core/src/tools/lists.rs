@@ -182,9 +182,13 @@ impl Tool for ListEntries {
             .iter()
             .map(|h| {
                 let e = h.entry;
+                let marks = filters.name.as_ref().map_or_else(Vec::new, |n| {
+                    let (path, class) = e.owner_parts();
+                    n.matcher.find(path, class)
+                });
                 vec![
                     e.kind().as_str().into(),
-                    e.name.clone().into(),
+                    Cell::marked(e.name.clone(), marks),
                     entry_kind(e).into(),
                     Cell::Size(e.uncompressed_size),
                     if e.stored { Cell::Size(e.compressed_size as u64) } else { marker::NOT_STORED.into() },

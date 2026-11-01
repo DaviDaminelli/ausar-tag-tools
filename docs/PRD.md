@@ -189,6 +189,7 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
 ```
 
 - Shortcut for one build without a config file: `--deploy <path> --defs <path> [--resource-defs <path>]` creates a single build named `default`.
+- **Preferences** (CLI display only, per person, D25): an optional `preferences.toml` in the user config folder (`%APPDATA%\h5tags`, `~/Library/Application Support/h5tags`, `$XDG_CONFIG_HOME/h5tags` or `~/.config/h5tags`; `--preferences <file>` overrides). Key: `color = true|false` (default `true`). `h5tags` never writes it; unknown keys are reported. It is read only when colors are possible (`table` output to a terminal, no `--no-color`).
 - The **first** build listed is the default build.
 - Every tool that reads tags takes an optional `build` parameter (default: the default build). Every result states its build when more than one build is configured.
 - **Tag argument syntax** (all tools): `[build:]<tag>`, where `<tag>` is one of: a global ID (`0x00A1B2C3`, case-insensitive), a tag path, or a display name. Examples: `0x00A1B2C3`, `xbox:objects\weapons\rifle\assault_rifle\assault_rifle`, `forge:...\assault_rifle.weapon`. A `build:` prefix overrides the `build` parameter. If a path matches several tags (same path, different classes), return the candidates and don't read any.
@@ -350,7 +351,7 @@ Two checks run for every struct field, tag block field and the main struct:
 
 ### 7.1 Formats
 
-- Every tool takes `format=text|json`. **MCP default: `text`.** The CLI also has `table`, for people: the `text` content with space-padded columns, numbers right-aligned and the long name/path column last. **CLI default: `table` when stdout is a terminal, `json` when it is piped or redirected** (decisions D23). `table` is never offered over MCP.
+- Every tool takes `format=text|json`. **MCP default: `text`.** The CLI also has `table`, for people: the `text` content with space-padded columns, numbers right-aligned and the long name/path column last. **CLI default: `table` when stdout is a terminal, `json` when it is piped or redirected** (decisions D23). `table` is never offered over MCP. In a terminal, `table` is colored: the part of each name that matched the query is highlighted, headers are bold, `!!` red, hints cyan, the paging line dim. Never in `text`, JSON, piped output or over MCP (D24).
 - The internal model is one tree of nodes (§7.7). `text` and `json` are two renderings of it. They MUST carry the same information at the same `detail` level.
 - A tool result MUST NOT contain the same content twice (e.g. text plus an identical structured copy).
 

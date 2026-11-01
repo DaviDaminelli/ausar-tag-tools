@@ -189,8 +189,11 @@ dependencies = [
 name = "h5tags-cli"
 version = "0.1.0"
 dependencies = [
+ "anstream",
  "clap",
  "h5tags-core",
+ "serde",
+ "toml",
  "tracing-subscriber",
 ]
 
@@ -198,6 +201,8 @@ dependencies = [
 name = "h5tags-core"
 version = "0.1.0"
 dependencies = [
+ "anstream",
+ "anstyle",
  "clap",
  "h5-defs",
  "h5-module",
