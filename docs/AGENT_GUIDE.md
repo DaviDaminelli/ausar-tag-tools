@@ -222,7 +222,7 @@ Every tag stores, besides its field values, a few lists that say what its fields
 ## 6. Arguments
 
 - **Tag:** `[build:]<tag>`, where `<tag>` is a global ID (`0x00A1B2C3`), a tag path, or a display name. Examples: `0x00A1B2C3`, `xbox:objects\...\assault_rifle`, `...\assault_rifle.weapon`. If several tags match, the tool returns candidates: pick one, or ask the user.
-- **Field path:** names joined by `.`, case-insensitive, spaces kept. `[i]` = tag block entry `i` (from 0); `[*]` = every entry; structs and arrays have no index. Example: `barrels[0].firing noise`. On a typo, the error lists close names.
+- **Field path:** names joined by `.`, case-insensitive, spaces kept. `[i]` = tag block entry `i` (from 0); `[*]` = every entry; structs and arrays have no index. A tag block passed through **without** an index means entry 0 only (`barrels.firing` = `barrels[0].firing`): use `[*]` to get every entry. Names can contain dots and brackets (`peg threshold [0,1]`); copy them as `outline` shows them. Example: `barrels[0].firing noise`. On a typo, the error lists close names.
 - **Section:** `section="EXPOSURE"` selects a section by heading. If the heading occurs more than once, you get the list of matches to choose from.
 - **depth:** how many nested struct/array/tag block levels to expand (default 2). Raise it only for small sections.
 - **Filters** mean the same on every list tool that has them, and all given filters must match:
