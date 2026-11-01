@@ -153,6 +153,20 @@ Verified the same way (978 customs). Three roles, not two:
   - **Xbox: 57,518 of 57,537**; the 19 others are the 5 classes whose main struct is smaller than the definition (cnmp, rasg, sngl, wgtz, wigl; "Field types and sizes"), and nothing else.
   - Inline structs and arrays sit in their parent's data block; a tag block's entries are in the block that the tag struct list gives for the block field's place, `count × entry size` bytes long.
 
+### Resources of a tag (PRD §12 Q9)
+- **The k-th resource struct of a tag is its resource `[k]`** — verified (test `h5-meta` `real_tags::values_are_plausible`, 2026-11-01). Each pageable resource field has a tag struct of kind 2 at its (data block, offset). Numbering those structs in list order gives the field's resource index:
+  - in every tag with resources, their count equals the file entry's resource count (19,694 of 19,694 Forge, 20,780 of 20,780 Xbox), and no index runs past the end;
+  - every resource field always points to one resource kind, and the kind carries the field's own name: `bitmaps.bitmap resource handle` → `bitmap resource handle` (676), `render geometry…mesh resource` → `mesh resource` (6,222), `coll` `regions resource` → `regions resource` (3,278), `jmad` `tag resource groups.tag_resource` → `tag_resource`, and on Xbox `snd!` `…facial animation resource` → `facial animation resource` (16,084). 18 (class, field) places on Forge, 12 on Xbox, none with two kinds.
+  - With "A resource's name index is its position" (above), a field's resource is: the file entry's resource list, position k.
+
+### Values (PRD §9 checks 5 and 6)
+Measured 2026-11-01 (same test) over every value of every tag. Odd values cluster at a few fields, and every tag passes the header cross-check, so they are facts about the data or gaps in the definitions, not misreads:
+- **string_ids:** Forge 1,811,650: 1,196,020 resolve through the tag's own string_id list, 584,019 are 0 (none), and 31,611 at only 23 fields don't resolve. These are `jmad` `content.animations.pca group name` = `0xFFFFFFFF` (none), and the `lsnd` start/stop **event** fields: sound event IDs, not names the tag lists. Xbox: 43,250 unresolved at 15 fields, the same kinds.
+- **Enums:** Forge 3,643,636 values; 14,227 negative (−1, none); **77,564 at 57 fields name no option**, mostly `effe` emitter `Range Variable` / `Input Variable` = 22–25 where the definition lists 22 options. So the definitions miss options there; the value is real (PRD §8 `no option N`).
+- **Block indices:** Forge 1,658,048; 965,929 are −1 (none). 27,469 at 35 fields find no target block in an enclosing struct (e.g. `hlmt` `model materials.damage section`, `decs` `…runtime queryable properties table.index`). 238,118 at 13 fields are out of range, mostly `jmad` `content.blend screens.animation.animation` (e.g. 3 when the block has 1; probably an index into another tag's animations) and `effe` `loop start event` = 0 into an empty block.
+- **Tag block counts over the definition's `max`:** 0 (Forge and Xbox).
+- **Reals:** 12,758,290 on Forge; 110 not finite, at 4 fields (`effe` `near fade cutoff`, `runtime overdraw`; `shit` edge offsets/scales).
+
 ## Map info files (`.mapinfo`)
 - Observed on `ng25r_ss_pistons_remixed.mapinfo` (Forge, 2377 bytes, 2026-10-31). Binary format, not documented in AusarDocs; only its readable strings have been looked at. It contains the map name, its scenario path (`levels\multi\ng25r_ss_pistons_remixed\ng25r_ss_pistons_remixed`), and an ordered list of module paths: the map's **module stack**.
   - Order seen: for each layer `-rtx-1`, then `-rtx-11587-1`, then `-rtx-12719-1`: `any\levels\globals-…`, `%(Platform)\levels\globals-…`, `any\levels\multi\<map>\<map>-…`, `%(Platform)\levels\multi\<map>\<map>-…`.

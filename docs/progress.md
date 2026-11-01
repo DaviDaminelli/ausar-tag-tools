@@ -208,3 +208,18 @@ Answers: the field type table is right (every Forge main struct and checked bloc
 | Time, every tag (release, incl. decompression)     | 18.2 s (0.29 ms per tag) | 22.8 s                           |
 
 Speed-up in the same step (D26): the first version took 69.4 s on Forge. Path steps are now computed once per definition (`Field::step`), nodes borrow their names, and field paths are formatted only for problems and divergences: 69.4 → 18.2 s (3.8×).
+
+**Step 2b: values** (same samples; checks 5 and 6, and Q9)
+
+| What                                                 | Forge                             | Xbox                              |
+| ---------------------------------------------------- | --------------------------------- | --------------------------------- |
+| string_ids: resolved / zero / unresolved (fields)    | 1,196,020 / 584,019 / 31,611 (23) | 1,708,400 / 796,978 / 43,250 (15) |
+| Enum values naming no option (fields)                | 77,564 of 3,643,636 (57)          | 76,503 of 3,709,446 (56)          |
+| Block indices: none / no target found / out of range | 965,929 / 27,469 / 238,118        | 1,689,991 / 54,449 / 494,017      |
+| Tag blocks over their `max`                          | 0                                 | 0                                 |
+| Reals not finite (fields)                            | 110 of 12,758,290 (4)             | 111 of 13,891,904 (20)            |
+| Tags whose resource structs = resources (Q9)         | 19,694 of 19,694                  | 20,780 of 20,780                  |
+| Resource fields pointing to more than one kind       | 0 of 18 places                    | 0 of 12 places                    |
+| Time, every tag                                      | 17.1 s                            | 19.4 s                            |
+
+Q9 answered: the k-th resource struct of a tag is its resource [k].
