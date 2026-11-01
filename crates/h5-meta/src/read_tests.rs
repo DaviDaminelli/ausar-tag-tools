@@ -55,6 +55,9 @@ fn reads_the_main_struct_and_its_tag_block() {
 
     let Content::Value(Value::TagRef(p)) = &child(&r.root, "projectile").content else { panic!() };
     assert_eq!((p.field.global_id, p.dependency), (GlobalId(0x0040_1000), Some(0)));
+    // Where the field is, as the header lists it: data block 0, offset 0x20.
+    assert_eq!(p.place, (0, 0x20));
+    assert_eq!(second.place, (1, 0x20));
     assert_eq!(p.listed_name.as_deref(), Some(r"objects\weapons\rifle\ar\bullet"));
     assert_eq!(child(&r.root, "data").content, Content::Value(Value::Data(DataRef { size: 0x10 })));
     assert_eq!(child(&r.root, "count").content, Content::Value(Value::Int(7)));

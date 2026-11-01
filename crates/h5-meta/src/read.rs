@@ -232,6 +232,7 @@ impl<'h> Walker<'h> {
                     field,
                     listed_name: listed_name.map(|s| s.into_owned()),
                     dependency: entry.and_then(|r| r.dependency),
+                    place,
                 }))
             }
             T::Data64 => {

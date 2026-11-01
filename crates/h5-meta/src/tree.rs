@@ -107,6 +107,8 @@ pub struct TagRef {
     pub listed_name: Option<String>,
     /// Its dependency index, if the header gives one (format-notes "Tags").
     pub dependency: Option<u32>,
+    /// The field's (data block, offset): where the header's tag reference list puts it.
+    pub place: (u32, u32),
 }
 
 /// A string_id field: its hash, and the string it hashes, from the tag's own
