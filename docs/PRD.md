@@ -301,7 +301,12 @@ Two checks run for every struct field, tag block field and the main struct:
 - `get_definition(class, path?, section?, depth=2, detail=normal, options=auto, show_hidden=false, format=text, build?)`: the schema from the definition only: fields, types, units, ranges, help, options, nesting, computed offsets. No tag data. Paths use §6.4.2 syntax; tag block fields are stepped into without an index (`[i]`/`[*]` are accepted and ignored). This is the **field dictionary**: definitions are not repeated inside `read_tag` output beyond what `detail` asks for.
 - `search_definitions(query, class?, scope=all|names|options|help, build?, offset=0, limit=50)`: case-insensitive substring search across **all** definitions: field display names (`names`), enum/flag option names (`options`), help text, units and explanation text (`help`). Each hit: class code + name, field path (tag block fields written `name[*]`), field type, and which part matched. Answers "which class controls X, and where?".
 - `outline(tag?, class?, depth=3, build?)`: exactly one of `tag` or `class` MUST be given. Returns only the section tree: class sections, explanation headings, struct fields, array fields and tag block fields, each with its field path and number of direct fields; for a tag, also entry counts and labels for tag block fields. No values. **This is the first call for any large tag** (§5.3 list).
-- `definition_status(build?)`: per class in the index: has definition (yes/no), and any size or GUID mismatches **detected so far** (kept in the results cache across runs, §6.9), with how many of the class's tags have been checked.
+- `definition_status(build?)`: per class in the index: has definition (yes/no), and any size or GUID mismatches **detected so far** (kept in the results cache across runs, §6.9), with how many of the class's tags have been checked. It is also the **definition gap list** (decisions D33), the input for writing or dumping missing definitions (§10):
+  - classes with no definition, with their tag counts;
+  - size mismatches, each with the field path where it starts;
+  - struct GUIDs found in no definition, each with its class and field path;
+  - each class's main struct GUID (one per class, a layout fingerprint, `docs/format-notes.md` "GUIDs"), so a class whose layout differs between builds shows up.
+  The list can be exported (JSON) for that work.
 
 ### 6.6 Analysis (`FR-5`)
 
@@ -584,6 +589,7 @@ Each item reuses the v1 tools; none changes v1 behaviour.
 7. Field notes: `note(class, path, text)` / `notes(class?)` stored in `notes_file` (TOML, one entry per class + field path). Shown at `detail=full` as `note (user): ...`. Explicit and user-editable. Later extension (agreed with the user, not scheduled): the agent may also write notes for future sessions, marked `note (agent, unverified)`, each with its evidence (tag, field, value); the guide tells agents to treat them as hints, never as values.
 8. Xbox One texture de-tiling: load the user's `xg.dll` (with `kernelx.dll` next to it) via `libloading`, configured per build as `xg_dll = '...'`; Windows x64 only; behind a cargo feature; never shipped. Use the library's 2D texture address computer to map tiled → linear per mip. Implement from the library's behaviour, not from Reclaimer's code. Later alternative: a pure-Rust de-tiler based on AMD's open-source address library (research).
 9. Mapping functions: decode the `function` struct's data into readable curves (research; not documented in AusarDocs).
+10. Definition dumping (research): produce definitions for the classes and struct types in the definition gap list (`definition_status`, §6.5): missing classes, layouts that changed between builds, struct GUIDs in no definition. Field names and layouts are not in the module files, so this needs another source; Reclaimer's code stays off-limits (§3). Whatever it produces is checked with the M3 survey and checks (§9) before use.
 
 ## 11. Future (v2+)
 
