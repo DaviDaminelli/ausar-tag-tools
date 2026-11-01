@@ -87,7 +87,7 @@ fn every_module_checks_and_decompresses() {
         for (check, (n, first)) in &by_check {
             println!("  check {check} failed {n}×, first: {first}");
         }
-        let mut shown: Vec<u32> = failures.iter().filter_map(|f| f.entry).collect();
+        let mut shown: Vec<u32> = failures.iter().filter_map(|f| f.item.map(|item| item.index)).collect();
         shown.dedup();
         for &i in shown.iter().take(5) {
             let e = &m.entries[i as usize];
@@ -347,7 +347,8 @@ fn block_checksums_match() {
 #[ignore]
 fn sections_add_up_to_whole_entries() {
     use h5_module::Section;
-    let (mut checked, mut sections_time, mut whole_time) = (0usize, std::time::Duration::ZERO, std::time::Duration::ZERO);
+    let (mut checked, mut sections_time, mut whole_time) =
+        (0usize, std::time::Duration::ZERO, std::time::Duration::ZERO);
     let (mut needed_bytes, mut whole_bytes) = (0u64, 0u64);
     for found in find_modules(&deploy()).unwrap() {
         let map = map_file(&found.path).unwrap();
@@ -377,4 +378,128 @@ fn sections_add_up_to_whole_entries() {
         needed_bytes as f64 / 1e6,
         whole_bytes as f64 / 1e6
     );
+}
+
+/// M2: every tag's header parses and passes every check; its reference fields
+/// agree with the lists; dependencies resolve to indexed tags by name and ID.
+#[test]
+#[ignore]
+fn every_tag_header_parses_and_checks() {
+    use std::collections::{HashMap, HashSet};
+
+    use h5_module::Section;
+    use h5_module::names::split_tag_name;
+    use h5_module::tag::TagHeader;
+
+    let modules = find_modules(&deploy()).unwrap();
+    let maps: Vec<_> = modules.iter().map(|f| map_file(&f.path).unwrap()).collect();
+    let parsed: Vec<Module> = maps.iter().map(|m| Module::parse(m).unwrap()).collect();
+    // Every indexed tag: global ID → file name.
+    let mut names: HashMap<i32, String> = HashMap::new();
+    for m in &parsed {
+        for (i, e) in m.entries.iter().enumerate().filter(|(_, e)| e.kind() == EntryKind::Tag) {
+            names.entry(e.global_id.0).or_insert_with(|| m.name(i as u32).unwrap().to_owned());
+        }
+    }
+
+    let start = Instant::now();
+    let (mut tags, mut header_bytes) = (0usize, 0u64);
+    let mut failures: BTreeMap<String, (usize, String)> = BTreeMap::new();
+    let mut parse_errors: Vec<String> = Vec::new();
+    let mut trailing: BTreeMap<String, usize> = BTreeMap::new();
+    let mut not_stored = 0;
+    let (mut deps, mut deps_indexed, mut deps_same_name, mut deps_other_name) = (0usize, 0usize, 0usize, Vec::new());
+    let mut unresolved_ids: HashSet<i32> = HashSet::new();
+    // Tag references: all, without a dependency, of those naming a tag (ID set), of those with a listed name.
+    let (mut refs, mut refs_no_dep, mut refs_no_dep_named, mut refs_no_dep_listed) = (0usize, 0usize, 0usize, 0usize);
+    let mut non_ascii_tables = 0usize;
+    for (found, m) in modules.iter().zip(&parsed) {
+        for (i, e) in m.entries.iter().enumerate().filter(|(_, e)| e.kind() == EntryKind::Tag) {
+            let i = i as u32;
+            let class = e.class_code.to_string();
+            let header = match m.read_section(i, Section::Header) {
+                Ok(h) => h,
+                Err(ModuleError::NotStored { .. }) => {
+                    not_stored += 1;
+                    continue;
+                }
+                Err(err) => panic!("{} entry {i}: {err}", found.rel_path),
+            };
+            header_bytes += header.len() as u64;
+            let tag = match TagHeader::parse(&header) {
+                Ok(t) => t,
+                Err(err) => {
+                    parse_errors.push(format!("{class} {}: {err}", m.name(i).unwrap_or("?")));
+                    continue;
+                }
+            };
+            tags += 1;
+            if !tag.trailing.is_empty() {
+                *trailing.entry(class.clone()).or_default() += 1;
+            }
+            let tag_data = m.read_section(i, Section::TagData).unwrap();
+            for f in tag.check(e).into_iter().chain(tag.check_tag_data(&tag_data)) {
+                failures
+                    .entry(format!("{} {class}", f.check))
+                    .or_insert((0, format!("{}: {f}", m.name(i).unwrap_or("?"))))
+                    .0 += 1;
+            }
+            for r in &tag.tag_references {
+                refs += 1;
+                if r.dependency.is_some() {
+                    continue;
+                }
+                refs_no_dep += 1;
+                let field = r
+                    .field_block
+                    .and_then(|b| tag.block_data(&tag_data, b))
+                    .and_then(|d| d.get(r.field_offset as usize..)?.get(0x0C..0x10));
+                if field.is_some_and(|g| g != [0xFF; 4]) {
+                    refs_no_dep_named += 1;
+                    refs_no_dep_listed += usize::from(tag.string_bytes(r.name_offset).is_some_and(|s| !s.is_empty()));
+                }
+            }
+            non_ascii_tables += usize::from(!tag.string_table.is_ascii());
+            for d in &tag.dependencies {
+                deps += 1;
+                let Some(indexed) = names.get(&d.global_id.0) else {
+                    unresolved_ids.insert(d.global_id.0);
+                    continue;
+                };
+                deps_indexed += 1;
+                let listed = tag.string(d.name_offset).unwrap_or_default();
+                if listed.eq_ignore_ascii_case(indexed) || listed.eq_ignore_ascii_case(split_tag_name(indexed).0) {
+                    deps_same_name += 1;
+                } else if deps_other_name.len() < 5 {
+                    deps_other_name.push(format!("listed '{listed}', indexed '{indexed}'"));
+                }
+            }
+        }
+    }
+    let elapsed = start.elapsed();
+    println!(
+        "{tags} tag headers parsed ({:.1} MB) in {elapsed:.2?}; {} parse errors; {not_stored} tags not stored here",
+        header_bytes as f64 / 1e6,
+        parse_errors.len()
+    );
+    for e in parse_errors.iter().take(5) {
+        println!("  parse error: {e}");
+    }
+    println!("check failures by check and class: {}", if failures.is_empty() { "none" } else { "" });
+    for (k, (n, first)) in &failures {
+        println!("  {k}: {n}× e.g. {first}");
+    }
+    println!("tags with trailing data, by class: {trailing:?}");
+    println!(
+        "dependencies: {deps}; {deps_indexed} point at indexed tags ({deps_same_name} with the same name); {} distinct global IDs not in the indexed modules",
+        unresolved_ids.len()
+    );
+    println!(
+        "tag references: {refs}; {refs_no_dep} without a dependency, {refs_no_dep_named} of those hold a global ID, {refs_no_dep_listed} of those with a listed name"
+    );
+    println!("tags whose string table has non-ASCII bytes: {non_ascii_tables}");
+    for d in &deps_other_name {
+        println!("  name differs: {d}");
+    }
+    assert!(parse_errors.is_empty() && failures.is_empty(), "see above");
 }

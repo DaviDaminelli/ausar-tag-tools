@@ -130,7 +130,10 @@ fn detects_wrong_section_sizes() {
     let off = Version::V27.header_size() + 2 * 0x58 + 0x48;
     bytes[off] += 1;
     let failures = Module::parse(&bytes).unwrap().check();
-    assert!(failures.iter().any(|f| f.check == checks::SECTION_SIZES && f.entry == Some(2)), "{failures:?}");
+    assert!(
+        failures.iter().any(|f| f.check == checks::SECTION_SIZES && f.item == Some(crate::check::Item::entry(2))),
+        "{failures:?}"
+    );
 }
 
 #[test]

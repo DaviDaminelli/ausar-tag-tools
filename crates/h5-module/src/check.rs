@@ -25,33 +25,62 @@ pub mod checks {
     pub const DUPLICATE_GLOBAL_ID: &str = "duplicate_global_id";
     pub const LOADMANIFEST_SIZE: &str = "loadmanifest_size";
     pub const DATA_END: &str = "data_end";
+
+    // Tag header checks (`tag.rs`).
+    pub const TAG_SIZES: &str = "tag_sizes";
+    pub const DATA_BLOCK: &str = "data_block";
+    pub const MAIN_STRUCT: &str = "main_struct";
+    pub const TAG_STRUCT: &str = "tag_struct";
+    pub const DATA_REFERENCE: &str = "data_reference";
+    pub const TAG_REFERENCE: &str = "tag_reference";
+    pub const DEPENDENCY: &str = "dependency";
+    pub const STRING_ID: &str = "string_id";
+    pub const TAG_REFERENCE_FIELD: &str = "tag_reference_field";
+    pub const DATA_REFERENCE_FIELD: &str = "data_reference_field";
+}
+
+/// What a failure is about: a kind of item and its index (`entry 3`, `dependency 7`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Item {
+    pub kind: &'static str,
+    pub index: u32,
+}
+
+impl Item {
+    pub fn entry(index: u32) -> Item {
+        Item { kind: "entry", index }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CheckFailure {
     /// One of [`checks`].
     pub check: &'static str,
-    /// The file entry concerned, if any.
-    pub entry: Option<u32>,
+    /// The item concerned, if any.
+    pub item: Option<Item>,
     pub detail: String,
 }
 
 impl fmt::Display for CheckFailure {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.entry {
-            Some(e) => write!(f, "{} (entry {e}): {}", self.check, self.detail),
+        match self.item {
+            Some(item) => write!(f, "{} ({} {}): {}", self.check, item.kind, item.index, self.detail),
             None => write!(f, "{}: {}", self.check, self.detail),
         }
     }
 }
 
-/// Collects failures.
+/// Collects failures (module checks here, tag checks in `tag`).
 #[derive(Default)]
-struct Failures(Vec<CheckFailure>);
+pub(crate) struct Failures(pub(crate) Vec<CheckFailure>);
 
 impl Failures {
-    fn add(&mut self, check: &'static str, entry: Option<u32>, detail: String) {
-        self.0.push(CheckFailure { check, entry, detail });
+    pub(crate) fn add(&mut self, check: &'static str, item: Option<Item>, detail: String) {
+        self.0.push(CheckFailure { check, item, detail });
+    }
+
+    fn entry(&mut self, check: &'static str, index: u32, detail: String) {
+        self.add(check, Some(Item::entry(index)), detail);
     }
 }
 
@@ -74,7 +103,7 @@ impl Module<'_> {
             {
                 out.add(
                     checks::DUPLICATE_GLOBAL_ID,
-                    Some(i),
+                    Some(Item::entry(i)),
                     format!("global ID {} also in entry {first}", e.global_id),
                 );
             }
@@ -114,11 +143,11 @@ impl Module<'_> {
     /// The name is readable; a load manifest's size matches the header.
     fn check_name(&self, i: u32, e: &FileEntry, out: &mut Failures) {
         match self.name(i) {
-            Err(err) => out.add(checks::NAME, Some(i), err.to_string()),
+            Err(err) => out.entry(checks::NAME, i, err.to_string()),
             Ok(LOAD_MANIFEST) if e.total_uncompressed_size as u64 != self.header.loaded_tag_count as u64 * 4 => out
                 .add(
                     checks::LOADMANIFEST_SIZE,
-                    Some(i),
+                    Some(Item::entry(i)),
                     format!(
                         "loadmanifest is {} bytes, header says {} tags × 4",
                         e.total_uncompressed_size, self.header.loaded_tag_count
@@ -133,7 +162,7 @@ impl Module<'_> {
         if self.entry_data_end(e) > self.file_len() {
             out.add(
                 checks::DATA_BOUNDS,
-                Some(i),
+                Some(Item::entry(i)),
                 format!(
                     "data at {}+{} (+{} bytes) ends past the file ({} bytes)",
                     self.data_start,
@@ -149,7 +178,7 @@ impl Module<'_> {
     fn check_resources(&self, i: u32, out: &mut Failures) {
         let files = match self.entry_resources(i) {
             Ok(files) => files,
-            Err(err) => return out.add(checks::RESOURCE_RANGE, Some(i), err.to_string()),
+            Err(err) => return out.entry(checks::RESOURCE_RANGE, i, err.to_string()),
         };
         for &file in files {
             if let Some(r) = self.entries.get(file as usize)
@@ -157,7 +186,7 @@ impl Module<'_> {
             {
                 out.add(
                     checks::RESOURCE_PARENT,
-                    Some(i),
+                    Some(Item::entry(i)),
                     format!("owns file {file}, whose parentFileIndex is {}", r.parent_file_index),
                 );
             }
@@ -172,20 +201,20 @@ impl Module<'_> {
         }
         let blocks = match self.entry_blocks(i) {
             Ok(blocks) => blocks,
-            Err(err) => return out.add(checks::BLOCK_RANGE, Some(i), err.to_string()),
+            Err(err) => return out.entry(checks::BLOCK_RANGE, i, err.to_string()),
         };
         let mut expected = 0u64;
         for (b, block) in blocks.iter().enumerate() {
             if block.uncompressed_offset as u64 != expected {
                 let detail = format!("block {b} starts at {}, expected {expected}", block.uncompressed_offset);
-                return out.add(checks::BLOCKS_CONTIGUOUS, Some(i), detail);
+                return out.entry(checks::BLOCKS_CONTIGUOUS, i, detail);
             }
             expected += block.uncompressed_size as u64;
             let compressed_end = block.compressed_offset as u64 + block.compressed_size as u64;
             if !e.is_stored_elsewhere() && compressed_end > e.total_compressed_size as u64 {
                 out.add(
                     checks::BLOCKS_COMPRESSED_RANGE,
-                    Some(i),
+                    Some(Item::entry(i)),
                     format!(
                         "block {b} ({}+{}) ends past the entry's {} compressed bytes",
                         block.compressed_offset, block.compressed_size, e.total_compressed_size
@@ -196,7 +225,7 @@ impl Module<'_> {
         if expected != e.data_size() {
             out.add(
                 checks::BLOCKS_TOTAL,
-                Some(i),
+                Some(Item::entry(i)),
                 format!("blocks add up to {expected} bytes, entry says {}", e.data_size()),
             );
         }
@@ -220,7 +249,7 @@ fn check_sections(i: u32, e: &FileEntry, out: &mut Failures) {
     if sum != e.data_size() {
         out.add(
             checks::SECTION_SIZES,
-            Some(i),
+            Some(Item::entry(i)),
             format!(
                 "header {} + tag data {} + resource data {} = {sum}, entry says {}",
                 e.header_size,
@@ -234,7 +263,7 @@ fn check_sections(i: u32, e: &FileEntry, out: &mut Failures) {
     if e.flags.has_blocks() && blocks != e.block_count {
         out.add(
             checks::SECTION_BLOCK_COUNTS,
-            Some(i),
+            Some(Item::entry(i)),
             format!(
                 "section block counts {} + {} + {} = {blocks}, entry has {} blocks",
                 e.header_block_count, e.tag_data_block_count, e.resource_block_count, e.block_count

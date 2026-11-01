@@ -12,13 +12,15 @@ mod le;
 mod module;
 pub mod murmur3;
 pub mod names;
+pub mod tag;
+pub mod text;
 
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod testutil;
 
-pub use check::{CheckFailure, checks};
+pub use check::{CheckFailure, Item, checks};
 pub use fourcc::FourCc;
 pub use global_id::GlobalId;
 pub use module::{

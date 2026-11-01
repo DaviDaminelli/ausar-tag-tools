@@ -228,3 +228,177 @@ pub fn sample_entries() -> Vec<TestEntry> {
 }
 
 pub const SAMPLE_LOADED_TAGS: &[i32] = &[0x0040_1140, 0x0040_2000];
+
+/// A synthetic tag: header lists plus the tag data blocks they describe.
+#[derive(Clone, Default)]
+pub struct TestTag {
+    /// (class code, file name, global ID).
+    pub deps: Vec<(&'static str, String, i32)>,
+    /// Tag data blocks (section 1), stored back to back.
+    pub blocks: Vec<Vec<u8>>,
+    /// (kind, target block, field block, field offset, GUID).
+    pub structs: Vec<(u16, i32, i32, u32, [u8; 16])>,
+    /// (parent struct, target block, field block, field offset).
+    pub data_refs: Vec<(i32, i32, i32, u32)>,
+    /// (field block, field offset, dependency index or None).
+    pub tag_refs: Vec<(i32, u32, Option<usize>)>,
+    pub string_ids: Vec<String>,
+    /// (name hash, [(global ID, name hash)]).
+    pub zonesets: Vec<(u32, Vec<(i32, u32)>)>,
+    pub trailing: Vec<u8>,
+}
+
+/// A small but complete tag: a main struct with a tag block field (2 entries
+/// in block 1), a tag reference and a data reference (to block 2).
+pub fn sample_tag() -> TestTag {
+    use crate::murmur3::murmur3_x86_32;
+    let default = murmur3_x86_32(b"__default__", 0);
+    TestTag {
+        deps: vec![
+            ("proj", r"objects\weapons\rifle\ar\bullet.projectile".into(), 0x0040_1000),
+            ("effe", r"fx\impact\bullet_hit.effect".into(), 0x0040_2000),
+        ],
+        blocks: vec![vec![0u8; 0x60], vec![0u8; 0x40], vec![0xABu8; 0x10]],
+        structs: vec![(0, 0, -1, 0, [1; 16]), (1, 1, 0, 0x00, [2; 16])],
+        data_refs: vec![(0, 2, 0, 0x40)],
+        tag_refs: vec![(0, 0x20, Some(0)), (1, 0x00, None), (1, 0x20, Some(1))],
+        string_ids: vec!["__default__".into(), "primary".into()],
+        zonesets: vec![(default, vec![(0x0040_1000, default), (0x0040_2000, default)])],
+        trailing: Vec::new(),
+    }
+}
+
+/// Builds `(header section, tag data section)` for `t`, writing the fields the
+/// lists describe into the tag data: tag references get their dependency's
+/// global ID (+0x0C) and class (+0x18); data references the target's size (+0x18).
+pub fn build_tag(t: &TestTag) -> (Vec<u8>, Vec<u8>) {
+    let mut strings = Vec::new();
+    let mut add_string = |s: &str| {
+        let at = strings.len() as u32;
+        strings.extend_from_slice(s.as_bytes());
+        strings.push(0);
+        at
+    };
+    let dep_names: Vec<u32> = t.deps.iter().map(|(_, name, _)| add_string(name)).collect();
+    let empty = add_string("");
+    let sid_offsets: Vec<u32> = t.string_ids.iter().map(|s| add_string(s)).collect();
+
+    // Tag data: blocks back to back, with the described fields filled in.
+    let mut blocks = t.blocks.clone();
+    for &(field_block, field_offset, dep) in &t.tag_refs {
+        // Fields that don't fit their block (deliberately broken tags) are left out.
+        let Some(field) = blocks
+            .get_mut(field_block as usize)
+            .and_then(|b| b.get_mut(field_offset as usize..field_offset as usize + 0x20))
+        else {
+            continue;
+        };
+        let (gid, class, name_len) = match dep {
+            Some(d) => (t.deps[d].2, FourCc::from_code(t.deps[d].0).unwrap().0, t.deps[d].1.len() as u32),
+            None => (-1, u32::MAX, 0),
+        };
+        field[0x08..0x0C].copy_from_slice(&name_len.to_le_bytes());
+        field[0x0C..0x10].copy_from_slice(&gid.to_le_bytes());
+        field[0x18..0x1C].copy_from_slice(&class.to_le_bytes());
+    }
+    for &(_, target, field_block, field_offset) in &t.data_refs {
+        let size = if target >= 0 { t.blocks[target as usize].len() as u32 } else { 0 };
+        let Some(field) = blocks
+            .get_mut(field_block as usize)
+            .and_then(|b| b.get_mut(field_offset as usize..field_offset as usize + 0x1C))
+        else {
+            continue;
+        };
+        field[0x18..0x1C].copy_from_slice(&size.to_le_bytes());
+    }
+    let mut block_offsets = Vec::new();
+    let mut tag_data = Vec::new();
+    for b in &blocks {
+        block_offsets.push(tag_data.len() as u64);
+        tag_data.extend_from_slice(b);
+    }
+
+    // Zoneset info: header, entries, then each entry's tag list.
+    let mut zoneset = Vec::new();
+    zoneset.extend((t.zonesets.len() as u64).to_le_bytes());
+    zoneset.extend(0x10u64.to_le_bytes());
+    let mut list_at = 0x10 + t.zonesets.len() * 0x28;
+    for (name, tags) in &t.zonesets {
+        zoneset.extend(name.to_le_bytes());
+        zoneset.extend(0i32.to_le_bytes());
+        zoneset.extend(0i64.to_le_bytes());
+        zoneset.extend(0i64.to_le_bytes());
+        zoneset.extend((tags.len() as u64).to_le_bytes());
+        zoneset.extend((list_at as u64).to_le_bytes());
+        list_at += tags.len() * 8;
+    }
+    for (_, tags) in &t.zonesets {
+        for (gid, name) in tags {
+            zoneset.extend(gid.to_le_bytes());
+            zoneset.extend(name.to_le_bytes());
+        }
+    }
+
+    let mut lists = Vec::new();
+    for (i, (class, _, gid)) in t.deps.iter().enumerate() {
+        lists.extend(FourCc::from_code(class).unwrap().0.to_le_bytes());
+        lists.extend(dep_names[i].to_le_bytes());
+        lists.extend((*gid as i64 * 3).to_le_bytes());
+        lists.extend(gid.to_le_bytes());
+        lists.extend((-1i32).to_le_bytes());
+    }
+    for (b, block) in blocks.iter().enumerate() {
+        lists.extend((block.len() as u32).to_le_bytes());
+        lists.extend(0u16.to_le_bytes());
+        lists.extend(1u16.to_le_bytes());
+        lists.extend(block_offsets[b].to_le_bytes());
+    }
+    for (kind, target, field_block, field_offset, guid) in &t.structs {
+        lists.extend(guid);
+        lists.extend(kind.to_le_bytes());
+        lists.extend(0u16.to_le_bytes());
+        lists.extend(target.to_le_bytes());
+        lists.extend(field_block.to_le_bytes());
+        lists.extend(field_offset.to_le_bytes());
+    }
+    for (parent, target, field_block, field_offset) in &t.data_refs {
+        lists.extend(parent.to_le_bytes());
+        lists.extend(0i32.to_le_bytes());
+        lists.extend(target.to_le_bytes());
+        lists.extend(field_block.to_le_bytes());
+        lists.extend(field_offset.to_le_bytes());
+    }
+    for (field_block, field_offset, dep) in &t.tag_refs {
+        lists.extend(field_block.to_le_bytes());
+        lists.extend(field_offset.to_le_bytes());
+        lists.extend(dep.map_or(empty, |d| dep_names[d]).to_le_bytes());
+        lists.extend(dep.map_or(-1, |d| d as i32).to_le_bytes());
+    }
+    for offset in &sid_offsets {
+        lists.extend(0u32.to_le_bytes());
+        lists.extend(offset.to_le_bytes());
+    }
+
+    let header_size = 0x50 + lists.len() + strings.len() + zoneset.len() + t.trailing.len();
+    let mut h = Vec::with_capacity(header_size);
+    h.extend(u32::from_le_bytes(*b"ucsh").to_le_bytes());
+    h.extend(27u32.to_le_bytes());
+    h.extend(0x1122_3344_5566_7788u64.to_le_bytes());
+    h.extend(0x0BAD_C0DE_0BAD_C0DEu64.to_le_bytes());
+    h.extend(0x9999_9999u32.to_le_bytes());
+    for count in [t.deps.len(), blocks.len(), t.structs.len(), t.data_refs.len(), t.tag_refs.len(), t.string_ids.len()]
+    {
+        h.extend((count as u32).to_le_bytes());
+    }
+    for size in [strings.len(), zoneset.len(), header_size, tag_data.len(), 0] {
+        h.extend((size as u32).to_le_bytes());
+    }
+    h.extend([4, 4, 4, 0]);
+    h.extend(0u32.to_le_bytes());
+    assert_eq!(h.len(), 0x50);
+    h.extend(lists);
+    h.extend(strings);
+    h.extend(zoneset);
+    h.extend(&t.trailing);
+    (h, tag_data)
+}
