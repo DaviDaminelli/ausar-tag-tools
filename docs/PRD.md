@@ -177,6 +177,8 @@ Config file `h5tags.toml` (path given with `--config`; default: next to the exec
 ```toml
 cache_dir = 'C:\h5tags\cache'
 notes_file = 'C:\h5tags\h5tags-notes.toml'   # used from the backlog (§10); MAY be omitted in v1
+tag_cache_mb = 256                            # decompressed tags kept in memory (§13); default 256
+large_read_tokens = 3000                      # size guard on whole reads (§6.4.1); default 3000
 
 [[build]]
 name = "forge"                                # [a-z0-9_-]+, unique
@@ -249,12 +251,13 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
 
 #### 6.4.1 Signature
 
-`read_tag(tag, path?, section?, depth=2, detail=normal, options=auto, show_hidden=false, module?, format=text, build?)`
+`read_tag(tag, path?, section?, depth=2, detail=normal, options=auto, show_hidden=false, confirm_large=false, module?, format=text, build?)`
 
 - `path` and `section` are mutually exclusive. If neither is given, the whole tag is read (subject to `depth`).
 - `module`: read the copy from this module (substring match; must match exactly one copy). Default copy: §6.4.6.
 - `depth`: how many levels of struct fields, array fields and tag block fields are expanded below the requested node. The requested node's own direct fields are always shown. `depth=0`: direct fields only; nested structs/tag blocks appear as one-line stubs. `depth=2` (default): two nested levels. Stubs say how to continue (§7.4).
 - `detail`, `options`, `show_hidden`, `format`: §7.
+- **Size guard** (since M4, decisions D38): a read with neither `path` nor `section` whose text result would exceed `large_read_tokens` (§6.1; tokens estimated as characters ÷ 4) is not returned. Instead the result is the tag's `outline` plus `hint: whole read ≈ N tokens (L lines); read a path= or section=, or repeat with confirm_large=true`. With `confirm_large=true` the whole read is returned, preceded by `warning: large result, ≈ N tokens (L lines)`. It is the agent's equivalent of a confirmation dialog: a large result takes a deliberate second call. The CLI applies the same guard.
 
 #### 6.4.2 Field paths
 
@@ -301,9 +304,9 @@ Two checks run for every struct field, tag block field and the main struct:
 
 ### 6.5 Definitions and outline (`FR-4`)
 
-- `get_definition(class, path?, section?, depth=2, detail=normal, options=auto, show_hidden=false, format=text, build?)`: the schema from the definition only: fields, types, units, ranges, help, options, nesting, computed offsets (help and offsets at `detail=full`, decisions D37). No tag data. Paths use §6.4.2 syntax; tag block fields are stepped into without an index (`[i]`/`[*]` are accepted and ignored). This is the **field dictionary**: definitions are not repeated inside `read_tag` output beyond what `detail` asks for.
-- `search_definitions(query, class?, scope=all|names|options|help, build?, offset=0, limit=50)`: case-insensitive substring search across **all** definitions: field display names (`names`), enum/flag option names (`options`), help text, units and explanation text (`help`). Each hit: class code + name, field path (tag block fields written `name[*]`), field type, and which part matched. Answers "which class controls X, and where?".
-- `outline(tag?, class?, depth=3, build?)`: exactly one of `tag` or `class` MUST be given. Returns only the section tree: class sections, explanation headings, struct fields, array fields and tag block fields, each with its field path and number of direct fields; for a tag, also entry counts and labels for tag block fields. No values. **This is the first call for any large tag** (§5.3 list).
+- `get_definition(class, path?, section?, depth=2, detail=normal, options=auto, show_hidden=false, confirm_large=false, format=text, build?)`: the schema from the definition only: fields, types, units, ranges, help, options, nesting, computed offsets (help and offsets at `detail=full`, decisions D37). No tag data. Whole reads have the same size guard as `read_tag` (§6.4.1), with the class's outline instead. Paths use §6.4.2 syntax; tag block fields are stepped into without an index (`[i]`/`[*]` are accepted and ignored). This is the **field dictionary**: definitions are not repeated inside `read_tag` output beyond what `detail` asks for.
+- `search_definitions(query, class?, scope=all|names|options|help, build?, offset=0, limit=50)`: case-insensitive substring search across **all** definitions: field display names (`names`), enum/flag option names (`options`), help text, units and explanation text (`help`). Hits where the query is a whole word of the matched text come first, then the other substring hits (since M4; otherwise `age` lists every "damage" and "percentage" first). Each hit: class code + name, field path (tag block fields written `name[*]`), field type, and which part matched. Answers "which class controls X, and where?".
+- `outline(tag?, class?, depth=2, build?)`: exactly one of `tag` or `class` MUST be given. Returns only the section tree: class sections, explanation headings, struct fields, array fields and tag block fields, each with its field path and number of direct fields; for a tag, also entry counts and labels for tag block fields. No values. **This is the first call for any large tag** (§5.3 list).
 - `definition_status(build?)`: per class in the index: has definition (yes/no), and any size or GUID mismatches **detected so far** (kept in the results cache across runs, §6.9), with how many of the class's tags have been checked. It is also the **definition gap list** (decisions D33), the input for writing or dumping missing definitions (§10):
   - classes with no definition, with their tag counts;
   - size mismatches, each with the field path where it starts;
@@ -518,8 +521,8 @@ The config format with `[[build]]` (§6.1) is used from M1; only one build is ne
 | M1  | Module reader (v27 and v23), index (§6.2 first stage), `search_tags`, `browse`, `list_classes`, `list_modules`, `list_entries`, `list_resource_kinds` in the CLI | Every module in the deploy folder indexes without errors; per module, these cross-checks pass: the data area ends exactly at the end of the file, `firstResourceIndex` = `numFiles` − `numResources`, every list and every file's data lies inside the module, each file's header + tag data + resource sizes = its total uncompressed size, each file's three section block counts add up to its block count, and no global ID appears twice; every compression block of every file entry (tags, resources and other files) decompresses to its stated size (integration test, not done at runtime); the index lists each tag's resources (count, kind, sizes); 5 sample searches return what the user expects; CI builds and unit tests pass on Windows, Linux and macOS (§13) |
 | M2  | Tag decompression, tag header parsing (all sections), `header-dump`                                         | For **every** tag of every sample module (both builds; decided 2026-11-01, was "10 tags across ≥ 5 classes"): section sizes add up to the header's sizes; dependencies print as readable display names                                                                                                                |
 | M3  | `read_tag`, `get_definition`, `outline`, `search_definitions`, definition checks, §7 text/JSON, §8 states   | Verification checks 1–7 (below) pass for every tag of `weap`, `proj`, `bipd`, `vehi`, `effe`, with zero unexplained failures; the user's spot values (check 9) match                                                                    |
-| M4  | MCP server for everything above + agent instructions (§9a)                                                  | A fresh Claude Code session with only the server instructions and tools answers the example questions listed below this table without reading a whole large tag, and without stating values from `!!` output as facts; the guide-coverage test (§9a) passes                   |
-| M5  | §6.6 analysis tools, header scan                                                                            | `query_field` over all `weap` tags < 5 s; `find_references(in)` matches a manual check on 3 tags                                                                                                                                        |
+| M4  | MCP server for everything above + agent instructions (§9a); in-memory caches (§13); the size guard (§6.4.1); fixes from the simulated session (decisions D38) | A fresh Claude Code session with only the server instructions and tools answers the M4 example questions listed below this table without reading a whole large tag, and without stating values from `!!` output as facts, with the tokens per question recorded in `docs/progress.md`; the guide-coverage test (§9a) passes                   |
+| M5  | Token budget test (first step, below), §6.6 analysis tools, header scan                                     | `query_field` over all `weap` tags < 5 s; `find_references(in)` matches a manual check on 3 tags; a fresh session answers the M5 example questions, each within its token budget                                                         |
 | M6  | Second build (Xbox One Guardians), `compare_builds`, cross-build `diff_tags`                                | Both builds indexed together; campaign scenario tags appear as Xbox-only; `definition_status` reports per class whether the definitions fit the Xbox build                                                                              |
 | M7  | §6.8 bitmaps (untiled)                                                                                      | For 10 Forge bitmaps (diffuse, normal map, cubemap, HUD element, alpha mask): two independent decoders agree; the user confirms the preview sheets look right; exported DDS files re-read by our own DDS reader give identical data     |
 
@@ -535,14 +538,21 @@ The config format with `[[build]]` (§6.1) is used from M1; only one build is ne
 8. **Bitmaps:** decode each test texture with two independent BCn decoders and compare; the agent views the preview sheets (§6.8) and the user confirms a few look right.
 9. **The user's game knowledge:** a few spot values the user knows from playing (e.g. a weapon's magazine size) as named integration tests.
 
-Example questions for M4:
+Example questions for M4 (answerable with the M1–M3 tools):
 
 - "Find every tag related to the assault rifle."
 - "What's in `objects\weapons\rifle\`?"
 - "Show the firing settings of the battle rifle's first barrel, and every possible trigger mode."
+- "What's different between the assault rifle's and the SMG's barrels?" (two path reads; `diff_tags` makes it one call in M5)
+
+Example questions for M5 (they need the §6.6 tools):
+
 - "List the magazine size of every weapon."
 - "Which tags reference this projectile?"
-- "What's different between the assault rifle's and the SMG's barrels?"
+- "What would it take to make the battle rifle use a battery (a percentage, like the plasma pistol) instead of bullets, and what else would that change (HUD, ammo pickups)?" (decisions D38: simulated before M4 at about 12,000 tokens over 41 calls, `docs/progress.md`)
+- "Would that battery level be kept if the weapon is dropped and picked up again?" The answer may depend on engine behaviour no tag stores: the agent shows the related fields and examples from other weapons, and says what is inference (AGENT_GUIDE "What a change affects").
+
+**Token budget test (first step of M5).** An automated, ignored real-file test replays the call sequences of the M4 acceptance session (and later the M5 one) and fails when a call's text result grows past its budget, set from the measured size plus a margin. It keeps later output changes from making answers more expensive. It comes after M4 because the sequences must be real ones, recorded from a fresh session, not guessed.
 
 **Testing:** unit tests for the field type table (every type used in the definitions), name parsing (§5.3, including `#`/`:`/range/markers), field path parsing, MurmurHash3 (known values), enum/flag decoding, custom-label classification. Snapshot tests of `read_tag` text and JSON on fixtures. An integration test suite, ignored by default, runs against a real deploy folder given by an environment variable. No game files are committed; fixtures are synthetic or tiny extracted samples.
 
@@ -651,7 +661,7 @@ h5tags/
 **Rules**
 
 - Logs go to **stderr only**; stdout carries the MCP protocol.
-- Memory-map module files. Decompress only what a call needs. LRU cache of decompressed tags (size configurable).
+- Memory-map module files. Decompress only what a call needs. LRU cache of decompressed tags (size: `tag_cache_mb`, §6.1). A long-running process (the MCP server) keeps the index, opened modules and parsed definitions between calls, and drops a definition or module when its file changes (same keys as §6.9).
 - The library crates MUST NOT depend on MCP; everything is usable from the CLI.
 - **OS-agnostic:** every crate MUST build and pass its tests on Windows, Linux and macOS. No OS-specific code outside an opt-in cargo feature (the only planned one: `xg.dll` de-tiling, backlog 8). File system paths use `std::path`; tag paths (`\`-separated game data) are never treated as file system paths. Prefer pure-Rust dependencies (no C toolchain needed). A CI workflow (GitHub Actions) builds and runs the unit tests on all three OSes from M1 on.
 
