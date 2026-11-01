@@ -83,3 +83,37 @@ fn every_tag_renders() {
     println!("largest at depth 2: {:?}", &largest[..largest.len().min(5)]);
     println!("!! lines by kind: {failures:?}");
 }
+
+/// Every definition as get_definition (fully expanded, full detail) and outline show it.
+#[test]
+#[ignore]
+fn every_definition_renders() {
+    use h5tags_core::def_view::{definition_view, outline_definition};
+    use h5tags_core::stored::load_definition_file;
+
+    let defs = std::env::var("H5_DEFS")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/H5Tags/tags"));
+    let settings = ViewSettings { depth: 99, detail: Detail::Full, options: Options::All, show_hidden: true };
+    let start = Instant::now();
+    let (mut files, mut lines, mut outline_lines) = (0usize, 0usize, 0usize);
+    let mut paths: Vec<PathBuf> = std::fs::read_dir(&defs).unwrap().map(|e| e.unwrap().path()).collect();
+    paths.sort();
+    for p in &paths {
+        let def = load_definition_file(p).unwrap();
+        let v = TagView {
+            title: "# d".into(),
+            nodes: definition_view(&def.fields, "", settings).unwrap(),
+            ..TagView::default()
+        };
+        lines += v.render_lines(false).lines().count();
+        serde_json::to_string(&v.render_json()).unwrap();
+        let o = TagView { title: "# d".into(), nodes: outline_definition(&def.fields, 3), ..TagView::default() };
+        outline_lines += o.render_lines(false).lines().count();
+        files += 1;
+    }
+    println!(
+        "{files} definitions rendered in {:.2?}: {lines} lines fully expanded, outlines {outline_lines} lines",
+        start.elapsed()
+    );
+}
