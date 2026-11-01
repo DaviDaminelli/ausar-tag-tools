@@ -129,3 +129,10 @@ PRD §5.3 described a simpler name syntax than the 68,781 real names use (format
 - **Markers:** only the trailing run counts, so literal `&`, `?`, `!` inside names stay text.
 - **Group headings** (`_field_custom` that is neither a section label nor a widget, 533 of them): shown as `###` headings, like an explanation without text, so the AI sees the editor's grouping and `section=` can select them. The PRD had them ignored as widgets.
 PRD §5.3 updated.
+
+## D35. Paths and sections with real names (2026-11-01)
+PRD §6.4.2 splits paths at `.` and `[`, but 282 real names contain those characters. Choices:
+- **Path steps** match the names at their level: the longest name the remaining text starts with (case-insensitive), followed by the end, `.`, or `[n]`/`[*]`. All 36,450 field paths of the definitions round-trip with this rule.
+- **Passing through a tag block without an index** uses entry 0, as a block shown without an index expands entry 0 (PRD §6.4.2).
+- **Sections** end at the next heading of the same or a higher rank among the same fields. Headings are class sections (rank 2), explanations and group headings (rank 1). Structs and tag blocks don't end a section: they are fields of it. A section label below the top level counts as a group heading.
+- The path and section rules live in `h5-meta` (`path.rs`), shared by `read_tag`, `get_definition` and `outline`. PRD §6.4.2 and §6.4.3 updated.

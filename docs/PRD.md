@@ -258,16 +258,16 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
 
 #### 6.4.2 Field paths
 
-- Field names separated by `.`. Names are display names (§5.3, markers removed), matched case-insensitively; spaces are part of names.
+- Field names separated by `.`. Names are display names (§5.3, markers removed), matched case-insensitively; spaces are part of names. Real names can contain `.` and `[…]` (`Res. Area`, `peg threshold [0,1]`; `docs/format-notes.md` "Names"), so each step is matched against the names at its level: the longest name the text starts with, followed by the end, `.` or an index (decisions D35).
 - `[i]` selects entry `i` (0-based) of a tag block field; `[*]` selects every entry. Example: `barrels[0].firing noise`, `barrels[*].rounds per second`.
 - Struct fields and array fields are stepped into by name, without an index.
-- A tag block field reached **without** an index shows its entry count and labels, and expands **entry 0** if `depth` allows (output says `showing [0]`).
+- A tag block field reached **without** an index shows its entry count and labels, and expands **entry 0** if `depth` allows (output says `showing [0]`). A path that passes **through** a tag block without an index uses entry 0 too (`barrels.rounds per second` = `barrels[0].rounds per second`).
 - If a name doesn't match: return an error listing up to 5 closest names at that level (edit distance).
 - If several sibling fields have the same name: the first is `name`, later ones are `name#2`, `name#3` (in field order). Output always uses these unique names.
 
 #### 6.4.3 Sections
 
-- `section="<heading>"` selects a section by heading text (case-insensitive). It returns the section's heading and every field up to the next heading at the same or a higher level (§7.3).
+- `section="<heading>"` selects a section by heading text (case-insensitive). It returns the section's heading and every field up to the next heading at the same or a higher level (§7.3). Headings are class sections, explanations and group headings (§5.3); a class section outranks the others. Structs and tag blocks inside a section belong to it (D35).
 - If the heading occurs more than once, return the list of matching sections with their field paths instead of reading.
 
 #### 6.4.4 Field type table and reading

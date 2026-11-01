@@ -223,3 +223,12 @@ Speed-up in the same step (D26): the first version took 69.4 s on Forge. Path st
 | Time, every tag                                      | 17.1 s                            | 19.4 s                            |
 
 Q9 answered: the k-th resource struct of a tag is its resource [k].
+
+**Step 3: field paths and sections** (all 289 class definitions)
+
+| What                                             | Number           |
+| ------------------------------------------------ | ---------------- |
+| Field paths that parse back to their field       | 36,450 of 36,450 |
+| Path steps containing `.` / `[…]`, handled       | 125 / 157        |
+| Explanation headings found as sections           | 1,555 of 1,555   |
+| Time, every path and heading of every definition | 0.17 s           |

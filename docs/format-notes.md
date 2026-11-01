@@ -121,6 +121,7 @@ Verified 2026-11-01 (tests `name::tests` and `real_definitions::names_and_rules_
 - Counts: hidden (`!`) 4,431, labels entries (`^`) 1,134. No value field has an empty display name.
 - **Every class definition starts with `vtable space` + the internal struct** (289 of 289), and there are **529** mapping-function structs (PRD §5.3's number).
 - **Sibling names repeat:** 1,774 fields need `#2`, `#3`… to be unique among their siblings (compared case-insensitively, like paths).
+- **Names contain path characters:** 125 path steps contain `.` (`pre voc. delay`, `Res. Area Scan Start Effect`) and 157 contain `[…]` (`Default Label [1]`, `peg threshold [0,1]`). With the longest-name rule (PRD §6.4.2), all 36,450 field paths of the definitions parse back to their field (test `h5-meta` `real_paths`, 2026-11-01), and all 1,555 explanation headings are found as sections.
 
 ### Custom fields (`_field_custom`)
 Verified the same way (978 customs). Three roles, not two:
