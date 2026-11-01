@@ -415,6 +415,13 @@ fn every_tag_header_parses_and_checks() {
     // Tag references: all, without a dependency, of those naming a tag (ID set), of those with a listed name.
     let (mut refs, mut refs_no_dep, mut refs_no_dep_named, mut refs_no_dep_listed) = (0usize, 0usize, 0usize, 0usize);
     let mut non_ascii_tables = 0usize;
+    // Zonesets: names resolve through the tag's own string_ids; each resource is
+    // loaded by some zoneset (checked by `TagHeader::check`, `zoneset`).
+    let (mut zonesets, mut zs_named, mut zs_tags, mut zs_tag_named) = (0usize, 0usize, 0usize, 0usize);
+    let (mut zs_resources, mut zs_tags_with_resources) = (0usize, 0usize);
+    let mut zs_per_tag: BTreeMap<usize, usize> = BTreeMap::new();
+    // Q9: is the resource at position k of the entry's list named `[k:kind]`?
+    let (mut resources, mut resources_named_by_position) = (0usize, 0usize);
     for (found, m) in modules.iter().zip(&parsed) {
         for (i, e) in m.entries.iter().enumerate().filter(|(_, e)| e.kind() == EntryKind::Tag) {
             let i = i as u32;
@@ -458,6 +465,22 @@ fn every_tag_header_parses_and_checks() {
                 }
             }
             non_ascii_tables += usize::from(!tag.string_table.is_ascii());
+            let sid_names = tag.string_id_names();
+            *zs_per_tag.entry(tag.zonesets.len()).or_default() += 1;
+            zs_tags_with_resources += usize::from(e.resource_count > 0);
+            for (k, &file) in m.entry_resources(i).unwrap().iter().enumerate() {
+                resources += 1;
+                let name = m.name(file).unwrap_or("");
+                resources_named_by_position +=
+                    usize::from(h5_module::names::parse_resource_name(name).is_some_and(|r| r.index as usize == k));
+            }
+            for z in &tag.zonesets {
+                zonesets += 1;
+                zs_named += usize::from(sid_names.get(z.name).is_some());
+                zs_resources += z.resources.len();
+                zs_tags += z.tags.len();
+                zs_tag_named += z.tags.iter().filter(|t| sid_names.get(t.zoneset_name).is_some()).count();
+            }
             for d in &tag.dependencies {
                 deps += 1;
                 deps_unnamed += usize::from(tag.string_bytes(d.name_offset).is_none_or(<[u8]>::is_empty));
@@ -500,6 +523,13 @@ fn every_tag_header_parses_and_checks() {
         "tag references: {refs}; {refs_no_dep} without a dependency, {refs_no_dep_named} of those hold a global ID, {refs_no_dep_listed} of those with a listed name"
     );
     println!("tags whose string table has non-ASCII bytes: {non_ascii_tables}");
+    println!("zonesets per tag: {zs_per_tag:?}");
+    println!(
+        "tag resources: {resources}; {resources_named_by_position} named [k:kind] at position k of the entry's list"
+    );
+    println!(
+        "zonesets: {zonesets}, {zs_named} named by the tag's string_ids; zoneset tags: {zs_tags}, {zs_tag_named} named; {zs_resources} resource indices, from {zs_tags_with_resources} tags with resources"
+    );
     println!("dependencies without a listed name: {deps_unnamed}");
     for d in &deps_other_name {
         println!("  name differs: {d}");

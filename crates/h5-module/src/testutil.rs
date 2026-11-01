@@ -249,6 +249,9 @@ pub fn sample_entries() -> Vec<TestEntry> {
 
 pub const SAMPLE_LOADED_TAGS: &[i32] = &[0x0040_1140, 0x0040_2000];
 
+/// (name hash, [(global ID, name hash)], [resource index]).
+pub type TestZoneset = (u32, Vec<(i32, u32)>, Vec<u32>);
+
 /// A synthetic tag: header lists plus the tag data blocks they describe.
 #[derive(Clone, Default)]
 pub struct TestTag {
@@ -264,8 +267,7 @@ pub struct TestTag {
     /// (field block, field offset, dependency index or None).
     pub tag_refs: Vec<(i32, u32, Option<usize>)>,
     pub string_ids: Vec<String>,
-    /// (name hash, [(global ID, name hash)]).
-    pub zonesets: Vec<(u32, Vec<(i32, u32)>)>,
+    pub zonesets: Vec<TestZoneset>,
     pub trailing: Vec<u8>,
 }
 
@@ -284,7 +286,7 @@ pub fn sample_tag() -> TestTag {
         data_refs: vec![(0, 2, 0, 0x40)],
         tag_refs: vec![(0, 0x20, Some(0)), (1, 0x00, None), (1, 0x20, Some(1))],
         string_ids: vec!["__default__".into(), "primary".into()],
-        zonesets: vec![(default, vec![(0x0040_1000, default), (0x0040_2000, default)])],
+        zonesets: vec![(default, vec![(0x0040_1000, default), (0x0040_2000, default)], vec![])],
         trailing: Vec::new(),
     }
 }
@@ -339,21 +341,29 @@ pub fn build_tag(t: &TestTag) -> (Vec<u8>, Vec<u8>) {
         tag_data.extend_from_slice(b);
     }
 
-    // Zoneset info: header, entries, then each entry's tag list.
+    // Zoneset info as real tags lay it out: header, entries, each entry's
+    // resource list, then each entry's tag list.
     let mut zoneset = Vec::new();
     zoneset.extend((t.zonesets.len() as u64).to_le_bytes());
     zoneset.extend(0x10u64.to_le_bytes());
-    let mut list_at = 0x10 + t.zonesets.len() * 0x28;
-    for (name, tags) in &t.zonesets {
+    let mut resources_at = 0x10 + t.zonesets.len() * 0x28;
+    let mut tags_at = resources_at + t.zonesets.iter().map(|z| z.2.len() * 4).sum::<usize>();
+    for (name, tags, resources) in &t.zonesets {
         zoneset.extend(name.to_le_bytes());
         zoneset.extend(0i32.to_le_bytes());
-        zoneset.extend(0i64.to_le_bytes());
-        zoneset.extend(0i64.to_le_bytes());
+        zoneset.extend((resources.len() as u64).to_le_bytes());
+        zoneset.extend((resources_at as u64).to_le_bytes());
         zoneset.extend((tags.len() as u64).to_le_bytes());
-        zoneset.extend((list_at as u64).to_le_bytes());
-        list_at += tags.len() * 8;
+        zoneset.extend((tags_at as u64).to_le_bytes());
+        resources_at += resources.len() * 4;
+        tags_at += tags.len() * 8;
     }
-    for (_, tags) in &t.zonesets {
+    for (_, _, resources) in &t.zonesets {
+        for r in resources {
+            zoneset.extend(r.to_le_bytes());
+        }
+    }
+    for (_, tags, _) in &t.zonesets {
         for (gid, name) in tags {
             zoneset.extend(gid.to_le_bytes());
             zoneset.extend(name.to_le_bytes());

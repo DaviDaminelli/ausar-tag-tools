@@ -218,3 +218,67 @@ fn reads_what_a_reference_field_holds() {
     outside.field_offset = 0x50;
     assert_eq!(tag.reference_field(&tag_data, &outside), None);
 }
+
+/// `t` as a tag entry owning `resources` resource entries.
+fn with_resources(t: &TestTag, resources: u32) -> (Vec<u8>, TagHeader) {
+    let (header, tag_data) = build_tag(t);
+    let name = r"objects\test\test.weapon";
+    let mut e = TestEntry::tag(name, 0x10, "weap", &tag_data);
+    e.sections.0 = header.clone();
+    e.resources = (1..=resources).collect();
+    let mut entries = vec![e];
+    entries.extend((0..resources).map(|k| TestEntry::resource(&format!("{name}[{k}:mesh resource]"), 0, b"mesh")));
+    (build_module(Version::V27, &entries, &[]), TagHeader::parse(&header).unwrap())
+}
+
+fn two_zonesets() -> TestTag {
+    let mut t = sample_tag();
+    let (default, other) = (murmur3_x86_32(b"__default__", 0), murmur3_x86_32(b"primary", 0));
+    t.zonesets = vec![(default, vec![(0x0040_1000, default)], vec![0]), (other, vec![], vec![1])];
+    t
+}
+
+#[test]
+fn zonesets_list_the_resources_they_load() {
+    let (module, tag) = with_resources(&two_zonesets(), 2);
+    assert_eq!(tag.zonesets[0].resources, [0]);
+    assert_eq!(tag.zonesets[1].resources, [1]);
+    assert_eq!(tag.zonesets[0].tags.len(), 1);
+    assert!(tag.check(&Module::parse(&module).unwrap().entries[0]).is_empty());
+}
+
+#[test]
+fn zoneset_resources_must_be_the_entrys_resources() {
+    let check = |t: &TestTag, resources| {
+        let (module, tag) = with_resources(t, resources);
+        failed(&tag.check(&Module::parse(&module).unwrap().entries[0]))
+    };
+    // Index 1 doesn't exist: the entry owns one resource.
+    assert_eq!(check(&two_zonesets(), 1), [checks::ZONESET]);
+    // Resource 2 is listed by no zoneset.
+    assert_eq!(check(&two_zonesets(), 3), [checks::ZONESET]);
+    // A zoneset section bigger than its contents.
+    let (module, mut tag) = with_resources(&two_zonesets(), 2);
+    tag.fields.zoneset_size += 4;
+    let failures = tag.check(&Module::parse(&module).unwrap().entries[0]);
+    assert!(failed(&failures).contains(&checks::ZONESET), "{failures:?}");
+}
+
+#[test]
+fn rejects_a_resource_list_outside_the_zoneset_section() {
+    let (mut h, _) = build_tag(&two_zonesets());
+    let tag = TagHeader::parse(&h).unwrap();
+    let zoneset_start = h.len() - tag.trailing.len() - tag.fields.zoneset_size as usize;
+    let count_at = zoneset_start + 0x10 + 0x08; // zoneset 0's resource count
+    h[count_at..count_at + 8].copy_from_slice(&1000u64.to_le_bytes());
+    assert!(matches!(TagHeader::parse(&h), Err(TagError::BadZoneset(_))));
+}
+
+#[test]
+fn string_id_names_come_from_the_tags_own_strings() {
+    let tag = parse(&sample_tag());
+    let names = tag.string_id_names();
+    assert_eq!(names.get(murmur3_x86_32(b"__default__", 0)).as_deref(), Some("__default__"));
+    assert_eq!(names.get(murmur3_x86_32(b"primary", 0)).as_deref(), Some("primary"));
+    assert_eq!(names.get(0x1234_5678), None);
+}

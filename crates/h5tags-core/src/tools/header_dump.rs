@@ -3,12 +3,14 @@
 //! `AGENT_GUIDE.md`.
 
 use h5_module::murmur3::murmur3_x86_32;
-use h5_module::tag::{DataBlock, StructKind, TagHeader};
+use std::collections::HashMap;
+
+use h5_module::tag::{DataBlock, Dependency, StringIdNames, StructKind, TagHeader};
 use h5_module::{FourCc, GlobalId, Section};
 
 use super::args::{self, BuildArg};
 use super::present;
-use crate::catalog::Build;
+use crate::catalog::{Build, Copy};
 use crate::output::{Cell, Column, Output, Part, Table, ToolError, col};
 use crate::session::Session;
 use crate::stored::{StoredTag, read_stored_tag};
@@ -30,6 +32,7 @@ impl HeaderDump {
         let t = args::tag_copy(s, &self.tag, &self.build, self.module.as_deref())?;
         let stored = read_stored_tag(t.build, t.copy).map_err(present::read_error)?;
         let h = &stored.header;
+        let names = h.string_id_names();
         let mut header = header_part(h, &t.build.module(t.copy).rel_path);
         header.table.hints.extend(t.other_copies_hint);
         Ok(Output::Parts {
@@ -42,8 +45,9 @@ impl HeaderDump {
                 data_references(h),
                 tag_references(t.build, &stored),
                 string_ids(h),
-                zonesets(h),
-                zoneset_tags(t.build, h),
+                zonesets(h, &names),
+                zoneset_resources(t.build, t.copy, h, &names),
+                zoneset_tags(t.build, h, &names),
             ],
         })
     }
@@ -71,11 +75,12 @@ mod column {
     pub const STRING: Column = Column { header: "string", key: "string" };
     pub const ZONESET: Column = Column { header: "zoneset", key: "zoneset" };
     pub const NAME_HASH: Column = Column { header: "name hash", key: "name_hash" };
+    pub const RESOURCE: Column = Column { header: "resource", key: "resource" };
+    pub const RESOURCES: Column = Column { header: "resources", key: "resources" };
+    pub const LOADS_ZONESET: Column = Column { header: "loads zoneset", key: "loads_zoneset" };
     // Fields of unknown meaning, named by their offset in the list entry.
     pub const UNKNOWN0: Column = Column { header: "unknown0", key: "unknown0" };
     pub const UNKNOWN4: Column = Column { header: "unknown4", key: "unknown4" };
-    pub const UNKNOWN8: Column = Column { header: "unknown8", key: "unknown8" };
-    pub const UNKNOWN10: Column = Column { header: "unknown10", key: "unknown10" };
     pub const UNKNOWN12: Column = Column { header: "unknown12", key: "unknown12" };
     pub const UNKNOWN14: Column = Column { header: "unknown14", key: "unknown14" };
 }
@@ -320,7 +325,12 @@ fn string_ids(h: &TagHeader) -> Part {
     part("string IDs", "string_ids", columns, rows)
 }
 
-fn zonesets(h: &TagHeader) -> Part {
+/// A string_id: its string when the tag lists it, else the hash.
+fn string_id(names: &StringIdNames<'_>, value: u32) -> Cell {
+    names.get(value).map_or_else(|| hash(value), Cell::from)
+}
+
+fn zonesets(h: &TagHeader, names: &StringIdNames<'_>) -> Part {
     let rows = h
         .zonesets
         .iter()
@@ -328,35 +338,67 @@ fn zonesets(h: &TagHeader) -> Part {
         .map(|(i, z)| {
             vec![
                 int(i as i64),
+                string_id(names, z.name),
                 hash(z.name),
+                int(z.resources.len() as i64),
                 int(z.tags.len() as i64),
                 int(z.unknown4),
-                hex(z.unknown8),
-                hex(z.unknown10),
             ]
         })
         .collect();
-    let columns =
-        vec![column::INDEX, column::NAME_HASH, col::TAGS, column::UNKNOWN4, column::UNKNOWN8, column::UNKNOWN10];
+    let columns = vec![column::INDEX, col::NAME, column::NAME_HASH, column::RESOURCES, col::TAGS, column::UNKNOWN4];
     part("zonesets", "zonesets", columns, rows)
 }
 
-fn zoneset_tags(b: &Build, h: &TagHeader) -> Part {
+/// The tag's resources each zoneset loads: index into the tag's resource
+/// list, and that resource entry (format-notes "Tags").
+fn zoneset_resources(b: &Build, copy: Copy, h: &TagHeader, names: &StringIdNames<'_>) -> Part {
+    let resources = &b.entry(copy).resources;
     let rows = h
         .zonesets
         .iter()
-        .enumerate()
-        .flat_map(|(z, zs)| zs.tags.iter().map(move |t| (z, t)))
-        .map(|(z, t)| {
+        .flat_map(|z| z.resources.iter().map(move |&r| (z, r)))
+        .map(|(z, r)| {
+            let entry = resources.get(r as usize).map(|&file| &b.module(copy).entries[file as usize]);
             vec![
-                int(z as i64),
-                t.global_id.to_string().into(),
-                target_name(b, t.global_id, FourCc::NONE, None),
-                hash(t.zoneset_name),
+                string_id(names, z.name),
+                int(r),
+                entry.and_then(|e| e.resource_name()).map_or(Cell::Empty, |n| n.kind.into()),
+                entry.map_or(Cell::Empty, |e| e.name.clone().into()),
             ]
         })
         .collect();
-    let columns = vec![column::ZONESET, col::GLOBAL_ID, col::DISPLAY_NAME, column::NAME_HASH];
+    let mut p = part(
+        "zoneset resources",
+        "zoneset_resources",
+        vec![column::ZONESET, column::RESOURCE, col::KIND, col::NAME],
+        rows,
+    );
+    p.table.wide_column = Some(3);
+    p
+}
+
+/// Zoneset tags carry only a global ID; tags that aren't indexed are named
+/// from the tag's own dependency list.
+fn zoneset_tags(b: &Build, h: &TagHeader, names: &StringIdNames<'_>) -> Part {
+    let deps: HashMap<GlobalId, &Dependency> = h.dependencies.iter().map(|d| (d.global_id, d)).collect();
+    let rows = h
+        .zonesets
+        .iter()
+        .flat_map(|z| z.tags.iter().map(move |t| (z, t)))
+        .map(|(z, t)| {
+            let dep = deps.get(&t.global_id);
+            let listed = dep.and_then(|d| h.string(d.name_offset));
+            let class = dep.map_or(FourCc::NONE, |d| d.class_code);
+            vec![
+                string_id(names, z.name),
+                t.global_id.to_string().into(),
+                target_name(b, t.global_id, class, listed.as_deref()),
+                string_id(names, t.zoneset_name),
+            ]
+        })
+        .collect();
+    let columns = vec![column::ZONESET, col::GLOBAL_ID, col::DISPLAY_NAME, column::LOADS_ZONESET];
     named_part("zoneset tags", "zoneset_tags", columns, rows)
 }
 
@@ -390,13 +432,34 @@ mod tests {
             "tag_references",
             "string_ids",
             "zonesets",
+            "zoneset_resources",
             "zoneset_tags",
         ]
         .iter()
         .map(|k| (*k, v[k]["total"].as_u64().unwrap_or_else(|| panic!("no part {k}"))))
         .collect();
         let lists: Vec<u64> = totals[1..].iter().map(|t| t.1).collect();
-        assert_eq!(lists, [2, 3, 2, 1, 3, 2, 1, 2]);
+        assert_eq!(lists, [2, 3, 2, 1, 3, 2, 1, 1, 2]);
+    }
+
+    /// Zoneset names are string_ids of the tag; each zoneset lists the
+    /// tag's resources it loads, by index.
+    #[test]
+    fn zonesets_show_their_names_and_resources() {
+        let mut d = TestDeploy::new("dump-zonesets");
+        let v = json(&dump(&mut d, None).unwrap());
+        assert_eq!(v["zonesets"]["rows"][0]["name"], "__default__");
+        assert_eq!(v["zonesets"]["rows"][0]["name_hash"], "0x9B555AD2");
+        assert_eq!(v["zonesets"]["rows"][0]["resources"], 1);
+        let res = &v["zoneset_resources"]["rows"][0];
+        assert_eq!(
+            (&res["zoneset"], &res["resource"], &res["kind"]),
+            (&"__default__".into(), &0.into(), &"mesh resource".into())
+        );
+        assert_eq!(res["name"], format!("{WEAPON}[0:mesh resource]"));
+        assert_eq!(v["zoneset_tags"]["rows"][1]["zoneset"], "__default__");
+        // Not indexed: named from the tag's own dependency list.
+        assert_eq!(v["zoneset_tags"]["rows"][1]["name"], r"fx\impact\bullet_hit.effe");
     }
 
     /// M2 done-when: dependencies print as readable display names.

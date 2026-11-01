@@ -37,6 +37,7 @@ pub mod checks {
     pub const STRING_ID: &str = "string_id";
     pub const TAG_REFERENCE_FIELD: &str = "tag_reference_field";
     pub const DATA_REFERENCE_FIELD: &str = "data_reference_field";
+    pub const ZONESET: &str = "zoneset";
 }
 
 /// What a failure is about: a kind of item and its index (`entry 3`, `dependency 7`).

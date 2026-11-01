@@ -32,11 +32,16 @@ impl TestDeploy {
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
-        let (header, tag_data) = build_tag(&sample_tag());
+        // The weapon owns one resource (file entry 2), loaded by its `__default__` zoneset.
+        let mut tag = sample_tag();
+        tag.zonesets[0].2 = vec![0];
+        let (header, tag_data) = build_tag(&tag);
         let mut weapon = TestEntry::tag(WEAPON, WEAPON_ID, "weap", &tag_data);
         weapon.sections.0 = header;
+        weapon.resources = vec![2];
         let bullet = TestEntry::tag(BULLET, 0x0040_1000, "proj", b"bullet data");
-        let module = build_module(Version::V27, &[weapon, bullet], &[]);
+        let mesh = TestEntry::resource(&format!("{WEAPON}[0:mesh resource]"), 0, b"mesh data");
+        let module = build_module(Version::V27, &[weapon, bullet, mesh], &[]);
         fs::write(deploy.join("any").join("levels").join("test-rtx-1.module"), module).unwrap();
 
         let (index, _) = Index::update(&deploy, None, &|_| false).unwrap();

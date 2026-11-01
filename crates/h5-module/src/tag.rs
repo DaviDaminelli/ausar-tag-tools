@@ -4,6 +4,7 @@
 //! compares the header's lists with the fields they describe.
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fmt;
 
 use crate::check::{CheckFailure, Failures, Item, checks};
@@ -11,6 +12,7 @@ use crate::fourcc::FourCc;
 use crate::global_id::GlobalId;
 use crate::le::{i32_at, i64_at, u16_at, u32_at, u64_at};
 use crate::module::{FileEntry, Section};
+use crate::murmur3::murmur3_x86_32;
 use crate::text::decode_cp1252;
 
 /// `'hscu'` as a little-endian `u32` (bytes on disk: `ucsh`).
@@ -28,6 +30,7 @@ const STRING_ID_SIZE: usize = 0x8;
 const ZONESET_HEADER_SIZE: usize = 0x10;
 const ZONESET_ENTRY_SIZE: usize = 0x28;
 const ZONESET_TAG_SIZE: usize = 0x8;
+const ZONESET_RESOURCE_SIZE: usize = 0x4;
 
 /// Sizes of the tag data fields the header's lists point at (PRD §5.2). The
 /// definition reader (M3) uses these too.
@@ -186,11 +189,14 @@ pub struct StringIdEntry {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Zoneset {
-    /// A string_id (hash).
+    /// A string_id (hash) of a string in the tag's own string_id list.
     pub name: u32,
+    /// Always 0 (padding; format-notes "Tags").
     pub unknown4: i32,
-    pub unknown8: i64,
-    pub unknown10: i64,
+    /// The tag's resources this zoneset loads, as indices into the file
+    /// entry's resource list: a count at +0x08 and an offset at +0x10 of
+    /// 4-byte indices (not in AusarDocs; format-notes "Tags").
+    pub resources: Vec<u32>,
     pub tags: Vec<ZonesetTag>,
 }
 
@@ -216,6 +222,20 @@ pub struct TagHeader {
     /// Bytes after the zoneset info, up to the end of the header section; not
     /// in AusarDocs, meaning unknown (PRD §12 Q11).
     pub trailing: Vec<u8>,
+}
+
+/// string_id hash → string, for one tag ([`TagHeader::string_id_names`]).
+pub struct StringIdNames<'t> {
+    tag: &'t TagHeader,
+    /// Hash → offset in the string table.
+    by_hash: HashMap<u32, u32>,
+}
+
+impl<'t> StringIdNames<'t> {
+    /// The string whose hash is `hash`, if the tag lists it.
+    pub fn get(&self, hash: u32) -> Option<Cow<'t, str>> {
+        self.tag.string(*self.by_hash.get(&hash)?)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
@@ -282,23 +302,27 @@ fn parse_zonesets(zs: &[u8]) -> Result<Vec<Zoneset>, TagError> {
     (0..count as usize)
         .map(|z| {
             let e = &zs[list_at as usize + z * ZONESET_ENTRY_SIZE..][..ZONESET_ENTRY_SIZE];
+            let (resource_count, resources_at) = (u64_at(e, 0x08), u64_at(e, 0x10));
+            if !fits(resources_at, resource_count, ZONESET_RESOURCE_SIZE) {
+                return Err(bad(format!("zoneset {z}: {resource_count} resources at +{resources_at} don't fit")));
+            }
             let (tag_count, tags_at) = (u64_at(e, 0x18), u64_at(e, 0x20));
             if !fits(tags_at, tag_count, ZONESET_TAG_SIZE) {
                 return Err(bad(format!("zoneset {z}: {tag_count} tags at +{tags_at} don't fit")));
             }
+            let resources = zs[resources_at as usize..][..resource_count as usize * ZONESET_RESOURCE_SIZE]
+                .as_chunks::<ZONESET_RESOURCE_SIZE>()
+                .0
+                .iter()
+                .map(|r| u32::from_le_bytes(*r))
+                .collect();
             let tags = zs[tags_at as usize..][..tag_count as usize * ZONESET_TAG_SIZE]
                 .as_chunks::<ZONESET_TAG_SIZE>()
                 .0
                 .iter()
                 .map(|t| ZonesetTag { global_id: GlobalId(i32_at(t, 0)), zoneset_name: u32_at(t, 4) })
                 .collect();
-            Ok(Zoneset {
-                name: u32_at(e, 0),
-                unknown4: i32_at(e, 4),
-                unknown8: i64_at(e, 8),
-                unknown10: i64_at(e, 0x10),
-                tags,
-            })
+            Ok(Zoneset { name: u32_at(e, 0), unknown4: i32_at(e, 4), resources, tags })
         })
         .collect()
 }
@@ -417,6 +441,17 @@ impl TagHeader {
         self.string_bytes(offset).map(decode_cp1252)
     }
 
+    /// Resolves string_id hashes (fields, zoneset names) by hashing the tag's
+    /// own string_id strings (PRD §5.2). Build it once per tag.
+    pub fn string_id_names(&self) -> StringIdNames<'_> {
+        let by_hash = self
+            .string_ids
+            .iter()
+            .filter_map(|s| Some((murmur3_x86_32(self.string_bytes(s.string_offset)?, 0), s.string_offset)))
+            .collect();
+        StringIdNames { tag: self, by_hash }
+    }
+
     /// The main struct (exactly one in a sound tag).
     pub fn main_struct(&self) -> Option<&TagStruct> {
         self.tag_structs.iter().find(|s| s.kind == StructKind::Main)
@@ -431,6 +466,7 @@ impl TagHeader {
         self.check_structs(&mut out);
         self.check_data_references(&mut out);
         self.check_tag_references(&mut out);
+        self.check_zonesets(entry, &mut out);
         for (i, d) in self.dependencies.iter().enumerate() {
             if self.string_bytes(d.name_offset).is_none() {
                 out.add(
@@ -616,6 +652,47 @@ impl TagHeader {
             if let Some(problem) = self.field_problem(r.field_block, r.field_offset, field_size::TAG_REFERENCE, true) {
                 fail(problem);
             }
+        }
+    }
+
+    /// The zoneset info holds exactly its header, entries, resource lists and
+    /// tag lists; the zonesets together list each of the entry's resources,
+    /// and only those (true of every sample tag, format-notes "Tags").
+    fn check_zonesets(&self, entry: &FileEntry, out: &mut Failures) {
+        let resources: usize = self.zonesets.iter().map(|z| z.resources.len()).sum();
+        let tags: usize = self.zonesets.iter().map(|z| z.tags.len()).sum();
+        let contents = match self.zonesets.len() {
+            0 => 0,
+            n => {
+                ZONESET_HEADER_SIZE
+                    + n * ZONESET_ENTRY_SIZE
+                    + resources * ZONESET_RESOURCE_SIZE
+                    + tags * ZONESET_TAG_SIZE
+            }
+        };
+        if contents != self.fields.zoneset_size as usize {
+            out.add(
+                checks::ZONESET,
+                None,
+                format!("zoneset info is {} bytes, its contents {contents}", self.fields.zoneset_size),
+            );
+        }
+        let count = entry.resource_count;
+        let mut listed = vec![false; count as usize];
+        for (z, zs) in self.zonesets.iter().enumerate() {
+            for &r in &zs.resources {
+                match listed.get_mut(r as usize) {
+                    Some(seen) => *seen = true,
+                    None => out.add(
+                        checks::ZONESET,
+                        item("zoneset", z),
+                        format!("lists resource {r}, the entry has {count}"),
+                    ),
+                }
+            }
+        }
+        if let Some(missing) = listed.iter().position(|&seen| !seen) {
+            out.add(checks::ZONESET, None, format!("no zoneset lists resource {missing} of {count}"));
         }
     }
 
