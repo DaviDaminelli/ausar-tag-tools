@@ -8,6 +8,7 @@ rust-version.workspace = true
 [dependencies]
 h5-defs.workspace = true
 h5-module.workspace = true
+strsim.workspace = true
 
 [dev-dependencies]
 h5-module = { workspace = true, features = ["testutil"] }

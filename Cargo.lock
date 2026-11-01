@@ -181,6 +181,7 @@ version = "0.1.0"
 dependencies = [
  "h5-defs",
  "h5-module",
+ "strsim",
 ]
 
 [[package]]
