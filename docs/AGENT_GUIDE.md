@@ -137,6 +137,9 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | Result / column | Meaning | What you may conclude |
 |---|---|---|
 | `hint: …` | A rare or partial result explaining itself, often with the next call to make | Follow it, or tell the user what it says |
+| `by class: mat  100, wcfg 31, … (+N more)` (`search_tags`) | How the hits split by class, most first | Narrow with `class=` instead of paging through everything |
+| `total: 0` + `hint: … similar names in tag paths: …` | Nothing matched; these real names are close to the query | Retry with one of them; don't conclude the tag doesn't exist |
+| `total: 0` + `hint: no tag matches every filter; …` | The query matches tags, but `class=`/`module=` removed them | Loosen the filters |
 | `… N more (offset=X)` | More rows exist; call again with that offset | Never say "that's all" before the last page |
 | `in <prefix>:` | Rows below are shortened; prepend the prefix | — |
 | `total` (lists) | How many rows match in all, not just this page | Use it for "how many" answers |

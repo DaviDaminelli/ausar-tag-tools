@@ -72,3 +72,9 @@ Domain rules are kept apart from program inputs, and every rule is written once:
 - **Presentation** (`tools/present.rs`, `output.rs`): results and errors as the text the agent reads; markers and column names come from one list each (`output::marker`, `output::col`).
 - Rules defined once: what a file entry is (`EntryKind::of`), file name conventions (`names.rs`, `EntryRecord::owner_name`/`tag_path`), where entry data ends (`Module::data_end`), check names (`checks::*`), global ID parsing and display (`GlobalId`), the common filters (`Filters::matches_tag`/`matches_entry`), the copy choice (`query::choose_copy`). Reports render text and JSON from the same items.
 - Not followed from SOLID/clean-code checklists, deliberately: method and field count limits, "no `else`", polymorphism instead of `match`, and newtypes for every number. Newtypes are used where values could be mixed up (global IDs, class codes, sizes).
+
+## D22. Overview and explanations for searches (2026-10-31, approved by the user)
+Found by trying the CLI as an agent would. A broad `search_tags` (230 hits for `assault_rifle`, 100 of them materials) gave no overview, and a typo returned a bare `total: 0`. Now:
+- When the hits span more than one class, the summary line adds `by class: …` (top 8, most first, then `+N more`; JSON: `by_class: { items: [{ name, count }], more }`). About 30 tokens, and it lets the agent narrow with `class=` in one call.
+- An empty result gets a `hint:`: either that the class/module filters removed N tags the query alone matches, or up to 5 similar folder/file names from tag paths (normalized Damerau-Levenshtein ≥ 0.7, `strsim`, the crate PRD §13 lists for did-you-mean), or a next step.
+PRD §6.3 and `AGENT_GUIDE.md` §4.6 updated.

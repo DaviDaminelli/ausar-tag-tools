@@ -24,6 +24,7 @@ pub enum Mode {
 }
 
 /// A compiled `query` + `mode`.
+#[derive(Clone)]
 pub enum NameMatcher {
     Contains(String),
     Regex(Regex),
@@ -165,6 +166,7 @@ impl KindFilter {
 
 /// The name part of the filters: `query` + `mode`, and for `search_tags` also
 /// Reclaimer's rule that the query may be a class code or name (PRD §5.5).
+#[derive(Clone)]
 pub struct NameFilter {
     pub matcher: NameMatcher,
     pub or_class: Option<FourCc>,

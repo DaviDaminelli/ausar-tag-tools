@@ -53,13 +53,34 @@ impl Tool for SearchTags {
                 }));
             }
         };
+        let name = NameFilter::reclaimer(b, args::name_matcher(&self.query, self.mode)?);
         let filters = Filters {
-            name: Some(NameFilter::reclaimer(b, args::name_matcher(&self.query, self.mode)?)),
+            name: Some(name.clone()),
             class,
             module: args::module_filter(self.module.as_deref()),
             ..Filters::default()
         };
         let hits = query::search_tags(b, &filters);
+
+        // An overview to narrow a broad search with class= in one step.
+        let by_class = query::count_by_class(&hits);
+        let summary = if by_class.len() > 1 {
+            let counts = by_class.into_iter().map(|(code, n)| (code.to_string(), n)).collect();
+            vec![Summary { label: "by class", key: "by_class", value: Cell::counts(counts, CLASS_BREAKDOWN_MAX) }]
+        } else {
+            Vec::new()
+        };
+        // An empty result says why (D22).
+        let mut hints = Vec::new();
+        if hits.is_empty() {
+            let name_only = query::search_tags(b, &Filters { name: Some(name), ..Filters::default() }).len();
+            hints.push(if name_only > 0 {
+                present::filtered_out_hint(name_only)
+            } else {
+                present::no_match_hint(&self.query, self.mode, &query::similar_names(b, &self.query, 5))
+            });
+        }
+
         let rows = self
             .page
             .page(&hits, 50)
@@ -76,14 +97,18 @@ impl Tool for SearchTags {
         Ok(Output::Table(Table {
             build: s.label(b),
             total: hits.len(),
+            summary,
             offset: self.page.offset,
             columns: SEARCH_COLUMNS.to_vec(),
             rows,
             path_column: Some(2),
-            ..Table::default()
+            hints,
         }))
     }
 }
+
+/// Classes listed in the `by class` summary; the rest are counted as `+N more`.
+const CLASS_BREAKDOWN_MAX: usize = 8;
 
 /// Explore tag paths like folders: the subfolders of a folder (with how many
 /// tags each holds) and the tags directly in it. Next: browse a subfolder, or

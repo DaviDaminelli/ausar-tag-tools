@@ -81,11 +81,23 @@ pub enum Cell {
     Float(f64),
     Size(u64),
     Bool(bool),
+    /// Named counts, most first: `mat 100, wcfg 31 (+3 more)` in text; in
+    /// JSON `{ "items": [{ "name", "count" }], "more": 3 }`.
+    Counts {
+        items: Vec<(String, usize)>,
+        more: usize,
+    },
     /// No value for this row (empty in text, omitted in JSON).
     Empty,
 }
 
 impl Cell {
+    /// The first `max` of `counts`, with how many were left out.
+    pub fn counts(counts: Vec<(String, usize)>, max: usize) -> Cell {
+        let more = counts.len().saturating_sub(max);
+        Cell::Counts { items: counts.into_iter().take(max).collect(), more }
+    }
+
     fn text(&self) -> String {
         match self {
             Cell::Text(s) => s.clone(),
@@ -93,6 +105,11 @@ impl Cell {
             Cell::Float(x) => format!("{x:.2}"),
             Cell::Size(n) => format_size(*n),
             Cell::Bool(b) => if *b { "yes" } else { "no" }.into(),
+            Cell::Counts { items, more } => {
+                let list: Vec<String> = items.iter().map(|(name, n)| format!("{name} {n}")).collect();
+                let more = if *more > 0 { format!(" (+{more} more)") } else { String::new() };
+                format!("{}{more}", list.join(", "))
+            }
             Cell::Empty => String::new(),
         }
     }
@@ -104,6 +121,10 @@ impl Cell {
             Cell::Float(x) => Some(json!(x)),
             Cell::Size(n) => Some(json!(n)),
             Cell::Bool(b) => Some(json!(b)),
+            Cell::Counts { items, more } => {
+                let items: Vec<Value> = items.iter().map(|(name, n)| json!({ "name": name, "count": n })).collect();
+                Some(json!({ "items": items, "more": more }))
+            }
             Cell::Empty => None,
         }
     }

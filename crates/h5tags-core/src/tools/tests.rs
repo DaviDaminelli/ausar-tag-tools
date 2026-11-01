@@ -329,3 +329,41 @@ fn reindex_reports_what_is_unavailable() {
     let v: Value = serde_json::from_str(&out.render(Format::Json)).unwrap();
     assert_eq!(v["results"]["rebuilt"], false);
 }
+
+#[test]
+fn broad_searches_show_hits_per_class() {
+    let v = run(&search("magnum"));
+    assert_eq!(
+        v["by_class"]["items"],
+        serde_json::json!([{ "name": "bitm", "count": 1 }, { "name": "weap", "count": 1 }])
+    );
+    assert_eq!(v["by_class"]["more"], 0);
+    assert!(text(&search("magnum")).starts_with("total: 2  by class: bitm 1, weap 1\n"));
+    // One class only: nothing to narrow down.
+    assert!(run(&SearchTags { class: Some("weap".into()), ..search("") }).get("by_class").is_none());
+}
+
+#[test]
+fn class_breakdown_is_ordered_and_capped() {
+    let counts = (0..10).map(|i| (format!("c{i}"), 10 - i)).collect();
+    assert_eq!(
+        Cell::counts(counts, 3),
+        Cell::Counts { items: vec![("c0".into(), 10), ("c1".into(), 9), ("c2".into(), 8)], more: 7 }
+    );
+}
+
+#[test]
+fn empty_searches_say_why() {
+    // A typo: close names are suggested.
+    let v = run(&search("magnam"));
+    assert_eq!(v["total"], 0);
+    assert_eq!(v["hints"][0], "no tag path contains 'magnam'; similar names in tag paths: magnum");
+    // Nothing close: a next step instead.
+    let hint = run(&search("zzzzzz"))["hints"][0].as_str().unwrap().to_owned();
+    assert!(hint.ends_with("try a shorter query, or browse a folder"), "{hint}");
+    // The query matches, but a filter removed every hit.
+    let v = run(&SearchTags { class: Some("lua".into()), ..search("magnum") });
+    assert_eq!(v["hints"][0], "no tag matches every filter; without class= and module=, the query matches 2 tags");
+    let v = run(&SearchTags { mode: Mode::Regex, ..search("^nothing$") });
+    assert!(v["hints"][0].as_str().unwrap().starts_with("no tag path matches the regex"));
+}

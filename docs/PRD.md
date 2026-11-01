@@ -226,6 +226,8 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
   - `exact`: the tag path or display name equals the query (case-insensitive).
   - `class`: class code or class name (exact, case-insensitive). `module`: substring of the module path (case-insensitive).
   - One row per global ID. Columns: global ID, class code, display name, copy count. Sorted by tag path.
+  - When the hits span more than one class, the summary gives the hits per class, most first (top 8, then `+N more`), so a broad search can be narrowed with `class=` in one step.
+  - No hits: a `hint:` says why. If the query matches tags but `class`/`module` removed them all, it says how many the query alone matches; otherwise it lists up to 5 similar folder or file names from tag paths ("did you mean", edit distance, as in §6.4.2), or suggests a shorter query (D22).
   - Always returns the total count.
 - `browse(path="", build?, offset=0, limit=100)`: treats tag paths as folders. `path` is a folder prefix (case-insensitive, `\` separated, no trailing `\` needed). Returns (1) the immediate subfolders, each with the number of tags under it recursively, and (2) the tags directly in that folder. Never the full tree.
 - `list_classes(build?)`: class code, class name, tag count, whether a definition exists.

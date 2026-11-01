@@ -3,6 +3,7 @@
 //! `docs/AGENT_GUIDE.md` (PRD §9a).
 
 use crate::catalog::{Build, ClassLookup, Tag};
+use crate::filters::Mode;
 use crate::output::{ToolError, format_size, marker};
 use crate::query::ModuleStatus;
 use crate::session::UnknownBuild;
@@ -73,6 +74,25 @@ pub fn not_stored_hint() -> String {
         "{}: the module describes this data (size shown) but doesn't contain it; where it is stored is unknown",
         marker::NOT_STORED
     )
+}
+
+/// The query matches tags, but the other filters (class, module) removed them all.
+pub fn filtered_out_hint(name_only: usize) -> String {
+    format!("no tag matches every filter; without class= and module=, the query matches {name_only} tags")
+}
+
+/// No tag matches the query at all; suggests close names when there are any.
+pub fn no_match_hint(query: &str, mode: Mode, similar: &[String]) -> String {
+    let what = match mode {
+        Mode::Default => format!("no tag path contains '{query}'"),
+        Mode::Regex => format!("no tag path matches the regex '{query}'"),
+        Mode::Exact => format!("no tag path or display name is exactly '{query}'"),
+    };
+    if similar.is_empty() {
+        format!("{what}; try a shorter query, or browse a folder")
+    } else {
+        format!("{what}; similar names in tag paths: {}", similar.join(", "))
+    }
 }
 
 pub fn other_copies_hint(copies: usize, module: &str) -> String {

@@ -1,8 +1,9 @@
 //! The domain operations behind the tools: typed inputs, typed results. No
 //! text, no hints, no rendering; tools turn the results into tables.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
+use h5_module::FourCc;
 use h5_module::index::{EntryKind, EntryRecord, ModuleRecord};
 use serde::Deserialize;
 
@@ -12,6 +13,42 @@ use crate::filters::{Filters, ModuleFilter, entry_kind};
 /// Tags matching `filters`, in tag path order (PRD §6.3).
 pub fn search_tags<'b>(build: &'b Build, filters: &Filters) -> Vec<&'b Tag> {
     build.tags.iter().filter(|t| filters.matches_tag(build, t)).collect()
+}
+
+/// How many of `tags` each class has, most first (ties by class code).
+pub fn count_by_class(tags: &[&Tag]) -> Vec<(FourCc, usize)> {
+    let mut counts: BTreeMap<FourCc, usize> = BTreeMap::new();
+    for t in tags {
+        *counts.entry(t.class).or_default() += 1;
+    }
+    let mut counts: Vec<(FourCc, usize)> = counts.into_iter().collect();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    counts
+}
+
+/// Folder and file names used in tag paths that are close to `text` (its last
+/// `\`-separated part), best first: "did you mean" for a search with no hits.
+pub fn similar_names(build: &Build, text: &str, max: usize) -> Vec<String> {
+    /// Below this, a name is too different to suggest.
+    const MIN_SIMILARITY: f64 = 0.7;
+    let wanted = text.trim_matches('\\').rsplit('\\').next().unwrap_or_default().to_ascii_lowercase();
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    // Every distinct name once, keyed in lowercase, as first seen.
+    let mut names: HashMap<String, &str> = HashMap::new();
+    for t in &build.tags {
+        for part in t.path.split('\\') {
+            names.entry(part.to_ascii_lowercase()).or_insert(part);
+        }
+    }
+    let mut scored: Vec<(f64, &str)> = names
+        .iter()
+        .map(|(lower, name)| (strsim::normalized_damerau_levenshtein(&wanted, lower), *name))
+        .filter(|(score, _)| *score >= MIN_SIMILARITY)
+        .collect();
+    scored.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(b.1)));
+    scored.into_iter().take(max).map(|(_, name)| name.to_owned()).collect()
 }
 
 pub struct Subfolder {
