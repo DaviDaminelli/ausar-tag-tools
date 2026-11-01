@@ -253,3 +253,32 @@ The output matches the sample agreed with the user (D36).
 | Their outlines (depth 3)                                               | 5,651 lines                      |
 | `search_definitions` over all 289 definitions, one CLI call            | 267–275 ms                       |
 | `outline` of the assault rifle / `read_tag` of it                      | 186 lines, 213 ms / 726 lines    |
+
+**Step 5: `header-dump` field paths** (D29): with a definition, each tag reference shows its field path. On the assault rifle, all 197 references have one (e.g. `attachments[1].type`).
+
+**M3 done-when checks** (PRD §9; Forge sample, 2026-11-01)
+
+Checks 1–7 on every tag of the five classes (test `h5-meta` `m3_checks_on_the_five_classes`, 10.5 s):
+
+| Class  | Tags  | 1 header ↔ definition | 2 references | 4 sizes | 5 string_ids hash back | 3 GUID mismatches (explained) | 6 implausible values (explained)        |
+| ------ | ----- | --------------------- | ------------ | ------- | ---------------------- | ----------------------------- | --------------------------------------- |
+| `weap` | 137   | 0                     | 0            | 0       | 6,453 of 6,453         | 292 at 2 fields               | 0                                       |
+| `proj` | 194   | 0                     | 0            | 0       | 4,547 of 4,547         | 0                             | 0                                       |
+| `bipd` | 21    | 0                     | 0            | 0       | 2,904 of 2,904         | 0                             | 0                                       |
+| `vehi` | 63    | 0                     | 0            | 0       | 8,007 of 8,007         | 126 at 2 fields               | 0                                       |
+| `effe` | 4,748 | 0                     | 0            | 0       | 61,335 of 61,335       | 22,587 at 1 field             | 76,058 enum values, 219 indices, 79 NaN |
+
+Every GUID mismatch and implausible value sits at a field recorded in format-notes ("GUIDs", "Values") with its cause: zero unexplained failures. Check 7 (whole-build sweep): every tag of every class reads and renders (steps 2a and 4a).
+
+Check 9, the user's values from playing (test `h5tags-core` `real_spot_values`, read with `read_tag` as the AI reads them):
+
+| The user said                   | Field                                                                                                | Tag value                             |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------- |
+| Battle rifle: 36 in a magazine  | `magazines[0].rounds loaded maximum`                                                                 | 36                                    |
+| Battle rifle: 3-round burst     | `barrels[0].firing.shots per fire`                                                                   | 3..3                                  |
+| Assault rifle: 36 in a magazine | `magazines[0].rounds loaded maximum`                                                                 | 36                                    |
+| Covenant carbine: 20 rounds     | `magazines[0].rounds loaded maximum`                                                                 | 20                                    |
+| Railgun: one shot at a time     | `magazines[0].rounds loaded maximum`                                                                 | 1                                     |
+| At most 2 grenades of each type | grenade list `grenades[*].maximum count (…).Base Value`, all 3 types, campaign/firefight/multiplayer | 2 (bounds 0..6, combined by addition) |
+
+5 of 5 match. The burst is `shots per fire`, not `rounds per burst` (0 on every weapon); the grenade bounds and addition combiner fit the user's note that an armor modification can raise the count.
