@@ -327,7 +327,7 @@ Two checks run for every struct field, tag block field and the main struct:
 ### 6.7 Developer tools (CLI only, not exposed over MCP)
 
 - `raw-view <tag> --data-block N --offset X --length L`: hex dump with the definition's field layout overlaid.
-- `header-dump <tag>`: all tag header sections.
+- `header-dump <tag> [--module M] [--build B]`: all tag header sections, as stored: one titled table per list (`## header`, `## dependencies`, `## data blocks`, `## tag structs`, `## data references`, `## tag references`, `## string IDs`, `## zonesets`, `## zoneset tags`), in the `table`, `text` and `json` formats. Dependencies and tag references show global IDs and display names; tag references also show what their field holds (§5.2). Fields of unknown meaning are shown by their offset (`unknown4`). Decisions D28, D29.
 - `preferences [set <key> <value> | unset <key>]`: show or change the display preferences (§6.1). Needs no config and loads no game files.
 
 ### 6.8 Bitmaps (`FR-6`, untiled only in v1)
@@ -541,6 +541,8 @@ Example questions for M4:
 ### 9a. Agent instructions (part of M4)
 
 `docs/AGENT_GUIDE.md` is **normative**: output format, short type names and markers MUST match it. Any change to output updates the guide in the same commit.
+
+**Tag internals are explained wherever the AI meets them** (decisions D30). Whenever a tool's output shows anything that comes from a tag's header or sections, the guide explains in plain words what that list is and what it tells about the tag, in the same commit as the output. This covers dependencies, tag references and their targets, null references, references without a dependency entry (§5.2), string IDs and the tag's string table, data blocks, resources, and header ↔ definition mismatches. The AI must never have to guess what such an item means.
 
 Delivered in three layers:
 
