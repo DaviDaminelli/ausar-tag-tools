@@ -10,10 +10,11 @@ use h5_module::{FourCc, GlobalId, Section};
 
 use super::args::{self, BuildArg};
 use super::present;
-use crate::catalog::{Build, Copy};
+use crate::catalog::{Build, Copy, Tag};
 use crate::output::{Cell, Column, Output, Part, Table, ToolError, col};
 use crate::session::Session;
-use crate::stored::{StoredTag, read_stored_tag};
+use crate::stored::{StoredTag, load_definition, read_stored_tag};
+use crate::tag_view::join;
 
 /// All sections of a tag's header, as stored (developer command; not a tool).
 #[derive(Clone, Debug, clap::Args)]
@@ -33,6 +34,7 @@ impl HeaderDump {
         let stored = read_stored_tag(t.build, t.copy).map_err(present::read_error)?;
         let h = &stored.header;
         let names = h.string_id_names();
+        let paths = reference_paths(t.build, t.tag, &stored)?;
         let mut header = header_part(h, &t.build.module(t.copy).rel_path);
         header.table.hints.extend(t.other_copies_hint);
         Ok(Output::Parts {
@@ -43,7 +45,7 @@ impl HeaderDump {
                 data_blocks(h),
                 tag_structs(h),
                 data_references(h),
-                tag_references(t.build, &stored),
+                tag_references(t.build, &stored, paths.as_ref()),
                 string_ids(h),
                 zonesets(h, &names),
                 zoneset_resources(t.build, t.copy, h, &names),
@@ -273,7 +275,38 @@ fn data_references(h: &TagHeader) -> Part {
 
 /// Each reference with what its field holds: a reference without a
 /// dependency may still name a tag (format-notes "Tags").
-fn tag_references(b: &Build, t: &StoredTag) -> Part {
+/// (data block, offset) → field path.
+type Places = HashMap<(u32, u32), String>;
+
+/// Where each tag reference is, by field path (decisions D29): (data block,
+/// offset) → path, from reading the tag with its class's definition. `None`
+/// without a definition.
+fn reference_paths(b: &Build, tag: &Tag, t: &StoredTag) -> Result<Option<Places>, ToolError> {
+    fn collect(body: &h5_meta::Body<'_>, path: &str, out: &mut Places) {
+        for n in &body.children {
+            let p = join(path, n.name.unwrap_or_default());
+            match &n.content {
+                h5_meta::Content::Value(h5_meta::Value::TagRef(r)) => {
+                    out.insert(r.place, p);
+                }
+                h5_meta::Content::Struct(b) | h5_meta::Content::Array(b) => collect(b, &p, out),
+                h5_meta::Content::Block(b) => {
+                    for (i, e) in b.entries.iter().enumerate() {
+                        collect(e, &format!("{p}[{i}]"), out);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let Some(def) = load_definition(b, tag).map_err(present::definition_error)? else { return Ok(None) };
+    let read = h5_meta::read_tag(&def, &t.header, &t.tag_data);
+    let mut out = HashMap::new();
+    collect(&read.root, "", &mut out);
+    Ok(Some(out))
+}
+
+fn tag_references(b: &Build, t: &StoredTag, paths: Option<&Places>) -> Part {
     let h = &t.header;
     let rows = h
         .tag_references
@@ -283,26 +316,25 @@ fn tag_references(b: &Build, t: &StoredTag) -> Part {
             let field = h.reference_field(&t.tag_data, r);
             let target = field.filter(|f| !f.is_null());
             let listed = h.string(r.name_offset);
-            vec![
-                int(i as i64),
-                index(r.field_block),
-                hex(r.field_offset),
+            let path = paths.map(|p| {
+                r.field_block.and_then(|b| p.get(&(b, r.field_offset))).map_or(Cell::Empty, |s| s.clone().into())
+            });
+            let mut row = vec![int(i as i64), index(r.field_block), hex(r.field_offset)];
+            row.extend(path);
+            row.extend([
                 index(r.dependency),
                 field.map_or(Cell::Empty, |f| f.global_id.to_string().into()),
                 field.map_or(Cell::Empty, |f| f.class_code.to_string().into()),
                 target.map_or(Cell::Empty, |f| target_name(b, f.global_id, f.class_code, listed.as_deref())),
-            ]
+            ]);
+            row
         })
         .collect();
-    let columns = vec![
-        column::INDEX,
-        column::FIELD_BLOCK,
-        column::FIELD_OFFSET,
-        column::DEPENDENCY,
-        col::GLOBAL_ID,
-        col::CLASS,
-        col::DISPLAY_NAME,
-    ];
+    let mut columns = vec![column::INDEX, column::FIELD_BLOCK, column::FIELD_OFFSET];
+    if paths.is_some() {
+        columns.push(col::FIELD_PATH);
+    }
+    columns.extend([column::DEPENDENCY, col::GLOBAL_ID, col::CLASS, col::DISPLAY_NAME]);
     named_part("tag references", "tag_references", columns, rows)
 }
 
@@ -486,6 +518,16 @@ mod tests {
         // A null reference: no dependency, and its field holds global ID -1.
         assert!(refs[1].get("dependency").is_none());
         assert_eq!(refs[1]["id"], "0xFFFFFFFF");
+    }
+
+    /// With a definition, each reference also gets its field path (decisions D29).
+    #[test]
+    fn tag_references_have_field_paths() {
+        let mut d = TestDeploy::new("dump-paths");
+        let v = json(&dump(&mut d, None).unwrap());
+        let paths: Vec<&str> =
+            v["tag_references"]["rows"].as_array().unwrap().iter().map(|r| r["path"].as_str().unwrap_or("-")).collect();
+        assert_eq!(paths, ["projectile", "entries[0].target", "entries[1].target"]);
     }
 
     #[test]
