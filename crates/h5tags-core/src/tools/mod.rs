@@ -10,6 +10,7 @@ pub mod args;
 mod header_dump;
 mod lists;
 pub mod present;
+mod read_tag;
 mod reindex;
 mod search;
 #[cfg(test)]
@@ -17,6 +18,7 @@ mod tests;
 
 pub use header_dump::HeaderDump;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
+pub use read_tag::ReadTag;
 pub use reindex::{Reindex, What};
 pub use search::{Browse, SearchTags};
 
@@ -52,7 +54,7 @@ macro_rules! tools {
     };
 }
 
-tools!(SearchTags, Browse, ListClasses, ListModules, ListEntries, ListResourceKinds, Reindex);
+tools!(SearchTags, Browse, ListClasses, ListModules, ListEntries, ListResourceKinds, ReadTag, Reindex);
 
 #[cfg(test)]
 mod registry_tests {

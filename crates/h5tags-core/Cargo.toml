@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 h5-defs.workspace = true
+h5-meta.workspace = true
 h5-module.workspace = true
 anstyle.workspace = true
 clap.workspace = true

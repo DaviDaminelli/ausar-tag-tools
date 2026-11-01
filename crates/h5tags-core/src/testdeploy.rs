@@ -20,6 +20,28 @@ pub const WEAPON_ID: i32 = 0x10;
 /// The second (`fx\impact\bullet_hit`, an effect) is not indexed.
 pub const BULLET: &str = r"objects\weapons\rifle\ar\bullet.projectile";
 
+/// The weapon's definition: the sample tag's layout (a block of tag references,
+/// padding, a tag reference, a data reference and an int).
+pub const WEAPON_DEFINITION: &str = r#"<plugin>
+	<_field_custom name="WEAPON" />
+	<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_tag_reference_64 name="target" />
+	</_field_block_64>
+	<_field_pad name="pad" length="4" />
+	<_field_tag_reference_64 name="projectile" validtags="proj" />
+	<_field_data_64 name="data" />
+	<_field_long_integer name="count" />
+</plugin>"#;
+
+/// A second copy of the weapon, in an update-layer module.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum SecondCopy {
+    None,
+    Identical,
+    /// Its `count` differs.
+    Changed,
+}
+
 pub struct TestDeploy {
     /// Deleted when the test ends.
     pub dir: TempDir,
@@ -29,6 +51,10 @@ pub struct TestDeploy {
 impl TestDeploy {
     /// `name` keeps tests running in parallel apart.
     pub fn new(name: &str) -> TestDeploy {
+        TestDeploy::with(name, SecondCopy::None)
+    }
+
+    pub fn with(name: &str, second: SecondCopy) -> TestDeploy {
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -43,10 +69,24 @@ impl TestDeploy {
         let mesh = TestEntry::resource(&format!("{WEAPON}[0:mesh resource]"), 0, b"mesh data");
         let module = build_module(Version::V27, &[weapon, bullet, mesh], &[]);
         fs::write(deploy.join("any").join("levels").join("test-rtx-1.module"), module).unwrap();
+        if second != SecondCopy::None {
+            if second == SecondCopy::Changed {
+                tag.blocks[0][0x5C..0x60].copy_from_slice(&9i32.to_le_bytes());
+            }
+            let (header, tag_data) = build_tag(&tag);
+            let mut copy = TestEntry::tag(WEAPON, WEAPON_ID, "weap", &tag_data);
+            copy.sections.0 = header;
+            let module = build_module(Version::V27, &[copy], &[]);
+            fs::write(deploy.join("any").join("levels").join("test-rtx-11587-1.module"), module).unwrap();
+        }
+        let defs = dir.0.join("defs");
+        fs::create_dir_all(&defs).unwrap();
+        fs::write(defs.join("(weap)weapon.xml"), WEAPON_DEFINITION).unwrap();
 
         let (index, _) = Index::update(&deploy, None, &|_| false).unwrap();
-        let cfg = BuildConfig { name: "forge".into(), deploy, defs: "defs".into(), resource_defs: None };
-        let build = Build::new("forge".into(), cfg, index, Definitions::from_files(vec![]));
+        let definitions = Definitions::load(&defs).unwrap();
+        let cfg = BuildConfig { name: "forge".into(), deploy, defs, resource_defs: None };
+        let build = Build::new("forge".into(), cfg, index, definitions);
         TestDeploy { session: Session::from_builds(dir.0.join("cache"), vec![build]), dir }
     }
 

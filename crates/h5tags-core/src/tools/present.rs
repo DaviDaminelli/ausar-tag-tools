@@ -9,7 +9,8 @@ use crate::filters::Mode;
 use crate::output::{ToolError, format_size, marker};
 use crate::query::ModuleStatus;
 use crate::session::UnknownBuild;
-use crate::stored::ReadError;
+use crate::stored::{DefinitionLoadError, ReadError};
+use h5_meta::{Divergence, PathError, Problem, Section};
 
 pub fn unknown_build(e: UnknownBuild) -> ToolError {
     ToolError::new(format!("unknown build '{}'", e.name)).hint(format!("builds: {}", e.available.join(", ")))
@@ -126,4 +127,76 @@ pub fn read_error(e: ReadError) -> ToolError {
         ReadError::Header { .. } => "this tag's header doesn't have the documented layout",
     };
     ToolError::new(e.to_string()).hint(hint)
+}
+
+pub fn definition_error(e: DefinitionLoadError) -> ToolError {
+    ToolError::new(e.to_string()).hint("the build's definitions folder (defs) may be damaged; check it in the config")
+}
+
+/// A tag whose class has no definition (PRD §6.4.5).
+pub fn no_definition(class: &str) -> String {
+    format!("{} '{class}'): its fields can't be read, only listed and followed by references", marker::NO_DEFINITION)
+}
+
+/// PRD §9 check 1 failed: the definition and the header's lists disagree.
+pub fn divergences(found: &[Divergence]) -> Option<String> {
+    let first = found.first()?;
+    let place = match first {
+        Divergence::NotInList { what, path } => format!("{what} at {path} is not in the tag header"),
+        Divergence::Unreached { what, block, offset, .. } => {
+            format!("the header lists a {what} at data block {block} +0x{offset:X} that no field reaches")
+        }
+    };
+    Some(format!(
+        "!! the definition doesn't match the tag header at {} place(s) (first: {place}): values may be misplaced",
+        found.len()
+    ))
+}
+
+pub fn main_struct_problem(p: &Problem) -> String {
+    crate::tag_view::problem_text(p, "(main struct)")
+}
+
+pub fn path_error(e: PathError) -> ToolError {
+    let level = |at: &str| if at.is_empty() { "the main struct".to_owned() } else { format!("'{at}'") };
+    match e {
+        PathError::NoSuchField { at, name, similar } if similar.is_empty() => {
+            ToolError::new(format!("no field '{name}' in {}", level(&at))).hint("outline lists the fields")
+        }
+        PathError::NoSuchField { at, name, similar } => ToolError::new(format!("no field '{name}' in {}", level(&at)))
+            .hint(format!("closest names there: {}", similar.join(", "))),
+        PathError::NotABlock { at } => {
+            ToolError::new(format!("'{at}' is not a tag block")).hint("[i] and [*] only follow tag block fields")
+        }
+        PathError::NoFields { at } => {
+            ToolError::new(format!("'{at}' holds a value, not fields")).hint("end the path at that field")
+        }
+        PathError::OutOfRange { at, index, count } => {
+            ToolError::new(format!("'{at}' has {count} entries; [{index}] doesn't exist")).hint(match count {
+                0 => "the block is empty".to_owned(),
+                n => format!("use [0] to [{}], or [*] for every entry", n - 1),
+            })
+        }
+        PathError::Empty { at } => {
+            ToolError::new(format!("'{at}' has no entries (empty)")).hint("the block is empty in this tag")
+        }
+        PathError::NotRead { at } => ToolError::new(format!("!! '{at}' wasn't read"))
+            .hint("a problem earlier in the tag stopped the read; read_tag without path= shows it"),
+    }
+}
+
+/// `section=` found none, or several (PRD §6.4.3: list them instead of reading).
+pub fn section_error(heading: &str, found: &[Section], fields: &[h5_defs::definition::Field]) -> ToolError {
+    if found.is_empty() {
+        return ToolError::new(format!("no section '{heading}'")).hint("outline lists the headings");
+    }
+    let places: Vec<String> = found
+        .iter()
+        .map(|s| match s.parent.display(fields) {
+            p if p.is_empty() => "the main struct".to_owned(),
+            p => p,
+        })
+        .collect();
+    ToolError::new(format!("'{heading}' heads {} sections, in: {}", found.len(), places.join("; ")))
+        .hint("read one with path= (the struct it is in)")
 }

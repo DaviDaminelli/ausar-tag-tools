@@ -8,9 +8,11 @@ pub mod output;
 pub mod query;
 pub mod session;
 pub mod stored;
+pub mod tag_view;
 #[cfg(test)]
 mod testdeploy;
 pub mod tools;
+pub mod view;
 
 pub use config::Config;
 pub use output::{Format, Output, ToolError};

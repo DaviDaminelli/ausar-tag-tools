@@ -83,8 +83,28 @@ pub mod marker {
     pub const INCOMPLETE: &str = "!! incomplete file";
     pub const DAMAGED: &str = "!! damaged";
     pub const NOT_INDEXED: &str = "!! not indexed";
+    // Field states (PRD §8).
+    pub const EMPTY: &str = "(empty)";
+    pub const NONE: &str = "(none)";
+    pub const NONE_SET: &str = "(none set)";
+    pub const NOT_IN_INDEX: &str = "(not in indexed modules)";
+    pub const UNRESOLVED: &str = "(unresolved)";
+    pub const NO_OPTIONS: &str = "(no options defined)";
+    pub const NO_DEFINITION: &str = "(no definition for class";
 
-    pub const ALL: &[&str] = &[NOT_STORED, INCOMPLETE, DAMAGED, NOT_INDEXED];
+    pub const ALL: &[&str] = &[
+        NOT_STORED,
+        INCOMPLETE,
+        DAMAGED,
+        NOT_INDEXED,
+        EMPTY,
+        NONE,
+        NONE_SET,
+        NOT_IN_INDEX,
+        UNRESOLVED,
+        NO_OPTIONS,
+        NO_DEFINITION,
+    ];
 }
 
 /// One table cell. Sizes render as `6.1 MB` in text and as bytes in JSON.
@@ -232,6 +252,8 @@ pub enum Output {
         build: Option<String>,
         parts: Vec<Part>,
     },
+    /// A tag or definition read field by field (`read_tag`, PRD §7.2–§7.7).
+    Tag(crate::view::TagView),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -549,6 +571,9 @@ impl Output {
                 }
                 out
             }
+            (Output::Tag(v), Format::Text) => v.render_lines(false),
+            (Output::Tag(v), Format::Table) => v.render_lines(true),
+            (Output::Tag(v), Format::Json) => pretty(&v.render_json()),
             (Output::Parts { build, parts }, Format::Json) => {
                 let mut obj = Map::new();
                 if let Some(b) = build {

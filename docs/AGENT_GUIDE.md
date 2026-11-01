@@ -59,18 +59,21 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 ### 4.1 Layout
 ```
 # weap objects\...\assault_rifle.weapon  0x00A1B2C3  build=forge  copies: 3 (identical)   ← tag line
-## WEAPON                                                     ← class section (inherited parent classes come first)
-### barrels  block[2] {primary, secondary}  showing [0] primary   ← struct / array / tag block / explanation heading
-> Controls how each barrel fires. […]                         ← first line of an explanation; […] = cut
-  rounds per second   bounds    8.5..8.5                      ← field: name, short type, value, units, extras
-  trigger mode        enum16    2 charge  {normal|latch|charge|latch-autofire}
-  #### shots  block[3] {first, second, third}  → path=barrels[0].shots
-… 140 more (offset=50)                                        ← paging hint
+## WEAPON                                          ← class section (inherited parent classes come first)
+bounding radius  real  0.1708791                   ← field of the main struct: no indent
+### barrels  block[2]  {primary, secondary}  showing [0] primary   ← struct / array / tag block heading
+  rounds per second  bounds  8.5..8.5              ← field: name, short type, value, units, extras
+  trigger mode  enum16  2 charge  {normal|latch|charge|latch-autofire}
+  #### Firing                                      ← explanation or group heading
+  > Controls how each barrel fires. […]            ← first line of an explanation; […] = cut
+  #### shots  block[3]  {first, second, third}  → path=barrels[0].shots
 ```
-- `# ` = tag line (or definition line). `## ` = class section, nothing else. `### ` and deeper = explanations, structs, arrays and tag blocks; one more `#` per nesting level.
-- A section contains everything after its heading until the next heading at the same or a higher level. Indented lines belong to the nearest heading above.
-- **Field line:** name, short type, value, then units/range and extras. Units come from the definition (`stops`, `seconds`); `[0.1-1]` is the definition's stated valid range.
-- `block[N] {labels}` = entry count and entry labels (max 8, then `+N more`). `showing [i]` = which entry is printed below.
+- `# ` = tag line (or definition line). `## ` = class section, nothing else. `### ` and deeper = explanations, group headings, structs, arrays and tag blocks; one more `#` per nesting level.
+- **Indentation** = nesting: fields of the main struct have none; each struct, array or tag block entry adds 2 spaces. A line belongs to the nearest heading above it with less indentation.
+- A section contains everything after its heading until the next heading at the same or a higher level.
+- **Field line:** name, short type, value, then units/range and extras, separated by two spaces. Units come from the definition (`stops`, `seconds`); `[0.1-1]` is the definition's stated valid range. Numbers are exact (the shortest form that reads back to the stored value), never rounded.
+- **Group headings** (`#### Outlining`) are the editor's grouping of the fields below them; **explanations** are the definition's own notes. Neither holds data.
+- `block[N] {labels}` = entry count and entry labels (max 8, then `+N more`). `showing [i]` = which entry is printed below. A label is the entry's labelling field (a name, or a referenced tag's file name), else its index.
 - `→ path=...` = not expanded here; call again with that path.
 - Repeated names among siblings get `#2`, `#3`: `flags#2` is the second field named `flags`.
 - `resources: N (size)` on the tag line = the tag owns N resources (textures, meshes, sounds… stored outside the tag) totalling that size. Their contents are not loaded. `detail=full` lists each one (`resource [i]  <kind>  <size>`). Omitted when the tag has none.
@@ -110,7 +113,9 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `array` | array | heading |
 | `data` | data reference | `(N bytes)` |
 | `function` | mapping-function curve | `(curve, N bytes)` (not decoded) |
-| `resource` | pageable resource | `(resource, not loaded)`; with kind and size when known: `(mesh resource, 6.1 MB, not loaded)` |
+| `resource` | pageable resource | `(mesh resource, 6.1 MB, not loaded)`: the resource's kind and size; `(…, not stored in this module)` if its data isn't in the module |
+| `pad` | padding (hidden) | `(N bytes)` |
+| `tag` | a class code | `weap` |
 
 ### 4.4 Options
 - After an enum, `{a|b|c}` = all options; the chosen one is the label after the number.
@@ -128,10 +133,12 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `(unresolved)` | string_id couldn't be turned into text | Give the hash; don't guess the name |
 | `(no definition for class …)` / `(no options defined)` / `(no option N; …)` / `(unnamed @0x..)` | The definition doesn't describe this | The value is real, its meaning is unknown |
 | `(out of range; …)` | Block index points past the last entry | Fact about the stored value; its effect in-game is unknown |
+| `(target block unknown)` | Block index whose tag block isn't in an enclosing struct (it may index into another tag) | The number is real; don't say what it points to |
 | `(hidden)` / `(N hidden fields)` | Hidden by default (padding, internal fields) | Use `show_hidden=true` if relevant |
 | `!! …` | **The tool failed to read this** | **Never** present those values, or their absence, as facts. Tell the user reading failed there and why |
 | `(not read)` | Field after a read failure | Same as `!!` |
-| `warning: definition GUID mismatch` | The definition may not fit this tag | Treat those values as unreliable; say so |
+| `warning: definition GUID mismatch` | The tag stores a different struct type ID than the definition names here. The size fits and the checks passed; in every sample tag this was a labelling difference, not a misread | Use the values, but mention the warning when precision matters |
+| `!! the definition doesn't match the tag header at N place(s) …` (below the tag line) | The definition places fields where the tag's own lists don't | Values may be misplaced: don't state them as facts |
 
 ### 4.6 Other results: what they mean
 | Result / column | Meaning | What you may conclude |
@@ -186,6 +193,16 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `total size` | Sum of the uncompressed sizes |
 
 Results may come from the tool's cache (kept across sessions). A cached result is always identical to a fresh one, so you never need to "refresh" it. Only `reindex` forces a rebuild, and the tool keeps itself up to date when game files change.
+
+### 4.8 Tag internals you will see
+Every tag stores, besides its field values, a few lists that say what its fields point to. `read_tag` uses them; this is what they mean when they show up:
+- **Tag reference** (`tagref`): a field that names another tag by its global ID. The name comes from the index, or, for a tag that isn't indexed, from the tag's own list of names (then `(not in indexed modules)` follows). `(none)` = the field names no tag. `[proj]` = the classes the definition allows there. A tag can reference tags without listing them as dependencies; `read_tag` shows every reference field either way.
+- **string_id** (`stringid`): a name stored as a hash. The text comes from the tag's own list of strings. `(unresolved)` = the hash isn't in that list: often an ID that is not a name at all (e.g. a sound event ID). Give the hash; don't guess the text.
+- **Block index** (`blkidx`): a number that picks an entry of a tag block (`1 → barrels[1] secondary`). The block is the nearest enclosing one the definition names.
+- **Data reference** (`data`): raw bytes stored with the tag (scripts, curves, tables). Only the size is shown.
+- **Resource** (`resource`): an asset stored next to the tag, not inside it: a mesh, a texture, sound data. The kind and size come from the module's list of the tag's resources; the data itself is not loaded.
+- **Size check:** before showing a struct, `read_tag` checks that the definition's size equals the size the tag stores. If not, it shows `!! definition size mismatch` instead of values: the definition doesn't fit this tag (usually a different game version).
+- **Copies:** the same tag can be stored in several modules (update layers). `copies:` on the tag line says whether their data is identical and which copy you are reading.
 
 ## 5. Being accurate with the user
 

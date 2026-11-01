@@ -216,6 +216,7 @@ dependencies = [
  "anstyle",
  "clap",
  "h5-defs",
+ "h5-meta",
  "h5-module",
  "regex",
  "serde",
