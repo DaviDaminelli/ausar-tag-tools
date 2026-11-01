@@ -244,3 +244,12 @@ Q9 answered: the k-th resource struct of a tag is its resource [k].
 | `read_tag` on the assault rifle, one CLI call (session included) | 726 lines, 219–227 ms           |                                 |
 
 The output matches the sample agreed with the user (D36).
+
+**Step 4b: `get_definition`, `outline`, `search_definitions`**
+
+| What                                                                   | Number                           |
+| ---------------------------------------------------------------------- | -------------------------------- |
+| Definitions rendered fully expanded (full detail, all options, hidden) | 289 of 289, 39,226 lines, 0.24 s |
+| Their outlines (depth 3)                                               | 5,651 lines                      |
+| `search_definitions` over all 289 definitions, one CLI call            | 267–275 ms                       |
+| `outline` of the assault rifle / `read_tag` of it                      | 186 lines, 213 ms / 726 lines    |

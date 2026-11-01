@@ -147,3 +147,11 @@ The output follows PRD §7 and AGENT_GUIDE §4, with these choices, agreed on a 
 - **A tag reference with no listed name and no index entry** shows its global ID and stored class.
 - **`[*]` reads** put each field's options once in a `legend:` block (AGENT_GUIDE §4.4); JSON keeps them on every field.
 - Copy identity is computed on each call (block checksums; PRD §6.4.6) until the results cache (§6.9, M5).
+
+## D37. Definition views (`get_definition`, `outline`, `search_definitions`) (2026-11-01)
+They use the same view and the same rules as `read_tag` (D36): the same headings (including group headings and the redundant-explanation rule), hidden fields, options, depth and detail levels, from one shared `role()` function. Choices where PRD §6.5 is silent:
+- **Offsets** appear at `detail=full`, as in `read_tag` (PRD §7.6), not on every line.
+- **A field line in a definition has no value:** tag blocks show `(max N)`, tag references their allowed classes `[proj]`, block indices the block they point into `→ barrels`, and enums and flags their options (all of them when ≤ 12, else `(N options)`).
+- **A single field selected with `path=`** is named by its full path, as in `read_tag`.
+- **`outline`** shows only class sections, headings, structs, arrays and tag blocks, each with `(N fields)` (its direct, visible fields) and `path=…`. For a class, paths have no index. For a tag, top-level blocks show their entry count and labels, and nested blocks are shown as entry 0 holds them, with `[0]` in their paths. Explanations show their title only.
+- **`search_definitions`** scopes: `names` = field display names, old names and labels (D34) plus group and section headings; `options` = option names; `help` = help text, units, and explanation titles and text. One row per matching field, saying everything that matched (`name; help`). Tag blocks appear as `name[*]` in paths. It parses every definition on each call (about 0.27 s for 289); the MCP server can keep them parsed (M4).
