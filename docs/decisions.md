@@ -11,6 +11,8 @@ The Xbox One Guardians modules are version 23 (format-notes). `h5-module` reads 
 ## D3. M1 tested on sample modules first (2026-10-31, agreed with the user)
 The full Forge and Xbox installs aren't available yet. M1 is developed and tested against the sample modules listed in `CLAUDE.md`. The checks that need a full install run when it is available: every module in the deploy folder, the index speed targets (§6.2), and the user's 5 sample searches.
 
+Status (2026-11-01): the user's sample searches passed (`search-tags magnum --class weap`, `search-tags warthog`, `browse "objects\weapons\rifle"` and others, checked against the user's game knowledge). Still pending: every module of a full deploy folder and the §6.2 speed targets on a full install (when available), and the first CI run (when the repo is on GitHub).
+
 ## D4. OS-agnostic (2026-10-31, requested by the user)
 CLI and MCP server are supported on Windows, Linux and macOS. Only `xg.dll` de-tiling (backlog 8) is Windows-only, behind a cargo feature. Prefer pure-Rust dependencies. A GitHub Actions workflow builds and runs unit tests on all three OSes from M1. Integration tests against real game files run locally (the files can't go in CI). PRD §9 (M1), §13 and §14 updated.
 

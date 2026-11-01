@@ -55,6 +55,21 @@ How things were checked:
 ### Load manifest
 - AusarDocs `Module.md`. Verified (test) on the Xbox files: `loadmanifest` is a raw file (flags `0x05`), and its size is `numLoadedTags × 4`. No Forge sample has one (`numLoadedTags` = 0).
 
+## Tags (the tag file stored in each tag entry)
+
+Checked 2026-11-01 by a research pass over every tag of both sample sets (62,620 Forge tags, 73 Xbox tags): each tag's header section decompressed and read with the AusarDocs `CachedTag.md` layout. To be repeated by the M2 tests.
+
+- **Magic and version** — verified. Bytes on disk `75 63 73 68` (`ucsh`) = `'hscu'` as a little-endian four-character code (AusarDocs: `'hscu'`). Version **27 in every tag of both builds**, including the Xbox v23 modules (PRD §12 Q1).
+- **Header sizes vs the file entry** — verified: the tag header's `headerSize`, `dataSize` and `resourceDataSize` equal the file entry's three section sizes in every tag.
+- **Documented sections** — verified: header (0x50), dependency list (0x18 each), data block list (0x10), tag struct list (0x20), data reference list (0x14), tag reference list (0x10), string_id list (0x8), string table, zoneset info, in that order, back to back. In 55,383 Forge tags (88.4%) and 42 Xbox tags they add up exactly to `headerSize`.
+- **Trailing data after the zoneset info** — contradicts doc (AusarDocs doesn't list it). In the other 7,237 Forge tags (11.6%) and 31 Xbox tags, the header section continues after the zoneset info. Its size is always the remainder (`headerSize` − documented sections, never negative); no known header field holds its size or count. Classes: Forge `mat ` 2782, `prt3` 2142, `decs` 1819, `paas` 246, `trac` 189, `licn` 29, `mdsv` 16, `ltvl` 13, `sbsp` 1; Xbox: at least `sbsp` and `mat ` (the full tally per class is for the M2 test). Content differs by class:
+  - Most are whole multiples of 52-byte records: a `u32` 0x15, three small numbers (e.g. 1 1 1, 1 3 1, 3 3 3), zeros, a 1, then `0xFF7FFFFF` and `0x7F7FFFFF` (the largest negative and positive `f32`, an unset min/max range). The record count matches neither the resource nor the custom tag struct count.
+  - `paas` (245 tags) and `sbsp` (12, up to 1.27 MB on Xbox) have other, unparsed contents.
+  - Meaning unknown: PRD §12 Q11. The `unknown4C` header field is not a marker (tags with and without trailing data take values from 0 to 0x41).
+- **Data blocks are all in the tag data section** — verified: all 1,558,134 Forge and 77,236 Xbox data blocks have `section` = 1; none in the header (0) or resource data (2) section. Their `unknown4` field takes the values 0, 1, 2, 3 and 8 (meaning unknown).
+- **Zoneset info** — verified: in every tag, the documented layout (0x10 header with count and list offset, 0x28-byte zoneset entries, 8-byte tag entries) fits inside the section. Sizes seen: 56 bytes upward.
+- **`unknown8` (header +0x08)** — observed: the same value in thousands of tags (e.g. one value in 3,278 tags), so probably per class layout, not per tag. Not used.
+
 ## Definitions (Lord Zedd's H5Tags)
 - **File names are `(code)class name.xml`, with two caveats** — verified (test + `reference/H5Tags/tags`) against the 205 (code, class name) pairs seen in the sample modules:
   - Trailing spaces are trimmed: class `mat ` → `(mat)material.xml`.
