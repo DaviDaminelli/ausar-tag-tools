@@ -113,13 +113,13 @@ Use these terms consistently in code, docs and output. **"Block" alone is ambigu
 - **Data block list:** size, section (0 header, 1 tag data, 2 resource data), offset within that section.
 - **Tag struct list:** per struct instance: a 16-byte **type GUID**, a type (0 main, 1 tag block, 2 resource, 3 custom), a **target index** (the data block holding the struct's data; -1 = null), and the **(field data block, field offset)** of the field that points to it. The main struct entry has type 0; its target data block holds the tag's top-level fields.
 - **Data reference list:** per `_field_data_64`: target data block (-1 = null) and the field's (data block, offset).
-- **Tag reference list:** per tag reference field, including null ones: the field's (data block, offset), the target's name offset in the string table, and its dependency index (-1 = null). This gives every reference's exact location **without any definition XML**.
-- **String table:** null-terminated strings: referenced tag names and every string_id string used by the tag.
+- **Tag reference list:** per tag reference field, including null ones: the field's (data block, offset), the target's name offset in the string table, and its dependency index. This gives every reference's exact location **without any definition XML**. **Dependency -1 does not mean null** (verified, `docs/format-notes.md` "Tags"): about 8% of these references still name a tag (global ID, class and usually a listed name in the field and string table) that the dependency list leaves out. A reference is null when its field's global ID is -1. So the dependency list is not the complete list of what a tag references.
+- **String table:** null-terminated strings: referenced tag names and every string_id string used by the tag. The text is **Windows-1252**, not UTF-8 (a few strings hold `…`, `’`, `é`). A string_id hash is computed over the stored bytes.
 - **Pointers are never stored in tag data.** Tag block entries, data references and resources are located only through the tag struct list and data reference list, matching on (data block, field offset).
 - Field layouts:
   - Tag block field: 0x1C bytes; **entry count is int32 at +0x10**.
   - Data reference field: 0x1C bytes; **size is uint32 at +0x18**.
-  - Tag reference field: 0x20 bytes; **global ID int32 at +0x0C**, class code at +0x18.
+  - Tag reference field: 0x20 bytes; uint32 at +0x08 = byte length of the listed name (0 when none); **global ID int32 at +0x0C**, class code at +0x18. With a dependency, the global ID and class equal the dependency's.
   - Pageable resource field: 0x10 bytes.
   - string_id field: 4 bytes, a **MurmurHash3 x86 32-bit** hash of the string (seed 0; verify: `"__default__"` → `0x9B555AD2`). Resolve by hashing every string in the tag's own string table. No external string list is needed.
 
@@ -308,8 +308,8 @@ Two checks run for every struct field, tag block field and the main struct:
 - `get_field(tag, path, detail=normal, build?, module?)`: one field's value (no children expanded). With `[*]`, one line per entry.
 - `find_references(tag, direction=out, recursive=false, max_depth=3, class?, build?, offset=0, limit=100)`
   - `class`: return only referenced/referencing tags of that class. With `recursive=true` the walk still follows references of every class, but the result is a flat list of the matching tags, each with its depth and the tag that references it (`via`). Example: every bitmap a weapon uses, through its projectiles and effects.
-  - `out`: tags this tag references, from the tag header's dependency list and tag reference list (works without a definition). If a definition exists, each reference also gets its field path (from the reference's (data block, offset)). Null references are omitted.
-  - `in`: tags whose dependency list contains this tag (uses the header scan, §6.2).
+  - `out`: tags this tag references, from the tag header's dependency list and tag reference list (works without a definition). If a definition exists, each reference also gets its field path (from the reference's (data block, offset)). Null references (field global ID -1) are omitted. References without a dependency entry are included (§5.2).
+  - `in`: tags that reference this tag (uses the header scan, §6.2). The dependency list alone misses references without a dependency entry (§5.2, Q12).
   - `both`: both lists, labelled.
   - `recursive=true` (only with `out`): follow references up to `max_depth` levels, as a tree; a tag already shown earlier in the tree is printed once more as `(see above)` and not expanded again.
   - Results grouped by class, with counts per class.
@@ -518,7 +518,7 @@ The config format with `[[build]]` (§6.1) is used from M1; only one build is ne
 **Verification without Reclaimer.** The user will not install Reclaimer; no test or acceptance check may need it. Correctness comes from these independent checks, all automated:
 
 1. **Header ↔ definition cross-check (the main check).** The tag header lists, independently of any XML, where every tag reference field, tag block field, struct and data reference field sits (§5.2: tag reference list, tag struct list, data reference list, each with data block + offset). Walking the tag with the definition MUST find exactly the same set: every `tagref` field the definition places at an offset MUST appear in the tag reference list at that (data block, offset), and every list entry MUST be reached by some definition field. Same for tag block fields vs tag struct entries, and data reference fields vs the data reference list. A missing or extra entry means the definition (or our reading) is misaligned at that point. Report the first divergence with its field path.
-2. **Reference values agree:** the global ID read from each tag reference field equals the global ID in its dependency entry.
+2. **Reference values agree:** each tag reference field states its listed name's length; a field with a dependency entry holds that entry's global ID and class (checked since M2, `TagHeader::check_tag_data`). A field without one may hold any global ID (§5.2).
 3. **GUIDs agree:** definition `srcguid` = tag struct entry GUID (§6.4.5, once Q3 is answered).
 4. **Sizes agree:** tag header section sizes add up to the file entry's sizes; definition sizes match data block sizes; tag block entry counts × entry size = target data block size.
 5. **Hashes agree:** every resolved string_id hashes back to its stored value; MurmurHash3 matches known values (`"__default__"` → `0x9B555AD2`).
@@ -608,6 +608,7 @@ Resolve each during the milestone noted; record the answer in `docs/format-notes
 | Q9  | How does a `_field_pageable_resource_64` field link to its resource file entry? Guess: the `index` in the resource's file name (`[index:kind]`) is the field's order among the tag's resource fields or tag struct entries of type 2. Until verified, resource fields show only `(resource, not loaded)`. | M3        |
 | Q10 | Does an equal `assetChecksum` mean identical stored data? AusarDocs: it hashes "the original file this was built from", "not always the same thing as the file stored in the module". Test on tags with copies in the Forge `globals` layers: compare `assetChecksum` equality with real data equality. Until answered, copy identity uses the data (§6.4.6). | M2        |
 | Q11 | What is the trailing data after the zoneset info in about 12% of tag headers (52-byte min/max records in materials and particles; other contents in `paas` and `sbsp`)? Until answered, it is kept as raw bytes and shown with its size. | M3, if field reading needs it |
+| Q12 | Why do some tag references have no dependency entry (8% of Forge references without a dependency, 43% on Xbox, still name a tag), and how should the header scan find them for `find_references(in)`? Options: read the tag reference fields from the tag data section too, or match the listed names in the string table (missing for 209 of 42,473 Forge references). | M5        |
 
 ## 13. Technical design
 
