@@ -156,7 +156,7 @@ The samples grew before M3's research step. **Forge:** 10 modules, adding two ma
 - **One fact corrected:** "the zonesets list every resource" fails for 31 bitmaps in one Forge update module, so the `zoneset` check no longer requires it (format-notes "Tags").
 - **One module moved:** a v23 module (the Xbox layout) was in the Forge folder by mistake; it is now in the Xbox folder. The module version in the header tells the two builds apart.
 
-## M3: `read_tag`, definitions, outline (in progress, 2026-11-01)
+## M3: `read_tag`, definitions, outline (2026-11-01, passed: accepted by the user)
 
 **Step 1a: definition parsing and the field type table**
 
@@ -282,3 +282,21 @@ Check 9, the user's values from playing (test `h5tags-core` `real_spot_values`, 
 | At most 2 grenades of each type | grenade list `grenades[*].maximum count (…).Base Value`, all 3 types, campaign/firefight/multiplayer | 2 (bounds 0..6, combined by addition) |
 
 5 of 5 match. The burst is `shots per fire`, not `rounds per burst` (0 on every weapon); the grenade bounds and addition combiner fit the user's note that an armor modification can raise the count.
+
+### Simulated AI session: what it would take to make the battle rifle battery-powered (2026-11-01, Forge `any` globals)
+
+CLI calls in text format, as the AI would make them; tokens ≈ characters / 4.
+
+| Step                                                          | Calls | ≈ Tokens |
+| ------------------------------------------------------------- | ----- | -------- |
+| Find the two weapons (`search_tags`; "battle rifle" misses `br.weapon`) | 7 | 860 |
+| Find battery fields (`search_definitions`; `age` matched 107 rows, inside "damage", "percentage") | 3 | 1,305 |
+| `outline` depth 1 of both weapons                             | 2     | 2,072    |
+| Sections heat, miscellaneous, more miscellaneous of both      | 6     | 1,182    |
+| `barrels[0]` depth 1 of both                                  | 2     | 3,076    |
+| Single fields: flags, age penalties, of both                  | 14    | 755      |
+| `player interface` brief of both                              | 2     | 737      |
+| HUD screens: outlines, property bindings                      | 5     | 2,055    |
+| **Total**                                                     | 41    | 12,041   |
+
+For comparison: the whole battle rifle read is 35,052 characters (≈ 8,763 tokens), and the whole weapon pair ≈ 17,500 tokens without the HUD. The HUD's battery logic was found only in the string_id names of `header-dump` (32,137 / 19,361 / 19,314 characters for three HUD screens, ≈ 17,700 tokens if read whole); the session grepped them instead, which an AI with the tools alone cannot do.
