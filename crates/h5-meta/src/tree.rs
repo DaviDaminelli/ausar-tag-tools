@@ -3,6 +3,7 @@
 //! problems, no text formatting.
 
 use h5_defs::definition::Field;
+use h5_defs::name::Name;
 use h5_module::FourCc;
 use h5_module::tag::ReferenceField;
 
@@ -38,6 +39,9 @@ pub struct Body<'d> {
     /// The tag's struct GUID, when it differs from the definition's srcguid
     /// (`guid_check = warn`; also for the definition gap list, decisions D33).
     pub guid_mismatch: Option<[u8; 16]>,
+    /// For a tag block entry: the child that labels it (PRD §6.4.4): the field
+    /// marked `^`, else the first string, string_id or tag reference.
+    pub label: Option<usize>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -86,11 +90,11 @@ pub enum Value {
     /// An 8-bit-per-channel colour as stored (`_field_rgb_color`, `_field_argb_color`).
     Color(u32),
     String(String),
-    StringId(u32),
+    StringId(StringIdValue),
     Tag(FourCc),
     TagRef(TagRef),
     Data(DataRef),
-    Resource,
+    Resource(ResourceRef),
     /// `_field_pad`, `_field_skip`: bytes with no meaning.
     Padding,
 }
@@ -103,6 +107,24 @@ pub struct TagRef {
     pub listed_name: Option<String>,
     /// Its dependency index, if the header gives one (format-notes "Tags").
     pub dependency: Option<u32>,
+}
+
+/// A string_id field: its hash, and the string it hashes, from the tag's own
+/// string_id list (PRD §5.2). 0 means none; another hash without a string is
+/// unresolved (PRD §8).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StringIdValue {
+    pub hash: u32,
+    pub text: Option<String>,
+}
+
+/// A pageable resource field.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResourceRef {
+    /// The position of its resource struct among the tag's resource structs:
+    /// probably the resource `[index]` of the file entry (PRD §12 Q9).
+    /// `None` when the header lists no resource struct here.
+    pub index: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -120,6 +142,69 @@ pub enum Divergence {
     /// A header list entry in a data block that was read, reached by no
     /// field of the definition.
     Unreached { what: &'static str, index: u32, block: u32, offset: u32 },
+}
+
+/// What an enum field's value names (PRD §5.3: an option is its position).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum EnumOption<'d> {
+    Named(&'d Name),
+    /// No option at that position (PRD §8 `no_option`).
+    Missing {
+        value: i64,
+        defined: usize,
+    },
+    /// The field has no `<item>`s (PRD §8 `no_options`).
+    NoOptions,
+}
+
+/// A flags field's set bits (PRD §5.3: an option's bit is its position).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlagBits<'d> {
+    pub set: Vec<(u32, &'d Name)>,
+    /// Set bits with no option (PRD §8 `unnamed_bits`).
+    pub unnamed: Vec<u32>,
+}
+
+impl<'d> Node<'d> {
+    /// For an enum field: the option its value names.
+    pub fn enum_option(&self) -> Option<EnumOption<'d>> {
+        let Content::Value(Value::Enum(v)) = self.content else { return None };
+        let options = &self.field.options;
+        Some(match usize::try_from(v).ok().and_then(|i| options.get(i)) {
+            Some(n) => EnumOption::Named(n),
+            None if options.is_empty() => EnumOption::NoOptions,
+            None => EnumOption::Missing { value: v, defined: options.len() },
+        })
+    }
+
+    /// For a flags field: which bits are set, named or not.
+    pub fn flag_bits(&self) -> Option<FlagBits<'d>> {
+        let Content::Value(Value::Flags(raw)) = self.content else { return None };
+        let mut out = FlagBits { set: Vec::new(), unnamed: Vec::new() };
+        for bit in (0..64).filter(|b| raw & (1u64 << b) != 0) {
+            match self.field.options.get(bit as usize) {
+                Some(n) => out.set.push((bit, n)),
+                None => out.unnamed.push(bit),
+            }
+        }
+        Some(out)
+    }
+}
+
+/// The tag block a block index field points into: `targetGuid` matched with a
+/// block field's `srcguid`, else `targetName` with its `srcName` (PRD §5.3),
+/// looked for in the enclosing structs, nearest first. `scopes` runs from the
+/// main struct to the struct holding the index field.
+pub fn target_block<'a, 'd>(index_field: &Field, scopes: &[&'a Body<'d>]) -> Option<&'a Node<'d>> {
+    let wanted = |f: &Field| match (index_field.attr("targetGuid"), index_field.attr("targetName")) {
+        (Some(g), _) => f.attr("srcguid").is_some_and(|s| s.eq_ignore_ascii_case(g)),
+        (None, Some(n)) => f.attr("srcName").is_some_and(|s| s == n),
+        (None, None) => false,
+    };
+    scopes
+        .iter()
+        .rev()
+        .find_map(|body| body.children.iter().find(|n| matches!(n.content, Content::Block(_)) && wanted(n.field)))
 }
 
 /// A tag read with its definition.

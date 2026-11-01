@@ -9,10 +9,12 @@ use std::fmt;
 use h5_defs::definition::{Definition, Field, FieldKind};
 use h5_defs::field_type::FieldType;
 use h5_module::FourCc;
-use h5_module::tag::{StructKind, TagHeader, TagReference};
+use h5_module::tag::{StringIdNames, StructKind, TagHeader, TagReference};
 use h5_module::text::decode_cp1252;
 
-use crate::tree::{Block, Body, Content, DataRef, Divergence, Node, Problem, ReadTag, TagRef, Value};
+use crate::tree::{
+    Block, Body, Content, DataRef, Divergence, Node, Problem, ReadTag, ResourceRef, StringIdValue, TagRef, Value,
+};
 
 /// Reads the whole tag: the main struct and everything below it.
 pub fn read_tag<'d>(def: &'d Definition, header: &TagHeader, tag_data: &[u8]) -> ReadTag<'d> {
@@ -31,6 +33,9 @@ fn by_place<'a>(places: impl Iterator<Item = (Option<u32>, u32)> + 'a) -> ByPlac
 struct Walker<'h> {
     header: &'h TagHeader,
     tag_data: &'h [u8],
+    names: StringIdNames<'h>,
+    /// For each tag struct of kind resource: its position among them (Q9).
+    resource_positions: Vec<Option<u32>>,
     tag_refs: ByPlace,
     data_refs: ByPlace,
     /// Tag structs other than the main one.
@@ -55,6 +60,16 @@ impl<'b> Place<'b> {
     fn plus(self, offset: u32) -> Place<'b> {
         Place { at: self.at + offset, ..self }
     }
+}
+
+/// The child that labels a tag block entry (PRD §6.4.4): the field marked
+/// `^`, else the first string, string_id or tag reference.
+fn label_of(entry: &Body<'_>) -> Option<usize> {
+    let c = &entry.children;
+    c.iter().position(|n| n.field.name.labels_entries()).or_else(|| {
+        c.iter()
+            .position(|n| matches!(n.content, Content::Value(Value::String(_) | Value::StringId(_) | Value::TagRef(_))))
+    })
 }
 
 /// A field path, formatted only when a problem or divergence needs it (PRD
@@ -103,9 +118,22 @@ fn le<const N: usize>(b: &[u8], at: usize) -> [u8; N] {
 impl<'h> Walker<'h> {
     fn new(header: &'h TagHeader, tag_data: &'h [u8]) -> Walker<'h> {
         let h = header;
+        let mut next = 0u32;
+        let resource_positions = h
+            .tag_structs
+            .iter()
+            .map(|s| {
+                (s.kind == StructKind::Resource).then(|| {
+                    next += 1;
+                    next - 1
+                })
+            })
+            .collect();
         Walker {
             header,
             tag_data,
+            names: header.string_id_names(),
+            resource_positions,
             tag_refs: by_place(h.tag_references.iter().map(|r| (r.field_block, r.field_offset))),
             data_refs: by_place(h.data_references.iter().map(|r| (r.field_block, r.field_offset))),
             structs: by_place(
@@ -217,7 +245,8 @@ impl<'h> Walker<'h> {
             }
             T::PageableResource64 => {
                 self.mark_struct(block, at, f);
-                Content::Value(Value::Resource)
+                let index = self.structs.get(&(block, at)).and_then(|&i| self.resource_positions[i]);
+                Content::Value(Value::Resource(ResourceRef { index }))
             }
             T::CharInteger => int(i8::from_le_bytes(le(b, 0)) as i64),
             T::ByteInteger => int(b[0] as i64),
@@ -253,7 +282,11 @@ impl<'h> Walker<'h> {
                 let text = b.split(|&c| c == 0).next().unwrap_or_default();
                 Content::Value(Value::String(decode_cp1252(text).into_owned()))
             }
-            T::StringId | T::OldStringId => Content::Value(Value::StringId(u32::from_le_bytes(le(b, 0)))),
+            T::StringId | T::OldStringId => {
+                let hash = u32::from_le_bytes(le(b, 0));
+                let text = (hash != 0).then(|| self.names.get(hash)).flatten().map(|s| s.into_owned());
+                Content::Value(Value::StringId(StringIdValue { hash, text }))
+            }
             T::Tag => Content::Value(Value::Tag(FourCc(u32::from_le_bytes(le(b, 0))))),
         }
     }
@@ -286,7 +319,11 @@ impl<'h> Walker<'h> {
         }
         self.read_blocks.insert(t);
         out.entries = (0..count)
-            .map(|i| self.body(&f.children, Place { block: t, bytes, at: i * entry_size }, &path.entry(i)))
+            .map(|i| {
+                let mut entry = self.body(&f.children, Place { block: t, bytes, at: i * entry_size }, &path.entry(i));
+                entry.label = label_of(&entry);
+                entry
+            })
             .collect();
         out
     }

@@ -6,7 +6,10 @@ mod read;
 mod tree;
 
 pub use read::read_tag;
-pub use tree::{Block, Body, Content, DataRef, Divergence, Node, Problem, ReadTag, TagRef, Value};
+pub use tree::{
+    Block, Body, Content, DataRef, Divergence, EnumOption, FlagBits, Node, Problem, ReadTag, ResourceRef,
+    StringIdValue, TagRef, Value, target_block,
+};
 
 #[cfg(test)]
 #[path = "read_tests.rs"]

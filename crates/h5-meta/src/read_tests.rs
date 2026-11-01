@@ -150,3 +150,105 @@ fn repeated_sibling_names_get_numbers() {
     let (def, header, data) = read(&tag(), &xml);
     assert_eq!(names(&read_tag(&def, &header, &data).root), ["entries", "pad", "projectile", "data", "data#2"]);
 }
+
+/// A tag with every value kind slice 2b resolves. Main struct (block 0, 0x40):
+/// two enums, flags, two string_ids, a block index, padding, a tag block
+/// (2 entries of 8 bytes in block 1, labelled by a `^` string_id) and a
+/// pageable resource.
+const VALUES: &str = r#"<plugin>
+	<_field_short_enum name="trigger mode"><item Name="normal" /><item Name="latch#hold" /></_field_short_enum>
+	<_field_short_enum name="odd"><item Name="a" /><item Name="b" /></_field_short_enum>
+	<_field_long_flags name="flags"><item Name="first bit" /><item Name="second bit" /></_field_long_flags>
+	<_field_string_id name="primary name" />
+	<_field_string_id name="unknown name" />
+	<_field_short_block_index name="selected" targetGuid="02020202-0202-0202-0202-020202020202" />
+	<_field_pad name="p" length="2" />
+	<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_string_id name="name^" />
+		<_field_long_integer name="value" />
+	</_field_block_64>
+	<_field_pageable_resource_64 name="mesh" />
+</plugin>"#;
+
+fn values_tag() -> TestTag {
+    use h5_module::murmur3::murmur3_x86_32;
+    let sid = |s: &str| murmur3_x86_32(s.as_bytes(), 0).to_le_bytes();
+    let mut main = vec![0u8; 0x40];
+    main[0x00..0x02].copy_from_slice(&1i16.to_le_bytes()); // latch
+    main[0x02..0x04].copy_from_slice(&5i16.to_le_bytes()); // no option 5
+    main[0x04..0x08].copy_from_slice(&0b1011u32.to_le_bytes()); // bits 0, 1, 3
+    main[0x08..0x0C].copy_from_slice(&sid("primary"));
+    main[0x0C..0x10].copy_from_slice(&0x1234_5678u32.to_le_bytes());
+    main[0x10..0x12].copy_from_slice(&1i16.to_le_bytes()); // entries[1]
+    let mut entries = vec![0u8; 0x10];
+    entries[0x00..0x04].copy_from_slice(&sid("first"));
+    entries[0x08..0x0C].copy_from_slice(&sid("second"));
+    entries[0x0C..0x10].copy_from_slice(&42i32.to_le_bytes());
+    let mut t = sample_tag();
+    t.deps.clear();
+    t.tag_refs.clear();
+    t.data_refs.clear();
+    t.blocks = vec![main, entries];
+    t.structs = vec![(0, 0, -1, 0, [1; 16], 0), (1, 1, 0, 0x14, [2; 16], 2), (2, -1, 0, 0x30, [4; 16], 0)];
+    t.string_ids = ["__default__", "primary", "first", "second"].map(String::from).to_vec();
+    t
+}
+
+#[test]
+fn enums_and_flags_resolve_their_options() {
+    let (def, header, data) = read(&values_tag(), VALUES);
+    let r = read_tag(&def, &header, &data);
+    assert_eq!(r.divergences, []);
+    let trigger = child(&r.root, "trigger mode");
+    assert!(matches!(trigger.enum_option(), Some(EnumOption::Named(n)) if n.display == "latch"));
+    assert_eq!(child(&r.root, "odd").enum_option(), Some(EnumOption::Missing { value: 5, defined: 2 }));
+    let flags = child(&r.root, "flags").flag_bits().unwrap();
+    let set: Vec<(u32, &str)> = flags.set.iter().map(|(bit, n)| (*bit, n.display.as_str())).collect();
+    assert_eq!(set, [(0, "first bit"), (1, "second bit")]);
+    assert_eq!(flags.unnamed, [3]);
+}
+
+#[test]
+fn string_ids_resolve_through_the_tags_own_strings() {
+    let (def, header, data) = read(&values_tag(), VALUES);
+    let r = read_tag(&def, &header, &data);
+    let Content::Value(Value::StringId(s)) = &child(&r.root, "primary name").content else { panic!() };
+    assert_eq!(s.text.as_deref(), Some("primary"));
+    let Content::Value(Value::StringId(s)) = &child(&r.root, "unknown name").content else { panic!() };
+    assert_eq!((s.hash, s.text.as_deref()), (0x1234_5678, None));
+}
+
+#[test]
+fn tag_block_entries_have_labels() {
+    let (def, header, data) = read(&values_tag(), VALUES);
+    let r = read_tag(&def, &header, &data);
+    let Content::Block(b) = &child(&r.root, "entries").content else { panic!() };
+    // The `^` field labels the entries.
+    let labels: Vec<Option<&str>> = b
+        .entries
+        .iter()
+        .map(|e| match e.label.map(|i| &e.children[i].content) {
+            Some(Content::Value(Value::StringId(s))) => s.text.as_deref(),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, [Some("first"), Some("second")]);
+}
+
+#[test]
+fn block_indices_find_their_tag_block() {
+    let (def, header, data) = read(&values_tag(), VALUES);
+    let r = read_tag(&def, &header, &data);
+    let selected = child(&r.root, "selected");
+    assert_eq!(selected.content, Content::Value(Value::BlockIndex(1)));
+    let target = target_block(selected.field, &[&r.root]).expect("the block it indexes");
+    assert_eq!(target.name, Some("entries"));
+}
+
+#[test]
+fn a_pageable_resource_knows_its_resource_index() {
+    // Q9 lead: the k-th resource struct of the tag is resource [k].
+    let (def, header, data) = read(&values_tag(), VALUES);
+    let r = read_tag(&def, &header, &data);
+    assert_eq!(child(&r.root, "mesh").content, Content::Value(Value::Resource(ResourceRef { index: Some(0) })));
+}
