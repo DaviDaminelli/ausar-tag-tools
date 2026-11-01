@@ -98,7 +98,8 @@ fn zlib(data: &[u8]) -> Vec<u8> {
 pub fn build_module(version: Version, entries: &[TestEntry], loaded_tags: &[i32]) -> Vec<u8> {
     let mut names = Vec::new();
     let mut resource_list: Vec<u32> = Vec::new();
-    let mut blocks = Vec::new(); // (compressed offset, compressed size, uncompressed offset, size, compressed)
+    // (compressed offset, compressed size, uncompressed offset, size, compressed, checksum)
+    let mut blocks = Vec::new();
     let mut data = Vec::new();
     let mut file_list = Vec::new();
 
@@ -129,6 +130,8 @@ pub fn build_module(version: Version, entries: &[TestEntry], loaded_tags: &[i32]
                     uoff,
                     s.len() as u32,
                     e.compressed,
+                    // As real v27 modules store it (format-notes "v27 block checksum").
+                    crate::murmur3::murmur3_x64_128(s, 0).0,
                 ));
                 data.extend(stored);
                 uoff += s.len() as u32;
@@ -204,10 +207,10 @@ pub fn build_module(version: Version, entries: &[TestEntry], loaded_tags: &[i32]
     for r in resource_list {
         out.extend(r.to_le_bytes());
     }
-    for (coff, csize, uoff, usize, compressed) in blocks {
+    for (coff, csize, uoff, usize, compressed, checksum) in blocks {
         match version {
             Version::V27 => {
-                out.extend(0u64.to_le_bytes());
+                out.extend(checksum.to_le_bytes());
                 out.extend(coff.to_le_bytes());
                 out.extend(csize.to_le_bytes());
                 out.extend(uoff.to_le_bytes());
