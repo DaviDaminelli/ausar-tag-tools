@@ -55,7 +55,13 @@ How things were checked:
 - **zlib** — AusarDocs `Module.md`. Verified (test): every block of every sample file decompresses with zlib to its stated size (Forge: 2.0 GB from `globals-rtx-1` alone). Every stream starts `48 0D` (CM = 8 deflate, CINFO = 4: 4 KiB window).
 
 ### Load manifest
-- AusarDocs `Module.md`. Verified (test) on the Xbox files: `loadmanifest` is a raw file (flags `0x05`), and its size is `numLoadedTags × 4`. No Forge sample has one (`numLoadedTags` = 0).
+- AusarDocs `Module.md`. Verified (test) on the Xbox files: `loadmanifest` is a raw file (flags `0x05`), and its size is `numLoadedTags × 4`. In the first Forge sample no module had one (`numLoadedTags` = 0). Since 2026-11-01 the Forge `mainmenu` modules have one (42,128 loaded tags in the base, 42,187 in each update layer, whose only entry is the manifest), and the same size rule holds (M1 check `loadmanifest_size`).
+
+### Deploy folder layout
+- Observed 2026-11-01 on the Forge sample, with the paths each file had in its deploy folder: modules live in `any\…` and in a platform folder (`pc\…`), under `levels\` (`globals`), `levels\multi\<map>\` and `levels\ui\<menu>\`.
+- **The same module file name exists under both, with different contents.** `globals-rtx-11587-1.module` is 11.4 MB under `any\levels\` and 34.0 MB under `pc\levels\`. The `pc` base `globals-rtx-1.module` is 10.4 GB against 1.1 GB for `any`. `fo03_space`'s `pc` copies are 56.5 MB and two empty 56-byte layers, against 466 KB and 279 KB under `any`. The `pc` modules hold the platform-specific tags (`__chore\pc__\…{pc}` names, e.g. bitmaps).
+- So a module is identified by its **path** in the deploy folder, never by its file name alone (the index already keys modules by relative path, PRD §6.1).
+- An update layer can be empty: a 56-byte file is just a v27 module header with zero entries, and it passes every check.
 
 ## Tags (the tag file stored in each tag entry)
 
@@ -73,7 +79,8 @@ Checked 2026-11-01 by a research pass over every tag of both sample sets (62,620
 - **Zoneset entries list the resources they load** — extends AusarDocs (it marks +0x04 "Padding?" and leaves +0x08 and +0x10 unnamed). Verified 2026-11-01 by the M2 test `every_tag_header_parses_and_checks` (check `zoneset`) on every tag of both samples:
   - +0x04 (`int32`) is 0 in all 77,153 Forge and 85 Xbox zonesets (padding).
   - +0x08 (`int64`) is a **resource count** and +0x10 (`int64`) the **offset**, from the start of the zoneset info, of that many `uint32` **resource indices**: positions in the file entry's resource list.
-  - Each index is below the entry's resource count, and the zonesets of a tag together list every one of its resources: 19,495 Forge and 32 Xbox tags with resources, 24,601 and 43 indices. Tags without resources (43,125 Forge, 41 Xbox) list none.
+  - Each index is below the entry's resource count: verified on every tag, so it is a check. Tags without resources list none.
+  - **Usually**, but not always, the zonesets of a tag together list every one of its resources. In the first sample this held for every tag (19,495 Forge and 32 Xbox tags with resources). In the larger samples (2026-11-01: 62,976 Forge and 57,537 Xbox tags, 19,694 and 20,780 with resources) it held for all but **31 bitmaps**. All are `{pc}` bitmaps in one Forge update-layer module, each owning one resource that its only zoneset (`__default__`) doesn't list. So it is not a check.
   - Most tags have one zoneset listing all their resources, 0 to n−1. A BSP with two zonesets splits them: on Xbox, `fo06_deepsea_vista`'s `render_geo` zoneset loads resource 0 (`mesh resource`), and `__default__` loads resource 1 (`tag_resources`).
   - Layout: the resource lists follow the entries, then the tag lists follow. The section size is **exactly** 0x10 + 0x28 × zonesets + 4 × resource indices + 8 × tags in 62,620 of 62,620 Forge and 73 of 73 Xbox tags.
 - **A resource's name index is its position** — verified (same test): the resource at position k of a tag entry's resource list is named `<owner>[k:<kind>]` for all 24,601 Forge and 43 Xbox tag resources. So the index in a resource name, the position in the resource list and a zoneset's resource index are the same number (PRD §12 Q9).

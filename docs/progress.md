@@ -50,7 +50,7 @@ Times are from an optimized build unless marked "debug".
 
 **Format findings** (details in `format-notes.md`): v23 = Xbox module layout; module metadata is uncompressed (indexing needs no decompression); file names carry the class name; resources are named `[index:kind]`; definition file names trim trailing spaces (`mat `) and replace characters not allowed in file names (`hsc*` → `hsc_`); entries can be described but not stored in their module; an incomplete module copy is detected exactly (missing bytes and entries).
 
-## M2: tag decompression and tag headers (in progress, 2026-11-01)
+## M2: tag decompression and tag headers (2026-11-01, passed: accepted by the user)
 
 **Research before the plan**, on every sample tag (62,620 Forge, 73 Xbox):
 
@@ -138,3 +138,20 @@ Times are a release build, output to `/dev/null`, both builds configured.
 | Resources named `[k:kind]` at position k of the resource list (Q9)    | 24,601 of 24,601   | 43 of 43       |
 
 New check `zoneset` (in `TagHeader::check`): 0 failures on both samples.
+
+## Before M3: larger samples (2026-11-01)
+
+The samples grew before M3's research step. **Forge:** 10 modules, adding two maps (each with its two update layers, two of them empty) and a second update-layer copy of the globals module. **Xbox:** 9 modules, adding a shaders module, an older globals update module, and the base globals module (1.1 GB, verified against the archive's CRC-32 before use). Every M1/M2 real-file check was run again on them:
+
+| Check                                    | Forge                                                                   | Xbox                               |
+| ---------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------- |
+| Modules: structural checks               | 10 of 10 pass (incl. two empty layers)                                  | 9 of 9 pass                        |
+| Entries decompressed                     | 88,307 (2.8 GB) in about 2 s, 0 errors                                  | 85,366 (2.8 GB) in 1.5 s, 0 errors |
+| Stored block checksums matching (h1)     | 182,109 of 182,109 (+93 entries without a block list, which store none) | (v23: none stored)                 |
+| Sections read separately = whole entries | all entries                                                             | 85,357 of 85,357                   |
+| Tag headers parsed, check failures       | 62,976, 0 parse errors, 0 failures                                      | 57,537, 0 parse errors, 0 failures |
+| Resources named `[k:kind]` at position k | 25,332 of 25,332                                                        | 27,822 of 27,822                   |
+| Zoneset names resolved                   | 77,531 of 77,531                                                        | 67,236 of 67,236                   |
+
+- **One fact corrected:** "the zonesets list every resource" fails for 31 bitmaps in one Forge update module, so the `zoneset` check no longer requires it (format-notes "Tags").
+- **One module moved:** a v23 module (the Xbox layout) was in the Forge folder by mistake; it is now in the Xbox folder. The module version in the header tells the two builds apart.
