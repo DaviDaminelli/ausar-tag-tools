@@ -189,7 +189,7 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
 ```
 
 - Shortcut for one build without a config file: `--deploy <path> --defs <path> [--resource-defs <path>]` creates a single build named `default`.
-- **Preferences** (CLI display only, per person, D25): an optional `preferences.toml` in the user config folder (`%APPDATA%\h5tags`, `~/Library/Application Support/h5tags`, `$XDG_CONFIG_HOME/h5tags` or `~/.config/h5tags`; `--preferences <file>` overrides). Key: `color = true|false` (default `true`). `h5tags` never writes it; unknown keys are reported. It is read only when colors are possible (`table` output to a terminal, no `--no-color`).
+- **Preferences** (CLI display only, per person, D25): an optional `preferences.toml` in the user config folder (`%APPDATA%\h5tags`, `~/Library/Application Support/h5tags`, `$XDG_CONFIG_HOME/h5tags` or `~/.config/h5tags`; `--preferences <file>` overrides). Key: `color = true|false` (default `true`). Managed with the CLI-only command `h5tags preferences` (show the file and values), `preferences set color on|off`, `preferences unset color`; that command is the only thing that writes the file (it rewrites it whole). Editing it by hand also works; unknown keys are reported. It is read only when colors are possible (`table` output to a terminal, no `--no-color`).
 - The **first** build listed is the default build.
 - Every tool that reads tags takes an optional `build` parameter (default: the default build). Every result states its build when more than one build is configured.
 - **Tag argument syntax** (all tools): `[build:]<tag>`, where `<tag>` is one of: a global ID (`0x00A1B2C3`, case-insensitive), a tag path, or a display name. Examples: `0x00A1B2C3`, `xbox:objects\weapons\rifle\assault_rifle\assault_rifle`, `forge:...\assault_rifle.weapon`. A `build:` prefix overrides the `build` parameter. If a path matches several tags (same path, different classes), return the candidates and don't read any.
@@ -327,6 +327,7 @@ Two checks run for every struct field, tag block field and the main struct:
 
 - `raw-view <tag> --data-block N --offset X --length L`: hex dump with the definition's field layout overlaid.
 - `header-dump <tag>`: all tag header sections.
+- `preferences [set <key> <value> | unset <key>]`: show or change the display preferences (§6.1). Needs no config and loads no game files.
 
 ### 6.8 Bitmaps (`FR-6`, untiled only in v1)
 

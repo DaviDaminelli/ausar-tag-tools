@@ -34,7 +34,7 @@ struct Cli {
     /// Output format (default: table in a terminal, json when piped or redirected).
     #[arg(long, global = true, value_enum)]
     format: Option<Format>,
-    /// No colors this time. To turn them off for good: `color = false` in the preferences file.
+    /// No colors this time. To turn them off for good: `h5tags preferences set color off`.
     #[arg(long, global = true)]
     no_color: bool,
     /// Preferences file (default: preferences.toml in your user config folder,
@@ -45,7 +45,97 @@ struct Cli {
     #[arg(short, long, global = true, action = ArgAction::Count)]
     verbose: u8,
     #[command(subcommand)]
-    command: Command,
+    command: CliCommand,
+}
+
+/// A tool (the same as over MCP, D7), or a command that only the CLI has.
+#[derive(clap::Subcommand)]
+enum CliCommand {
+    #[command(flatten)]
+    Tool(Command),
+    /// Show or change your display preferences (CLI only; the AI never sees them).
+    Preferences {
+        #[command(subcommand)]
+        action: Option<PreferenceAction>,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum PreferenceAction {
+    /// Set a preference, e.g. `set color off`.
+    #[command(subcommand)]
+    Set(SetPreference),
+    /// Remove a preference: back to its default.
+    Unset {
+        #[arg(value_enum)]
+        key: PreferenceKey,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum SetPreference {
+    /// Colors in the terminal: on or off (also true/false, yes/no).
+    Color {
+        #[arg(action = ArgAction::Set, value_parser = clap::builder::BoolishValueParser::new())]
+        value: bool,
+    },
+}
+
+#[derive(Clone, Copy, clap::ValueEnum)]
+enum PreferenceKey {
+    Color,
+}
+
+fn on_off(value: bool) -> &'static str {
+    if value { "on" } else { "off" }
+}
+
+/// `h5tags preferences [set|unset]`: needs no config and loads no game files.
+fn run_preferences(action: Option<&PreferenceAction>, file: Option<PathBuf>) -> ExitCode {
+    let Some(path) = file.or_else(preferences::default_path) else {
+        eprintln!("error: can't find your user config folder; pass --preferences <file>");
+        return ExitCode::from(2);
+    };
+    let loaded = Preferences::load(&path);
+    let Some(action) = action else {
+        let state = match (&loaded, path.exists()) {
+            (Err(e), _) => format!("unreadable, defaults are used: {e}"),
+            (Ok(_), false) => "not created yet".to_owned(),
+            (Ok(_), true) => "exists".to_owned(),
+        };
+        println!("file: {} ({state})", path.display());
+        let color = loaded.as_ref().ok().and_then(|p| p.color);
+        let source = if color.is_some() { "set in the file" } else { "default" };
+        println!("color: {} ({source})", on_off(color.unwrap_or(preferences::DEFAULT_COLOR)));
+        return ExitCode::SUCCESS;
+    };
+    let mut prefs = match loaded {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}\nhint: fix or delete the file, then try again");
+            return ExitCode::from(2);
+        }
+    };
+    let message = match action {
+        PreferenceAction::Set(SetPreference::Color { value }) => {
+            prefs.color = Some(*value);
+            format!("color: {}", on_off(*value))
+        }
+        PreferenceAction::Unset { key: PreferenceKey::Color } => {
+            prefs.color = None;
+            format!("color: back to the default ({})", on_off(preferences::DEFAULT_COLOR))
+        }
+    };
+    match prefs.save(&path) {
+        Ok(()) => {
+            println!("{message}; saved to {}", path.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: can't save the preferences: {e}");
+            ExitCode::from(2)
+        }
+    }
 }
 
 fn load_config(cli: &Cli) -> Result<Config, String> {
@@ -129,6 +219,11 @@ fn main() -> ExitCode {
         .with_env_filter(EnvFilter::try_from_env("H5TAGS_LOG").unwrap_or_else(|_| EnvFilter::new(level)))
         .init();
 
+    let tool = match &cli.command {
+        CliCommand::Preferences { action } => return run_preferences(action.as_ref(), cli.preferences.clone()),
+        CliCommand::Tool(tool) => tool,
+    };
+
     let config = match load_config(&cli) {
         Ok(c) => c,
         Err(e) => {
@@ -149,7 +244,7 @@ fn main() -> ExitCode {
     let no_color_env = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
     let preferences_path = cli.preferences.clone();
     let color = use_color(format, terminal, cli.no_color, || color_preference(preferences_path), no_color_env);
-    match cli.command.run(&mut session) {
+    match tool.run(&mut session) {
         Ok(out) => {
             print_out(&out.render_with(format, color), color);
             ExitCode::SUCCESS
@@ -177,6 +272,34 @@ mod tests {
         assert!(!use_color(Format::Text, true, false, read_never, false));
         assert!(!use_color(Format::Json, true, false, read_never, false));
         assert!(!use_color(Format::Table, true, true, read_never, false));
+    }
+
+    #[test]
+    fn command_line_is_consistent() {
+        use clap::CommandFactory;
+        Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn preferences_command_parses() {
+        let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("h5tags").chain(args.iter().copied()));
+        let cli = parse(&["preferences", "set", "color", "off"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            CliCommand::Preferences { action: Some(PreferenceAction::Set(SetPreference::Color { value: false })) }
+        ));
+        assert!(matches!(
+            parse(&["preferences", "set", "color", "yes"]).unwrap().command,
+            CliCommand::Preferences { action: Some(PreferenceAction::Set(SetPreference::Color { value: true })) }
+        ));
+        assert!(parse(&["preferences", "set", "color", "maybe"]).is_err());
+        assert!(matches!(parse(&["preferences"]).unwrap().command, CliCommand::Preferences { action: None }));
+        assert!(matches!(
+            parse(&["preferences", "unset", "color"]).unwrap().command,
+            CliCommand::Preferences { action: Some(PreferenceAction::Unset { key: PreferenceKey::Color }) }
+        ));
+        // Tools are unchanged.
+        assert!(matches!(parse(&["search-tags", "magnum"]).unwrap().command, CliCommand::Tool(_)));
     }
 
     #[test]
