@@ -195,3 +195,16 @@ Answers: the field type table is right (every Forge main struct and checked bloc
 | Definitions starting with vtable space + internal struct | 289 of 289          |
 | Mapping-function structs                                 | 529                 |
 | Fields renamed `#2`, `#3`… to be unique among siblings   | 1,774               |
+
+**Step 2a: the tag reader** (`h5-meta`; every tag of both samples read with its definition)
+
+| What                                               | Forge                    | Xbox                             |
+| -------------------------------------------------- | ------------------------ | -------------------------------- |
+| Tags read                                          | 62,976                   | 57,537                           |
+| With no problem and no divergence (checks 1 and 4) | **62,976 (100%)**        | 57,518 (19: the 5 known classes) |
+| Tag blocks / structs and arrays read               | 1,878,819 / 2,924,539    | 2,405,230 / 3,298,562            |
+| Header ↔ definition divergences (check 1)          | 0                        | 0                                |
+| GUID mismatches, values kept (`warn`)              | 34,121 at 64 fields      | 46,993 at 60 fields              |
+| Time, every tag (release, incl. decompression)     | 18.2 s (0.29 ms per tag) | 22.8 s                           |
+
+Speed-up in the same step (D26): the first version took 69.4 s on Forge. Path steps are now computed once per definition (`Field::step`), nodes borrow their names, and field paths are formatted only for problems and divergences: 69.4 → 18.2 s (3.8×).
