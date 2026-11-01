@@ -42,7 +42,9 @@ How things were checked:
 - Array of `int32` file indices — AusarDocs `Module.md`. Verified (test): every item is a valid file index, and each owner's resources point back to it.
 
 ### Compression block entry
-- **v27 layout (0x20 bytes)** — AusarDocs `Module.md`, "Block Definition Structure". Verified (test) on the Forge files: blocks tile each entry's uncompressed data exactly, stay inside its compressed data, and decompress to their stated sizes. The `checksum` field isn't checked yet.
+- **v27 layout (0x20 bytes)** — AusarDocs `Module.md`, "Block Definition Structure". Verified (test) on the Forge files: blocks tile each entry's uncompressed data exactly, stay inside its compressed data, and decompress to their stated sizes.
+- **v27 block checksum** — verified (test `block_checksums_match`, 2026-11-01): the stored `checksum` of all 179,161 compression blocks of the Forge samples equals the **first** 64-bit half (`h1`) of MurmurHash3 x64 128, seed 0, of the block's decompressed bytes. AusarDocs' "the upper 64 bits are discarded" means `h2` is dropped. This also proves every block decompresses exactly. v23 blocks have no checksum.
+- **MurmurHash3** — own implementation (`h5-module/src/murmur3.rs`) from the published algorithm. x86 32-bit: matches the published reference values and AusarDocs' `"__default__"` → `0x9B555AD2`. x64 128-bit: verified by the block checksums above.
 - **v23 layout (0x14 bytes)** — verified (hex on `w1_meridian`, test on all Xbox files). Fields: `compressedOffset` u32, `compressedSize` u32, `uncompressedOffset` u32, `uncompressedSize` u32, `compressed` u32 (1 = zlib). No checksum.
 
 ### Data area

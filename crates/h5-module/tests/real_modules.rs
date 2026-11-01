@@ -293,3 +293,49 @@ fn report_incomplete_modules() {
         );
     }
 }
+
+/// Every v27 compression block's stored checksum equals MurmurHash3 x64 128
+/// of its decompressed data (AusarDocs: "the upper 64 bits are discarded").
+/// Also proves each block decompressed exactly right.
+#[test]
+#[ignore]
+fn block_checksums_match() {
+    use h5_module::murmur3::murmur3_x64_128;
+    let (mut first_half, mut second_half, mut neither, mut none_stored) = (0usize, 0usize, 0usize, 0usize);
+    let mut examples = Vec::new();
+    for found in find_modules(&deploy()).unwrap() {
+        let map = map_file(&found.path).unwrap();
+        let m = Module::parse(&map).unwrap();
+        for i in 0..m.entries.len() as u32 {
+            let (Ok(data), Ok(blocks)) = (m.read_entry(i), m.entry_blocks(i)) else { continue };
+            for b in blocks.iter() {
+                let Some(stored) = b.checksum else {
+                    none_stored += 1;
+                    continue;
+                };
+                let start = b.uncompressed_offset as usize;
+                let (h1, h2) = murmur3_x64_128(&data[start..start + b.uncompressed_size as usize], 0);
+                match (h1 == stored, h2 == stored) {
+                    (true, _) => first_half += 1,
+                    (_, true) => second_half += 1,
+                    _ => {
+                        neither += 1;
+                        if examples.len() < 5 {
+                            examples.push(format!(
+                                "{} entry {i}: stored {stored:#018x}, hash {h1:#018x} {h2:#018x}",
+                                found.rel_path
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    println!(
+        "block checksums: first half (h1) matches {first_half}, second half (h2) matches {second_half}, neither {neither}, no checksum stored (v23 or synthetic) {none_stored}"
+    );
+    for e in &examples {
+        println!("  {e}");
+    }
+    assert_eq!(neither, 0, "see the mismatches above");
+}

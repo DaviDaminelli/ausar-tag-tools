@@ -210,7 +210,8 @@ impl FileEntry {
 /// One compression block of a file entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BlockEntry {
-    /// v27 only.
+    /// v27 only: the first half (h1) of MurmurHash3 x64 128 (seed 0) of the
+    /// block's decompressed bytes (format-notes).
     pub checksum: Option<u64>,
     /// Relative to the file entry's data start.
     pub compressed_offset: u32,

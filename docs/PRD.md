@@ -585,7 +585,7 @@ Each item reuses the v1 tools; none changes v1 behaviour.
 
 ## 11. Future (v2+)
 
-- Editing: `set_field(tag, path, value, dry_run=true)`. Writes to a copy of the module, keeps a backup, recompresses, recomputes checksums (each compression block's checksum: Murmur3 x64 128 of the uncompressed data, upper 64 bits dropped; module header checksum: Murmur3 x64 128 over the header with the checksum field zeroed + file list + resource list + compression block list), and verifies by re-reading. Start with fixed-size values (numbers, enums, flags); size-changing edits (adding entries) come later.
+- Editing: `set_field(tag, path, value, dry_run=true)`. Writes to a copy of the module, keeps a backup, recompresses, recomputes checksums (each compression block's checksum: the first 64-bit half (h1) of Murmur3 x64 128, seed 0, of the uncompressed data (verified on every Forge sample block); module header checksum: Murmur3 x64 128 over the header with the checksum field zeroed + file list + resource list + compression block list), and verifies by re-reading. Start with fixed-size values (numbers, enums, flags); size-changing edits (adding entries) come later.
 - Reading other resource types (`tag_resources`).
 - Halo Infinite.
 - Zoneset info (poorly documented; low priority).

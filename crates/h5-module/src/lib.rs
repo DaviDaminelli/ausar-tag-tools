@@ -10,6 +10,7 @@ mod global_id;
 pub mod index;
 mod le;
 mod module;
+pub mod murmur3;
 pub mod names;
 
 #[cfg(test)]
