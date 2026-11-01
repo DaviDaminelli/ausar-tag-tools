@@ -1,0 +1,178 @@
+# h5tags — guide for AI agents
+
+How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how to read what they return. This guide is **normative**: the tool's text output MUST match it (PRD §9a). If they disagree, the PRD wins and this guide is fixed.
+
+## 1. Mental model
+
+- **Build**: one version of the game with its own files, e.g. `forge` (Halo 5: Forge, PC) or `xbox` (Halo 5: Guardians, Xbox One, which also has campaign content). Results say which build they come from when more than one is configured. Never mix values from different builds without saying so.
+- **Module** (`.module`): an archive in a build's deploy folder. Modules layer on top of each other, so the same tag can have **copies** in several modules.
+- **Tag**: one piece of game data (a weapon, a projectile, an effect...). Identified by a **global ID** (`0x00A1B2C3`, the same in every module) and a **tag path** (`objects\weapons\rifle\assault_rifle\assault_rifle`).
+- **Class**: the tag's type, a 4-character code + a name: `weap` = `weapon`, `proj` = `projectile`. **Display name** = tag path + `.` + class name.
+- **Definition**: the XML (Lord Zedd's H5Tags) that names and types a class's fields. Field names are the original developer names.
+- Fields are grouped by **sections** (headings), **structs** (fixed groups), **arrays** (fixed repeated groups) and **tag blocks** (lists of entries: `barrels[0]`, `barrels[1]`).
+- **References**: tags point to other tags. Behaviour is usually spread along a chain: weapon → projectile → damage effect.
+- **Class sections**: many classes include their parent classes' fields first. A `dspn` (dispenser) is `OBJECT` fields, then `DEVICE`, then `DISPENSER`. **A class's own fields are usually in its last class section.**
+
+## 2. Workflow
+
+1. **Find** the tag: `search_tags` if you know part of a name; `browse` to explore a folder; `search_definitions` if you know what you want but not which class controls it.
+2. **Orient**: `outline(tag)` before reading anything large. It's cheap and shows sections, field paths and entry counts.
+3. **Read** only what you need: `read_tag(tag, section=...)` or `read_tag(tag, path=...)`.
+4. **Follow references** when the answer isn't in this tag: `find_references(tag)`, optionally `recursive=true`.
+5. **Compare** with `query_field` (one field across a class) or `diff_tags` (two tags of the same class), at `detail=brief`.
+6. **Look up meaning** with `get_definition(class, path=..., detail=full)` when a field's name isn't self-explanatory.
+
+### Which tool
+| Question | Tool |
+|---|---|
+| "Find the assault rifle" | `search_tags("assault_rifle")` |
+| "What's in this folder?" | `browse(path)` |
+| "Which class controls weapon heat?" | `search_definitions("heat")` |
+| "What does this tag contain?" | `outline(tag)` |
+| "Show the firing settings" | `read_tag(tag, section=...)` or `read_tag(tag, path=...)` |
+| "What does field X mean / what values can it take?" | `get_definition(class, path=..., detail=full)` |
+| "What does this weapon use?" | `find_references(tag, direction=out, recursive=true)` |
+| "What uses this projectile?" | `find_references(tag, direction=in)` |
+| "Magazine size of every weapon" | `query_field("weap", path, ...)` |
+| "Assault rifle vs SMG" | `diff_tags(a, b)` |
+| "Which maps load this?" | `which_maps(tag)` |
+| "What assets does this tag have, and how big are they?" | `list_entries(tag=...)` |
+| "Biggest meshes / all assets of a kind" | `list_entries(kind="mesh resource", sort=size)` |
+| "Bitmaps with 'magnum' in the name" | `search_tags("magnum", class="bitm")` |
+| "Every bitmap this weapon uses" | `find_references(tag, recursive=true, class="bitm")` |
+| "What kinds of assets exist?" | `list_resource_kinds()` |
+| "Is this tag the same in every module?" | `tag_copies(tag)` |
+| "Which tags mention 'plasma'?" | `search_values("plasma")` |
+| "What's in the Xbox build but not Forge?" | `compare_builds("xbox", "forge")` |
+| "What does this texture look like?" | `view_bitmap(tag)`: read the text summary first; the sheet shows each channel separately |
+
+## 3. Budget rules
+
+- **Never read a whole large tag** (`scnr`, `effe`, `vehi`, `bipd`, `char`, `gint`, `unit`, `weap`). Call `outline` first, then read sections or paths.
+- `detail=normal` is the default. Use `brief` for anything covering many tags or many entries. Use `full` only for the few fields you're explaining or about to change.
+- Use `[*]` paths (`barrels[*].rounds per second`) instead of reading each entry separately.
+- Don't re-read what you already read in this conversation, unless something changed or you need a different detail level.
+- Follow paging hints instead of raising `limit` a lot.
+
+## 4. Reading the text output
+
+### 4.1 Layout
+```
+# weap objects\...\assault_rifle.weapon  0x00A1B2C3  build=forge  copies: 3 (identical)   ← tag line
+## WEAPON                                                     ← class section (inherited parent classes come first)
+### barrels  block[2] {primary, secondary}  showing [0] primary   ← struct / array / tag block / explanation heading
+> Controls how each barrel fires. […]                         ← first line of an explanation; […] = cut
+  rounds per second   bounds    8.5..8.5                      ← field: name, short type, value, units, extras
+  trigger mode        enum16    2 charge  {normal|latch|charge|latch-autofire}
+  #### shots  block[3] {first, second, third}  → path=barrels[0].shots
+… 140 more (offset=50)                                        ← paging hint
+```
+- `# ` = tag line (or definition line). `## ` = class section, nothing else. `### ` and deeper = explanations, structs, arrays and tag blocks; one more `#` per nesting level.
+- A section contains everything after its heading until the next heading at the same or a higher level. Indented lines belong to the nearest heading above.
+- **Field line:** name, short type, value, then units/range and extras. Units come from the definition (`stops`, `seconds`); `[0.1-1]` is the definition's stated valid range.
+- `block[N] {labels}` = entry count and entry labels (max 8, then `+N more`). `showing [i]` = which entry is printed below.
+- `→ path=...` = not expanded here; call again with that path.
+- Repeated names among siblings get `#2`, `#3`: `flags#2` is the second field named `flags`.
+- `resources: N (size)` on the tag line = the tag owns N resources (textures, meshes, sounds… stored outside the tag) totalling that size. Their contents are not loaded. `detail=full` lists each one (`resource [i]  <kind>  <size>`). Omitted when the tag has none.
+- `copies: N (identical)` = all copies are the same. `copies: N (differ; reading <module>; use module= to choose)` = they differ; say which module's copy your numbers come from.
+
+### 4.2 Brief format
+`detail=brief` drops headings: each line is `<full field path>  <value>`, e.g. `barrels[0].rounds per second  8.5..8.5`. Lists (search results, `query_field`, references) are tab-separated tables with a header line, sometimes with an `in <prefix>:` line that shortens repeated paths.
+
+### 4.3 Short type names
+| Short type | Field types | Value shown as |
+|---|---|---|
+| `real` | real, real fraction, angle | `0.15` |
+| `int8` `int16` `int32` `int64` | integers | `30` |
+| `enum8` `enum16` `enum32` | one option | `2 charge` (number + label) |
+| `flags8` `flags16` `flags32` | set of options | `0x00000005 {a, b}  (+N options)` |
+| `bounds` | min/max pairs | `8.5..8.5` |
+| `point2` `point3` `vec2` `vec3` `euler2` `euler3` `quat` `plane2` `plane3` `rect2` | multi-component | `(x, y, z)` etc. |
+| `rgb` `argb` `hsv` `ahsv` | colours | `(r, g, b)` etc. |
+| `string` | text | `"text"` |
+| `stringid` | hashed name | `bullet` |
+| `tagref` | reference to a tag | `<display name>  <global ID> [allowed classes]` |
+| `blkidx` | index into a tag block | `1 → barrels[1] secondary` |
+| `block[N]` | tag block with N entries | heading |
+| `struct` | struct | heading |
+| `array` | array | heading |
+| `data` | data reference | `(N bytes)` |
+| `function` | mapping-function curve | `(curve, N bytes)` (not decoded) |
+| `resource` | pageable resource | `(resource, not loaded)`; with kind and size when known: `(mesh resource, 6.1 MB, not loaded)` |
+
+### 4.4 Options
+- After an enum, `{a|b|c}` = all options; the chosen one is the label after the number.
+- After flags, `{a, b}` = options that are **set**; `(+N options)` = how many others exist. Use `options=all`, or `get_definition`, for the full list.
+- Options the definition marks as internal/unused are hidden unless `show_hidden=true`, but **the chosen enum value and every set bit are always shown**.
+- For `[*]` reads, options appear once in a `legend:` block at the end.
+
+### 4.5 Empty, missing and unreadable — read carefully
+| Marker | Meaning | What you may say |
+|---|---|---|
+| `(empty)` | The tag has nothing there (0 entries, 0 bytes) | It's a fact about the tag |
+| `(none)` | Null reference / no value | Fact |
+| `(none set)` | Flags with no bits set | Fact |
+| `(not in indexed modules)` | The referenced tag isn't in this build's modules | Say so; don't claim it doesn't exist in the game |
+| `(unresolved)` | string_id couldn't be turned into text | Give the hash; don't guess the name |
+| `(no definition for class …)` / `(no options defined)` / `(no option N; …)` / `(unnamed @0x..)` | The definition doesn't describe this | The value is real, its meaning is unknown |
+| `(out of range; …)` | Block index points past the last entry | Fact about the stored value; its effect in-game is unknown |
+| `(hidden)` / `(N hidden fields)` | Hidden by default (padding, internal fields) | Use `show_hidden=true` if relevant |
+| `!! …` | **The tool failed to read this** | **Never** present those values, or their absence, as facts. Tell the user reading failed there and why |
+| `(not read)` | Field after a read failure | Same as `!!` |
+| `warning: definition GUID mismatch` | The definition may not fit this tag | Treat those values as unreliable; say so |
+
+### 4.6 Other results: what they mean
+| Result / column | Meaning | What you may conclude |
+|---|---|---|
+| `hint: …` | A rare or partial result explaining itself, often with the next call to make | Follow it, or tell the user what it says |
+| `… N more (offset=X)` | More rows exist; call again with that offset | Never say "that's all" before the last page |
+| `in <prefix>:` | Rows below are shortened; prepend the prefix | — |
+| `total` (lists) | How many rows match in all, not just this page | Use it for "how many" answers |
+| `list_entries` entry type `tag` / `resource` / `file` | A tag; an asset owned by a tag (texture data, mesh, sound…); another file (e.g. `loadmanifest`) | Resources are part of their owner tag, not separate tags |
+| `list_entries` sizes | Uncompressed and compressed (on-disk) size of the entry | Size only; contents are not loaded |
+| `list_resource_kinds` | Each asset kind with its count and total size | — |
+| `definition_status` `has definition` | Whether a definition XML exists for the class | No → that class's tags can't be read field by field, only listed and followed by references |
+| `definition_status` mismatches + `checked N of M tags` | Size or GUID mismatches found so far between the definition and real tags of that class, and how many of its tags have been checked (kept across sessions) | Mismatches → values from that class may be wrong where flagged. "None found" only covers the N tags checked, not the whole class |
+| `tag_copies` `identical` / `differ` | Whether every copy of the tag has the same stored data (checked on the data itself) | `differ` → values can depend on the module; say which copy you used |
+| `compare_builds` `only in A` / `only in B` / `different` | By global ID: tags present in one build only, or in both with different stored data | `different` means the data differs, not necessarily a gameplay change; diff the tags to see what |
+| `find_references` `(see above)` | That tag was already expanded earlier in the tree | Not a new reference |
+| `find_references` with `class`: `depth`, `via` | How many references deep the tag was found, and which tag points to it | The chain is real; what it does in-game needs reading the tags |
+| `query_field` / batch `skipped` | Tags that failed to read, with the reason | They are missing from the results; say so if it matters |
+| `(header scan built: N tags, T s)` | This call first had to scan all tag headers; later calls are fast | — |
+| `reindex` result | What was rebuilt or dropped, and how long it took | — |
+
+Results may come from the tool's cache (kept across sessions). A cached result is always identical to a fresh one, so you never need to "refresh" it. Only `reindex` forces a rebuild, and the tool keeps itself up to date when game files change.
+
+## 5. Being accurate with the user
+
+- **Values come from tools only.** Never fill in a value from memory or general Halo knowledge.
+- **Field names and help text are hints, not proof.** When explaining what a field does, say whether that comes from the definition's help text, from the field name, or from your own inference.
+- **Say which build and which copy** your numbers come from whenever more than one exists.
+- Units and ranges come from the definition: usually right, but developer notes, not guarantees.
+- **Not available in v1:** resource contents other than untiled bitmaps (no models, animations, sounds; you can see that they exist, their kind and size, but not what's inside), tiled (Xbox) textures, mapping-function curves, script contents, in-game display text, and any editing. Say so instead of working around it.
+
+## 6. Arguments
+
+- **Tag:** `[build:]<tag>`, where `<tag>` is a global ID (`0x00A1B2C3`), a tag path, or a display name. Examples: `0x00A1B2C3`, `xbox:objects\...\assault_rifle`, `...\assault_rifle.weapon`. If several tags match, the tool returns candidates: pick one, or ask the user.
+- **Field path:** names joined by `.`, case-insensitive, spaces kept. `[i]` = tag block entry `i` (from 0); `[*]` = every entry; structs and arrays have no index. Example: `barrels[0].firing noise`. On a typo, the error lists close names.
+- **Section:** `section="EXPOSURE"` selects a section by heading. If the heading occurs more than once, you get the list of matches to choose from.
+- **depth:** how many nested struct/array/tag block levels to expand (default 2). Raise it only for small sections.
+- **Filters** mean the same on every list tool that has them, and all given filters must match:
+  - `query` + `mode` (`default` = path contains; `regex`, e.g. `magnum|pistol`; `exact`)
+  - `class` (class code or name)
+  - `kind` (class, resource kind like `mesh resource`, or `file`)
+  - `module` (part of the module path)
+  - `min_size` / `max_size` (`500KB`, `10MB`)
+  - `offset` / `limit`
+
+  Combine filters in one call instead of fetching a big list and filtering it yourself.
+
+## 7. Example
+
+> User: "How fast does the assault rifle fire, and what does it shoot?"
+
+1. `search_tags("assault_rifle", class="weap")` → one result.
+2. `outline(<global ID>)` → under `## WEAPON`: `barrels block[1]`.
+3. `read_tag(<global ID>, path="barrels[*].rounds per second", detail=brief)` → `barrels[0].rounds per second  8.5..8.5`.
+4. `find_references(<global ID>)` → a `proj` tag at `barrels[0].projectile`.
+5. Answer: 8.5 rounds per second (minimum and maximum are equal, so the rate doesn't ramp up), firing `…bullet.projectile`. Offer to read the projectile's damage next.
