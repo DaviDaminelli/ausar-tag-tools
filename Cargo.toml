@@ -16,6 +16,7 @@ clap = { version = "4.6", features = ["derive"] }
 flate2 = "1.1"
 memmap2 = "0.9"
 postcard = { version = "1.1", default-features = false, features = ["use-std"] }
+quick-xml = "0.42"
 regex = "1.13"
 anstyle = "1"
 anstream = "1"

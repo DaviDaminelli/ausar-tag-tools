@@ -7,3 +7,5 @@ rust-version.workspace = true
 
 [dependencies]
 h5-module.workspace = true
+quick-xml.workspace = true
+thiserror.workspace = true

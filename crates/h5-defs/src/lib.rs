@@ -1,11 +1,16 @@
 //! Lord Zedd's H5Tags definitions (PRD §5.3). For M1: the list of definition
-//! files and the lookup from a class to its file. XML parsing comes in M3.
+//! files and the lookup from a class to its file; M3: parsing one definition
+//! (`definition`) and the field type table (`field_type`).
 
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use h5_module::FourCc;
+
+pub mod definition;
+pub mod field_type;
+pub mod name;
 
 /// One `(code)class name.xml` file.
 #[derive(Clone, Debug, PartialEq, Eq)]
