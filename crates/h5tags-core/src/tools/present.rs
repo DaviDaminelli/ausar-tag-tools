@@ -98,8 +98,20 @@ pub fn no_match_hint(query: &str, mode: Mode, similar: &[String]) -> String {
     }
 }
 
-pub fn other_copies_hint(copies: usize, module: &str) -> String {
-    format!("the tag has {copies} copies; listing the copy in {module}; use module= to choose another")
+/// Modules named in the copies hint; more are counted.
+const MAX_COPY_MODULES: usize = 5;
+
+/// `modules`: every module holding a copy (one each), in copy order; `shown`:
+/// the one used, named first.
+pub fn other_copies_hint(modules: &[&str], shown: &str) -> String {
+    let others = modules.iter().filter(|&&m| m != shown);
+    let named: Vec<String> = std::iter::once(format!("{shown} (this)"))
+        .chain(others.map(|m| (*m).to_owned()))
+        .take(MAX_COPY_MODULES)
+        .collect();
+    let more = modules.len().saturating_sub(MAX_COPY_MODULES);
+    let more = if more > 0 { format!(" (+{more} more)") } else { String::new() };
+    format!("the tag has {} copies: {}{more}; use module= to choose another", modules.len(), named.join(", "))
 }
 
 /// A tag copy that can't be read from its module file.

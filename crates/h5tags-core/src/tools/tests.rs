@@ -264,10 +264,19 @@ fn list_entries_of_a_tag() {
     assert_eq!(mesh["size"], 9_000_000);
     assert!(v["hints"][0].as_str().unwrap().contains("not stored"));
 
+    // The hint names the modules holding a copy, so another can be chosen.
     let v = run(&ListEntries { tag: Some("0x00000010".into()), ..entries() });
-    assert!(v["hints"][0].as_str().unwrap().contains("2 copies"));
+    assert_eq!(
+        v["hints"][0],
+        r"the tag has 2 copies: any\levels\globals-rtx-1.module (this), any\levels\globals-rtx-11587-1.module; use module= to choose another"
+    );
     let v = run(&ListEntries { tag: Some("0x00000010".into()), module: Some("11587".into()), ..entries() });
     assert_eq!(v["rows"][0]["module"], r"any\levels\globals-rtx-11587-1.module");
+    // The copy shown comes first.
+    assert_eq!(
+        v["hints"][0],
+        r"the tag has 2 copies: any\levels\globals-rtx-11587-1.module (this), any\levels\globals-rtx-1.module; use module= to choose another"
+    );
     let v = run(&ListEntries { tag: Some("0x00000010".into()), module: Some("nowhere".into()), ..entries() });
     assert!(v["error"].as_str().unwrap().contains("has no copy"));
 }
@@ -366,4 +375,15 @@ fn empty_searches_say_why() {
     assert_eq!(v["hints"][0], "no tag matches every filter; without class= and module=, the query matches 2 tags");
     let v = run(&SearchTags { mode: Mode::Regex, ..search("^nothing$") });
     assert!(v["hints"][0].as_str().unwrap().starts_with("no tag path matches the regex"));
+}
+
+#[test]
+fn copies_hint_names_at_most_five_modules() {
+    let modules: Vec<String> = (1..=7).map(|i| format!("m{i}.module")).collect();
+    let names: Vec<&str> = modules.iter().map(String::as_str).collect();
+    // The copy shown is always named, even past the first five.
+    assert_eq!(
+        present::other_copies_hint(&names, "m7.module"),
+        "the tag has 7 copies: m7.module (this), m1.module, m2.module, m3.module, m4.module (+2 more); use module= to choose another"
+    );
 }

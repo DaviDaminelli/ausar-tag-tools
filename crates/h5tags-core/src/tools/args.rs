@@ -96,8 +96,10 @@ pub fn tag_copy<'s>(
         ))
         .hint("list_entries without module= lists its modules")
     })?;
-    let other_copies_hint =
-        (tag.copies.len() > 1).then(|| present::other_copies_hint(tag.copies.len(), &build.module(copy).rel_path));
+    let other_copies_hint = (tag.copies.len() > 1).then(|| {
+        let modules: Vec<&str> = tag.copies.iter().map(|&c| build.module(c).rel_path.as_str()).collect();
+        present::other_copies_hint(&modules, &build.module(copy).rel_path)
+    });
     Ok(TagCopy { build, tag, copy, other_copies_hint })
 }
 
