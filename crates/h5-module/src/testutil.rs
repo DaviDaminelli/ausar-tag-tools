@@ -260,8 +260,9 @@ pub struct TestTag {
     pub deps: Vec<(&'static str, String, i32)>,
     /// Tag data blocks (section 1), stored back to back.
     pub blocks: Vec<Vec<u8>>,
-    /// (kind, target block, field block, field offset, GUID).
-    pub structs: Vec<(u16, i32, i32, u32, [u8; 16])>,
+    /// (kind, target block, field block, field offset, GUID, entry count). For a
+    /// tag block (kind 1) the count is written at +0x10 of its field.
+    pub structs: Vec<(u16, i32, i32, u32, [u8; 16], i32)>,
     /// (parent struct, target block, field block, field offset).
     pub data_refs: Vec<(i32, i32, i32, u32)>,
     /// (field block, field offset, dependency index or None).
@@ -282,7 +283,7 @@ pub fn sample_tag() -> TestTag {
             ("effe", r"fx\impact\bullet_hit".into(), 0x0040_2000),
         ],
         blocks: vec![vec![0u8; 0x60], vec![0u8; 0x40], vec![0xABu8; 0x10]],
-        structs: vec![(0, 0, -1, 0, [1; 16]), (1, 1, 0, 0x00, [2; 16])],
+        structs: vec![(0, 0, -1, 0, [1; 16], 0), (1, 1, 0, 0x00, [2; 16], 2)],
         data_refs: vec![(0, 2, 0, 0x40)],
         tag_refs: vec![(0, 0x20, Some(0)), (1, 0x00, None), (1, 0x20, Some(1))],
         string_ids: vec!["__default__".into(), "primary".into()],
@@ -293,7 +294,8 @@ pub fn sample_tag() -> TestTag {
 
 /// Builds `(header section, tag data section)` for `t`, writing the fields the
 /// lists describe into the tag data: tag references get their dependency's
-/// global ID (+0x0C) and class (+0x18); data references the target's size (+0x18).
+/// global ID (+0x0C) and class (+0x18); data references the target's size (+0x18);
+/// tag blocks their entry count (+0x10).
 pub fn build_tag(t: &TestTag) -> (Vec<u8>, Vec<u8>) {
     let mut strings = Vec::new();
     let mut add_string = |s: &str| {
@@ -323,6 +325,15 @@ pub fn build_tag(t: &TestTag) -> (Vec<u8>, Vec<u8>) {
         field[0x08..0x0C].copy_from_slice(&name_len.to_le_bytes());
         field[0x0C..0x10].copy_from_slice(&gid.to_le_bytes());
         field[0x18..0x1C].copy_from_slice(&class.to_le_bytes());
+    }
+    for &(kind, _, field_block, field_offset, _, count) in &t.structs {
+        let field = usize::try_from(field_block)
+            .ok()
+            .and_then(|b| blocks.get_mut(b))
+            .and_then(|b| b.get_mut(field_offset as usize..field_offset as usize + 0x1C));
+        if let (1, Some(field)) = (kind, field) {
+            field[0x10..0x14].copy_from_slice(&count.to_le_bytes());
+        }
     }
     for &(_, target, field_block, field_offset) in &t.data_refs {
         let size = if target >= 0 { t.blocks[target as usize].len() as u32 } else { 0 };
@@ -384,7 +395,7 @@ pub fn build_tag(t: &TestTag) -> (Vec<u8>, Vec<u8>) {
         lists.extend(1u16.to_le_bytes());
         lists.extend(block_offsets[b].to_le_bytes());
     }
-    for (kind, target, field_block, field_offset, guid) in &t.structs {
+    for (kind, target, field_block, field_offset, guid, _) in &t.structs {
         lists.extend(guid);
         lists.extend(kind.to_le_bytes());
         lists.extend(0u16.to_le_bytes());
