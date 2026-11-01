@@ -1,8 +1,7 @@
 use std::fs;
-use std::path::PathBuf;
 
 use crate::index::Index;
-use crate::testutil::{SAMPLE_LOADED_TAGS, TestEntry, build_module, sample_entries};
+use crate::testutil::{SAMPLE_LOADED_TAGS, TempDir, TestEntry, build_module, sample_entries};
 use crate::{EntryKind, FourCc, Module, ModuleError, Section, Version, checks};
 
 fn sample(version: Version) -> Vec<u8> {
@@ -173,23 +172,6 @@ fn corrupt_zlib_is_an_error() {
     assert!(matches!(m.read_entry(2), Err(ModuleError::BadBlock { index: 2, .. })));
     // Other entries are unaffected.
     assert_eq!(m.read_entry(1).unwrap(), expected_data(&entries[1]));
-}
-
-struct TempDir(PathBuf);
-
-impl TempDir {
-    fn new(name: &str) -> TempDir {
-        let dir = std::env::temp_dir().join(format!("h5-module-test-{name}-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap();
-        TempDir(dir)
-    }
-}
-
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
 }
 
 #[test]

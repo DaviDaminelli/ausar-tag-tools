@@ -1,12 +1,32 @@
 //! Builds small synthetic modules for tests (no game files in the repo).
 
+use std::fs;
 use std::io::Write;
+use std::path::PathBuf;
 
 use flate2::Compression;
 use flate2::write::ZlibEncoder;
 
 use crate::fourcc::FourCc;
 use crate::module::{MAGIC, Version};
+
+/// A fresh folder under the system temp folder, deleted when dropped.
+pub struct TempDir(pub PathBuf);
+
+impl TempDir {
+    pub fn new(name: &str) -> TempDir {
+        let dir = std::env::temp_dir().join(format!("h5tags-test-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        TempDir(dir)
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
 
 pub struct TestEntry {
     pub name: String,
@@ -232,7 +252,8 @@ pub const SAMPLE_LOADED_TAGS: &[i32] = &[0x0040_1140, 0x0040_2000];
 /// A synthetic tag: header lists plus the tag data blocks they describe.
 #[derive(Clone, Default)]
 pub struct TestTag {
-    /// (class code, file name, global ID).
+    /// (class code, tag path without the class, global ID): real tags list
+    /// names without the class suffix (format-notes "Tags").
     pub deps: Vec<(&'static str, String, i32)>,
     /// Tag data blocks (section 1), stored back to back.
     pub blocks: Vec<Vec<u8>>,
@@ -255,8 +276,8 @@ pub fn sample_tag() -> TestTag {
     let default = murmur3_x86_32(b"__default__", 0);
     TestTag {
         deps: vec![
-            ("proj", r"objects\weapons\rifle\ar\bullet.projectile".into(), 0x0040_1000),
-            ("effe", r"fx\impact\bullet_hit.effect".into(), 0x0040_2000),
+            ("proj", r"objects\weapons\rifle\ar\bullet".into(), 0x0040_1000),
+            ("effe", r"fx\impact\bullet_hit".into(), 0x0040_2000),
         ],
         blocks: vec![vec![0u8; 0x60], vec![0u8; 0x40], vec![0xABu8; 0x10]],
         structs: vec![(0, 0, -1, 0, [1; 16]), (1, 1, 0, 0x00, [2; 16])],

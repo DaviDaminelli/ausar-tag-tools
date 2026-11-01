@@ -27,10 +27,7 @@ fn parses_every_list() {
     assert_eq!(tag.dependencies.len(), 2);
     assert_eq!(tag.dependencies[0].class_code, FourCc::from_code("proj").unwrap());
     assert_eq!(tag.dependencies[1].global_id, GlobalId(0x0040_2000));
-    assert_eq!(
-        tag.string(tag.dependencies[0].name_offset).as_deref(),
-        Some(r"objects\weapons\rifle\ar\bullet.projectile")
-    );
+    assert_eq!(tag.string(tag.dependencies[0].name_offset).as_deref(), Some(r"objects\weapons\rifle\ar\bullet"));
     assert_eq!(tag.data_blocks.len(), 3);
     assert_eq!(tag.data_blocks[1].size, 0x40);
     assert_eq!(tag.data_blocks[1].offset, 0x60);
@@ -204,4 +201,20 @@ fn strings_are_windows_1252() {
     assert_eq!(tag.string(tag.string_ids[1].string_offset).as_deref(), Some("caf\u{e9}"));
     // A string_id's value hashes the stored bytes, not the decoded text.
     assert_eq!(tag.string_bytes(tag.string_ids[0].string_offset), Some(&b"fleeing_\x85!!!!"[..]));
+}
+
+#[test]
+fn reads_what_a_reference_field_holds() {
+    let (_, tag, tag_data) = in_module(&sample_tag());
+    let field = |i: usize| tag.reference_field(&tag_data, &tag.tag_references[i]);
+    let first = field(0).unwrap();
+    assert_eq!(first.global_id, GlobalId(0x0040_1000));
+    assert_eq!(first.class_code, FourCc::from_code("proj").unwrap());
+    assert_eq!(first.name_length, r"objects\weapons\rifle\ar\bullet".len() as u32);
+    assert!(!first.is_null());
+    assert!(field(1).unwrap().is_null());
+    // A field outside its block can't be read.
+    let mut outside = tag.tag_references[0].clone();
+    outside.field_offset = 0x50;
+    assert_eq!(tag.reference_field(&tag_data, &outside), None);
 }

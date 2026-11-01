@@ -409,6 +409,8 @@ fn every_tag_header_parses_and_checks() {
     let mut trailing: BTreeMap<String, usize> = BTreeMap::new();
     let mut not_stored = 0;
     let (mut deps, mut deps_indexed, mut deps_same_name, mut deps_other_name) = (0usize, 0usize, 0usize, Vec::new());
+    let mut deps_listed_with_class = 0usize;
+    let mut deps_unnamed = 0usize; // no listed name: only the index can name them
     let mut unresolved_ids: HashSet<i32> = HashSet::new();
     // Tag references: all, without a dependency, of those naming a tag (ID set), of those with a listed name.
     let (mut refs, mut refs_no_dep, mut refs_no_dep_named, mut refs_no_dep_listed) = (0usize, 0usize, 0usize, 0usize);
@@ -450,11 +452,7 @@ fn every_tag_header_parses_and_checks() {
                     continue;
                 }
                 refs_no_dep += 1;
-                let field = r
-                    .field_block
-                    .and_then(|b| tag.block_data(&tag_data, b))
-                    .and_then(|d| d.get(r.field_offset as usize..)?.get(0x0C..0x10));
-                if field.is_some_and(|g| g != [0xFF; 4]) {
+                if tag.reference_field(&tag_data, r).is_some_and(|f| !f.is_null()) {
                     refs_no_dep_named += 1;
                     refs_no_dep_listed += usize::from(tag.string_bytes(r.name_offset).is_some_and(|s| !s.is_empty()));
                 }
@@ -462,14 +460,18 @@ fn every_tag_header_parses_and_checks() {
             non_ascii_tables += usize::from(!tag.string_table.is_ascii());
             for d in &tag.dependencies {
                 deps += 1;
+                deps_unnamed += usize::from(tag.string_bytes(d.name_offset).is_none_or(<[u8]>::is_empty));
                 let Some(indexed) = names.get(&d.global_id.0) else {
                     unresolved_ids.insert(d.global_id.0);
                     continue;
                 };
                 deps_indexed += 1;
                 let listed = tag.string(d.name_offset).unwrap_or_default();
-                if listed.eq_ignore_ascii_case(indexed) || listed.eq_ignore_ascii_case(split_tag_name(indexed).0) {
+                if listed.eq_ignore_ascii_case(split_tag_name(indexed).0) {
                     deps_same_name += 1;
+                } else if listed.eq_ignore_ascii_case(indexed) {
+                    deps_same_name += 1;
+                    deps_listed_with_class += 1;
                 } else if deps_other_name.len() < 5 {
                     deps_other_name.push(format!("listed '{listed}', indexed '{indexed}'"));
                 }
@@ -491,13 +493,14 @@ fn every_tag_header_parses_and_checks() {
     }
     println!("tags with trailing data, by class: {trailing:?}");
     println!(
-        "dependencies: {deps}; {deps_indexed} point at indexed tags ({deps_same_name} with the same name); {} distinct global IDs not in the indexed modules",
+        "dependencies: {deps}; {deps_indexed} point at indexed tags ({deps_same_name} with the same name, {deps_listed_with_class} of those listed with the class suffix); {} distinct global IDs not in the indexed modules",
         unresolved_ids.len()
     );
     println!(
         "tag references: {refs}; {refs_no_dep} without a dependency, {refs_no_dep_named} of those hold a global ID, {refs_no_dep_listed} of those with a listed name"
     );
     println!("tags whose string table has non-ASCII bytes: {non_ascii_tables}");
+    println!("dependencies without a listed name: {deps_unnamed}");
     for d in &deps_other_name {
         println!("  name differs: {d}");
     }

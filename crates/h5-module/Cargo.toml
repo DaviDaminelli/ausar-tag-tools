@@ -12,3 +12,7 @@ postcard.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+
+[features]
+# Test builders (synthetic modules and tags) for other crates' tests.
+testutil = []

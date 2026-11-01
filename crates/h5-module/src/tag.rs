@@ -161,6 +161,23 @@ pub struct TagReference {
 }
 
 /// A string_id used by the tag; its value is the Murmur3 x86 32 hash of the string.
+/// What a tag reference field holds (read from the tag data at the
+/// reference's location). Null when the global ID is -1, whatever the
+/// dependency index says (format-notes "Tags").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReferenceField {
+    /// Byte length of the listed name (+0x08; 0 when there is none).
+    pub name_length: u32,
+    pub global_id: GlobalId,
+    pub class_code: FourCc,
+}
+
+impl ReferenceField {
+    pub fn is_null(&self) -> bool {
+        self.global_id == GlobalId::NONE
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StringIdEntry {
     pub unknown0: u32,
@@ -436,32 +453,29 @@ impl TagHeader {
     /// and each data reference field's size equals its target block's size.
     pub fn check_tag_data(&self, tag_data: &[u8]) -> Vec<CheckFailure> {
         let mut out = Failures::default();
-        let field = |block: Option<u32>, offset: u32, size: u32| {
-            self.block_data(tag_data, block?)?.get(offset as usize..(offset + size) as usize)
-        };
         for (i, r) in self.tag_references.iter().enumerate() {
-            let Some(f) = field(r.field_block, r.field_offset, field_size::TAG_REFERENCE) else { continue };
+            let Some(f) = self.reference_field(tag_data, r) else { continue };
             let mut fail = |problem: String| out.add(checks::TAG_REFERENCE_FIELD, item("tag reference", i), problem);
             // Every reference: the field states the listed name's length.
             let listed = self.string_bytes(r.name_offset).map_or(0, <[u8]>::len) as u32;
-            let stated = u32_at(f, 0x08);
-            if stated != listed {
-                fail(format!("field says the name is {stated} bytes, the listed name has {listed}"));
+            if f.name_length != listed {
+                fail(format!("field says the name is {} bytes, the listed name has {listed}", f.name_length));
             }
             // With a dependency, the field holds its ID and class. Without one, the
             // field may still name a tag: the list isn't the whole truth (format-notes).
             if let Some(d) = r.dependency.and_then(|d| self.dependencies.get(d as usize)) {
-                let (gid, class) = (GlobalId(i32_at(f, 0x0C)), FourCc(u32_at(f, 0x18)));
-                if gid != d.global_id {
-                    fail(format!("field holds global ID {gid}, its dependency is {}", d.global_id));
+                if f.global_id != d.global_id {
+                    fail(format!("field holds global ID {}, its dependency is {}", f.global_id, d.global_id));
                 }
-                if class != d.class_code {
-                    fail(format!("field holds class {class}, its dependency is {}", d.class_code));
+                if f.class_code != d.class_code {
+                    fail(format!("field holds class {}, its dependency is {}", f.class_code, d.class_code));
                 }
             }
         }
         for (i, d) in self.data_references.iter().enumerate() {
-            let Some(f) = field(d.field_block, d.field_offset, field_size::DATA_REFERENCE) else { continue };
+            let Some(f) = self.field_bytes(tag_data, d.field_block, d.field_offset, field_size::DATA_REFERENCE) else {
+                continue;
+            };
             let size = u32_at(f, 0x18);
             let want = d.target.and_then(|t| self.data_blocks.get(t as usize)).map_or(0, |b| b.size);
             if size != want {
@@ -473,6 +487,21 @@ impl TagHeader {
             }
         }
         out.0
+    }
+
+    /// What tag reference `r`'s field holds; `None` if it lies outside its block.
+    pub fn reference_field(&self, tag_data: &[u8], r: &TagReference) -> Option<ReferenceField> {
+        let f = self.field_bytes(tag_data, r.field_block, r.field_offset, field_size::TAG_REFERENCE)?;
+        Some(ReferenceField {
+            name_length: u32_at(f, 0x08),
+            global_id: GlobalId(i32_at(f, 0x0C)),
+            class_code: FourCc(u32_at(f, 0x18)),
+        })
+    }
+
+    /// The `size` bytes of the field at (`block`, `offset`) in the tag data.
+    fn field_bytes<'d>(&self, tag_data: &'d [u8], block: Option<u32>, offset: u32, size: u32) -> Option<&'d [u8]> {
+        self.block_data(tag_data, block?)?.get(offset as usize..offset as usize + size as usize)
     }
 
     /// The bytes of tag data block `b` (blocks lie in the tag data section).

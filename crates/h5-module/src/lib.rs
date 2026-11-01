@@ -17,8 +17,10 @@ pub mod text;
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod testutil;
+/// Builders for synthetic modules and tags, also for other crates' tests
+/// (feature `testutil`; no game files in the repo).
+#[cfg(any(test, feature = "testutil"))]
+pub mod testutil;
 
 pub use check::{CheckFailure, Item, checks};
 pub use fourcc::FourCc;
