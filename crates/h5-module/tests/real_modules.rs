@@ -240,3 +240,56 @@ fn index_timings() {
     assert_eq!(report.read, 0);
     std::fs::remove_file(&cache).unwrap();
 }
+
+/// For modules shorter than their file list says: where the cut is, which entry
+/// holds the last byte, and whether the data before the cut looks like module
+/// data (each compressed block starts with a zlib header).
+#[test]
+#[ignore]
+fn report_incomplete_modules() {
+    for found in find_modules(&deploy()).unwrap() {
+        let map = map_file(&found.path).unwrap();
+        let m = Module::parse(&map).unwrap();
+        let len = m.file_len();
+        if m.data_end() <= len {
+            continue;
+        }
+        println!(
+            "== {}: {} bytes, file list needs {} ({} missing)",
+            found.rel_path,
+            len,
+            m.data_end(),
+            m.data_end() - len
+        );
+        let (mut blocks_ok, mut blocks_bad, mut uncompressed) = (0, 0, 0);
+        for (i, e) in m.entries.iter().enumerate() {
+            let Ok(blocks) = m.entry_blocks(i as u32) else { continue };
+            let start = m.data_start + e.data_offset;
+            for b in blocks.iter() {
+                let at = (start + b.compressed_offset as u64) as usize;
+                let Some(head) = map.get(at..at + 2) else { continue };
+                if !b.compressed {
+                    uncompressed += 1;
+                } else if head == [0x48, 0x0D] || head[0] == 0x78 {
+                    blocks_ok += 1;
+                } else {
+                    blocks_bad += 1;
+                    if blocks_bad <= 3 {
+                        println!("  block of entry {i} at {at} starts {head:02X?}, not zlib");
+                    }
+                }
+            }
+            if start < len && m.entry_data_end(e) > len {
+                println!(
+                    "  the cut is inside entry {i} '{}' (data {start}..{}), blocks: {:?}",
+                    m.name(i as u32).unwrap_or("?"),
+                    m.entry_data_end(e),
+                    blocks.iter().map(|b| (b.compressed_offset, b.compressed_size, b.compressed)).collect::<Vec<_>>()
+                );
+            }
+        }
+        println!(
+            "  blocks inside the file: {blocks_ok} start with a zlib header, {blocks_bad} don't, {uncompressed} stored uncompressed"
+        );
+    }
+}
