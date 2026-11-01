@@ -89,3 +89,18 @@ Every tag of both samples, through `TagHeader::parse`, `check` (against the file
 | Tags with non-ASCII strings            | 1 (Windows-1252)   | 0            |
 
 Two PRD facts corrected along the way (format-notes "Tags"): dependency -1 doesn't mean a null reference, and string tables are Windows-1252, not UTF-8. New check: a tag reference field's +0x08 is its listed name's length (true for every reference).
+
+**Step 5: copy identity (Q10)**
+
+Every entry with copies in several modules (same kind and name), each copy compared with the first one by its decompressed bytes. Forge sample; the Xbox sample has no copies.
+
+| What                                          | Number                                  |
+| --------------------------------------------- | --------------------------------------- |
+| Entries with copies                           | 195 tags (181 × 2, 14 × 3), 5 resources |
+| Copies compared                               | 214, in 0.26 s                          |
+| Identical copies                              | 1                                       |
+| `assetChecksum` agrees with data equality     | 214 of 214                              |
+| Block checksum list agrees with data equality | 214 of 214                              |
+| Copies with another global ID                 | 0                                       |
+
+Q10 is partly answered: no counterexample, but a single identical copy can't prove that an equal `assetChecksum` means identical data. Copy identity keeps comparing block checksums (PRD §6.4.6). Re-test on a full install.

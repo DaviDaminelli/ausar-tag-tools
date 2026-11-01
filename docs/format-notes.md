@@ -77,6 +77,16 @@ Checked 2026-11-01 by a research pass over every tag of both sample sets (62,620
 - **Dependencies point at indexed tags by name** — observed (same test): Forge 193,052 dependencies, 154,237 have a global ID found in the sample modules, 154,227 of those have the same name (listed name = indexed path, with or without the class). The other 10 differ only in form (`/` instead of `\`, or a `__chore\gen__\…{ctrim}` generated name). 12,652 distinct global IDs point at tags not in the sample modules. Xbox: 1,316 dependencies, 32 indexed, all with the same name; 571 distinct IDs not indexed.
 - **`unknown8` (header +0x08)** — observed: the same value in thousands of tags (e.g. one value in 3,278 tags), so probably per class layout, not per tag. Not used.
 
+## Copies (the same entry in several modules)
+
+Checked 2026-11-01 by the M2 test `copy_identity` on both samples: entries of the same kind and name in several modules, each copy compared with the first one by its decompressed bytes (PRD §12 Q10).
+
+- **Few copies in the Forge layers** — observed: 195 tags (181 in 2 modules, 14 in all 3) and 5 resources have copies, out of 62,411 tags. Every copy has the same global ID as the first. The Xbox sample has no copies.
+- **Copies almost always differ** — observed: 213 of the 214 copies differ from the first copy. Only one tag copy is identical (`objects\weapons\rifle\covenant_carbine\sights\covenant_carbine_projection_sight.weapon_attachment_sight`, in `globals-rtx-1` and `globals-rtx-12719-1`). This supports the guess that the update layers hold changed tags (Q5).
+- **`assetChecksum` matched data equality in every copy** — observed, not proven: equal for the 1 identical copy, different for all 213 differing ones. With a single identical copy, "equal `assetChecksum` ⇒ identical data" is not shown. Copy identity keeps using the data (PRD §6.4.6).
+- **The block checksum lists gave the same answer** — verified on the same 214 copies: equal lists for the identical copy, different lists for the others. No identical copy had a different block split. Block checksums are hashes of the stored data (all 179,161 Forge blocks checked, "Modules"), so equal lists mean equal data, barring a hash collision.
+- **Where the copies differ** — observed: in no tag copy is the difference only in the resource data section; the header or tag data always differs too.
+
 ## Definitions (Lord Zedd's H5Tags)
 - **File names are `(code)class name.xml`, with two caveats** — verified (test + `reference/H5Tags/tags`) against the 205 (code, class name) pairs seen in the sample modules:
   - Trailing spaces are trimmed: class `mat ` → `(mat)material.xml`.
