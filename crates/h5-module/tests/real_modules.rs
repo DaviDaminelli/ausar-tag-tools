@@ -339,3 +339,42 @@ fn block_checksums_match() {
     }
     assert_eq!(neither, 0, "see the mismatches above");
 }
+
+/// For every entry with sections: the three sections read one by one equal the
+/// whole entry. Also times reading what a tag read needs (header + tag data)
+/// against reading everything (PRD D5).
+#[test]
+#[ignore]
+fn sections_add_up_to_whole_entries() {
+    use h5_module::Section;
+    let (mut checked, mut sections_time, mut whole_time) = (0usize, std::time::Duration::ZERO, std::time::Duration::ZERO);
+    let (mut needed_bytes, mut whole_bytes) = (0u64, 0u64);
+    for found in find_modules(&deploy()).unwrap() {
+        let map = map_file(&found.path).unwrap();
+        let m = Module::parse(&map).unwrap();
+        for (i, e) in m.entries.iter().enumerate() {
+            let i = i as u32;
+            if e.flags.raw_file() || e.is_stored_elsewhere() {
+                continue;
+            }
+            let Ok(whole) = m.read_entry(i) else { continue };
+            let start = Instant::now();
+            let header = m.read_section(i, Section::Header).unwrap();
+            let tag_data = m.read_section(i, Section::TagData).unwrap();
+            sections_time += start.elapsed();
+            let resource = m.read_section(i, Section::ResourceData).unwrap();
+            assert_eq!([header.as_slice(), &tag_data, &resource].concat(), whole, "{} entry {i}", found.rel_path);
+            let start = Instant::now();
+            let _ = m.read_entry(i).unwrap();
+            whole_time += start.elapsed();
+            needed_bytes += (header.len() + tag_data.len()) as u64;
+            whole_bytes += whole.len() as u64;
+            checked += 1;
+        }
+    }
+    println!(
+        "{checked} entries: sections == whole entry. Header + tag data only: {:.1} MB in {sections_time:.2?}; whole entries: {:.1} MB in {whole_time:.2?}",
+        needed_bytes as f64 / 1e6,
+        whole_bytes as f64 / 1e6
+    );
+}

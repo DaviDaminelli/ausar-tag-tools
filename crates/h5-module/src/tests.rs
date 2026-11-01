@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::index::Index;
 use crate::testutil::{SAMPLE_LOADED_TAGS, TestEntry, build_module, sample_entries};
-use crate::{EntryKind, FourCc, Module, ModuleError, Version, checks};
+use crate::{EntryKind, FourCc, Module, ModuleError, Section, Version, checks};
 
 fn sample(version: Version) -> Vec<u8> {
     build_module(version, &sample_entries(), SAMPLE_LOADED_TAGS)
@@ -279,4 +279,73 @@ fn index_cache_rejects_other_formats() {
     assert!(Index::load(&path).is_none());
     fs::write(&path, b"H5TAGIDX\x01\x00\x00\x00\xFF\xFF").unwrap();
     assert!(Index::load(&path).is_none());
+}
+
+fn sections_of(e: &TestEntry) -> [&[u8]; 3] {
+    [&e.sections.0, &e.sections.1, &e.sections.2]
+}
+
+const SECTIONS: [Section; 3] = [Section::Header, Section::TagData, Section::ResourceData];
+
+#[test]
+fn reads_each_section_alone() {
+    let entries = sample_entries();
+    for version in [Version::V23, Version::V27] {
+        let bytes = sample(version);
+        let m = Module::parse(&bytes).unwrap();
+        for (i, e) in entries.iter().enumerate().filter(|(_, e)| !e.raw_file) {
+            for (section, expected) in SECTIONS.iter().zip(sections_of(e)) {
+                assert_eq!(m.read_section(i as u32, *section).unwrap(), expected, "{version:?} entry {i} {section:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn sections_from_one_block_holding_all_three() {
+    let mut e = TestEntry::tag(r"a\b.weapon", 1, "weap", b"the tag data");
+    e.sections.2 = b"and its resource data".to_vec();
+    e.has_blocks = false;
+    let bytes = build_module(Version::V27, &[e], &[]);
+    let m = Module::parse(&bytes).unwrap();
+    assert_eq!(m.read_section(0, Section::Header).unwrap(), b"hscu-header");
+    assert_eq!(m.read_section(0, Section::TagData).unwrap(), b"the tag data");
+    assert_eq!(m.read_section(0, Section::ResourceData).unwrap(), b"and its resource data");
+}
+
+#[test]
+fn reading_a_section_skips_the_other_blocks() {
+    let mut e = TestEntry::tag(r"a\b.bitmap", 1, "bitm", b"tag data");
+    e.sections.2 = vec![9u8; 20_000];
+    let bytes = build_module(Version::V27, &[e], &[]);
+    // Damage the resource data block (the entry's third block).
+    let m = Module::parse(&bytes).unwrap();
+    let block = &m.entry_blocks(0).unwrap()[2];
+    let at = (m.data_start + m.entries[0].data_offset + block.compressed_offset as u64) as usize + 8;
+    let mut bytes = bytes.clone();
+    bytes[at] ^= 0xFF;
+    let m = Module::parse(&bytes).unwrap();
+    assert_eq!(m.read_section(0, Section::Header).unwrap(), b"hscu-header");
+    assert_eq!(m.read_section(0, Section::TagData).unwrap(), b"tag data");
+    assert!(matches!(m.read_section(0, Section::ResourceData), Err(ModuleError::BadBlock { index: 0, block: 2, .. })));
+}
+
+#[test]
+fn raw_files_and_data_not_stored_here_have_no_sections() {
+    let bytes = sample(Version::V23);
+    let m = Module::parse(&bytes).unwrap();
+    assert!(matches!(m.read_section(0, Section::Header), Err(ModuleError::BadEntry { index: 0, .. })));
+
+    let mut bytes = sample(Version::V23);
+    let rec = Version::V23.header_size() + 3 * 0x58;
+    bytes[rec + 0x20..rec + 0x28].fill(0); // totals 0: not stored here
+    let m = Module::parse(&bytes).unwrap();
+    assert!(matches!(m.read_section(3, Section::Header), Err(ModuleError::NotStored { index: 3, .. })));
+}
+
+#[test]
+fn an_empty_section_is_empty() {
+    let bytes = sample(Version::V27);
+    let m = Module::parse(&bytes).unwrap();
+    assert_eq!(m.read_section(1, Section::ResourceData).unwrap(), Vec::<u8>::new());
 }

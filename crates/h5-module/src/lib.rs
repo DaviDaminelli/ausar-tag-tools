@@ -21,4 +21,6 @@ mod testutil;
 pub use check::{CheckFailure, checks};
 pub use fourcc::FourCc;
 pub use global_id::GlobalId;
-pub use module::{BlockEntry, EntryKind, FileEntry, FileFlags, Header, MAGIC, Module, ModuleError, Version, map_file};
+pub use module::{
+    BlockEntry, EntryKind, FileEntry, FileFlags, Header, MAGIC, Module, ModuleError, Section, Version, map_file,
+};

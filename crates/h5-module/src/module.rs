@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 use std::fs::File;
+use std::ops::Range;
 use std::path::Path;
 
 use flate2::{Decompress, FlushDecompress, Status};
@@ -88,6 +89,17 @@ impl FileFlags {
     pub fn raw_file(self) -> bool {
         self.0 & Self::RAW_FILE != 0
     }
+}
+
+/// The three parts of a (non-raw) file entry's data (AusarDocs `Module.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Section {
+    /// The tag header and its lists (the `hscu` part of a tag).
+    Header,
+    /// The tag's field data.
+    TagData,
+    /// The entry's own resource data (asset bytes; not read for tags, D5).
+    ResourceData,
 }
 
 /// What a file entry is (PRD §4).
@@ -184,6 +196,17 @@ impl FileEntry {
 
     pub fn kind(&self) -> EntryKind {
         EntryKind::of(self.global_id, self.parent())
+    }
+
+    /// Where `section` lies in the entry's decompressed data. The three
+    /// sections are stored back to back, header first (format-notes).
+    pub fn section_range(&self, section: Section) -> Range<u64> {
+        let (h, t, r) = (self.header_size as u64, self.tag_data_size as u64, self.resource_data_size as u64);
+        match section {
+            Section::Header => 0..h,
+            Section::TagData => h..h + t,
+            Section::ResourceData => h + t..h + t + r,
+        }
     }
 
     /// Where this entry's stored data ends, as an absolute file offset.
@@ -428,47 +451,88 @@ impl<'a> Module<'a> {
         })
     }
 
+    /// Decompresses one section of entry `index`, and only the compression
+    /// blocks that cover it (D5: reading a tag never touches its resource data).
+    pub fn read_section(&self, index: u32, section: Section) -> Result<Vec<u8>, ModuleError> {
+        let e = self.entry(index)?;
+        if e.flags.raw_file() && !e.is_stored_elsewhere() {
+            return Err(ModuleError::BadEntry {
+                index,
+                reason: "is a raw file: it has no header, tag data or resource sections".into(),
+            });
+        }
+        self.read_range(index, e.section_range(section))
+    }
+
     /// Decompresses the whole of entry `index`.
     pub fn read_entry(&self, index: u32) -> Result<Vec<u8>, ModuleError> {
+        let size = self.entry(index)?.total_uncompressed_size as u64;
+        self.read_range(index, 0..size)
+    }
+
+    /// Decompresses bytes `range` of entry `index`'s data, touching only the
+    /// blocks that overlap it. A block wholly inside the range is inflated in
+    /// place; a block that only overlaps is inflated aside and the overlap copied.
+    fn read_range(&self, index: u32, range: Range<u64>) -> Result<Vec<u8>, ModuleError> {
         let e = self.entry(index)?;
         if e.is_stored_elsewhere() {
             return Err(ModuleError::NotStored { index, size: e.data_size() });
         }
-        let mut out = vec![0u8; e.total_uncompressed_size as usize];
-        if out.is_empty() {
-            return Ok(out);
+        if range.end > e.total_uncompressed_size as u64 {
+            return Err(ModuleError::BadEntry {
+                index,
+                reason: format!("bytes {range:?} are outside the entry's {} bytes", e.total_uncompressed_size),
+            });
         }
-        let blocks = self.entry_blocks(index)?;
-        for (b, block) in blocks.iter().enumerate() {
-            let bad = |reason: String| ModuleError::BadBlock { index, block: b as u32, reason };
-            let src_start = self
-                .data_start
-                .checked_add(e.data_offset)
-                .and_then(|s| s.checked_add(block.compressed_offset as u64))
-                .ok_or_else(|| bad("data offset overflows".into()))?;
-            let src = section(self.bytes, src_start, block.compressed_size as u64, "block data")
-                .map_err(|err| bad(err.to_string()))?;
-            let src = &self.bytes[src];
-            let dst_start = block.uncompressed_offset as usize;
-            let dst = dst_start
-                .checked_add(block.uncompressed_size as usize)
-                .and_then(|end| out.get_mut(dst_start..end))
-                .ok_or_else(|| {
-                    bad(format!("uncompressed range is outside the entry's {} bytes", e.total_uncompressed_size))
-                })?;
-            if block.compressed {
-                inflate(src, dst).map_err(bad)?;
-            } else if src.len() == dst.len() {
-                dst.copy_from_slice(src);
-            } else {
-                return Err(bad(format!(
-                    "uncompressed block has {} stored bytes but {} expected",
-                    src.len(),
-                    dst.len()
-                )));
+        let mut out = vec![0u8; (range.end - range.start) as usize];
+        let mut covered = 0u64;
+        for (b, block) in self.entry_blocks(index)?.iter().enumerate() {
+            let block_range =
+                block.uncompressed_offset as u64..block.uncompressed_offset as u64 + block.uncompressed_size as u64;
+            let (start, end) = (block_range.start.max(range.start), block_range.end.min(range.end));
+            if start >= end {
+                continue;
             }
+            let dst = &mut out[(start - range.start) as usize..(end - range.start) as usize];
+            if start == block_range.start && end == block_range.end {
+                self.decode_block(index, b, block, dst)?;
+            } else {
+                let mut whole = vec![0u8; block.uncompressed_size as usize];
+                self.decode_block(index, b, block, &mut whole)?;
+                dst.copy_from_slice(&whole[(start - block_range.start) as usize..(end - block_range.start) as usize]);
+            }
+            covered += end - start;
+        }
+        if covered != range.end - range.start {
+            return Err(ModuleError::BadEntry {
+                index,
+                reason: format!("blocks cover {covered} of the {} bytes asked for", range.end - range.start),
+            });
         }
         Ok(out)
+    }
+
+    /// Decompresses (or copies) block `b` of entry `index` into `dst`, which
+    /// must be exactly the block's uncompressed size.
+    fn decode_block(&self, index: u32, b: usize, block: &BlockEntry, dst: &mut [u8]) -> Result<(), ModuleError> {
+        let bad = |reason: String| ModuleError::BadBlock { index, block: b as u32, reason };
+        let e = self.entry(index)?;
+        let src_start = self
+            .data_start
+            .checked_add(e.data_offset)
+            .and_then(|s| s.checked_add(block.compressed_offset as u64))
+            .ok_or_else(|| bad("data offset overflows".into()))?;
+        let src = section(self.bytes, src_start, block.compressed_size as u64, "block data")
+            .map_err(|err| bad(err.to_string()))?;
+        let src = &self.bytes[src];
+        if block.compressed {
+            inflate(src, dst).map_err(bad)
+        } else if src.len() == dst.len() {
+            dst.copy_from_slice(src);
+            Ok(())
+        } else {
+            Err(bad(format!("uncompressed block has {} stored bytes but {} expected", src.len(), dst.len())))
+        }
     }
 }
 
