@@ -2,11 +2,14 @@
 //! Every marker comes from `output::marker`; every one is explained in
 //! `docs/AGENT_GUIDE.md` (PRD §9a).
 
+use h5_module::ModuleError;
+
 use crate::catalog::{Build, ClassLookup, Tag};
 use crate::filters::Mode;
 use crate::output::{ToolError, format_size, marker};
 use crate::query::ModuleStatus;
 use crate::session::UnknownBuild;
+use crate::stored::ReadError;
 
 pub fn unknown_build(e: UnknownBuild) -> ToolError {
     ToolError::new(format!("unknown build '{}'", e.name)).hint(format!("builds: {}", e.available.join(", ")))
@@ -97,4 +100,18 @@ pub fn no_match_hint(query: &str, mode: Mode, similar: &[String]) -> String {
 
 pub fn other_copies_hint(copies: usize, module: &str) -> String {
     format!("the tag has {copies} copies; listing the copy in {module}; use module= to choose another")
+}
+
+/// A tag copy that can't be read from its module file.
+pub fn read_error(e: ReadError) -> ToolError {
+    let hint = match &e {
+        ReadError::Open { .. } => "check the build's deploy folder; run reindex if modules were moved or removed",
+        ReadError::Changed { .. } => "the file was replaced or updated: run reindex, then try again",
+        ReadError::Module { error: ModuleError::NotStored { .. }, .. } => {
+            "the module describes this tag but doesn't contain its data; where it is stored is unknown"
+        }
+        ReadError::Module { .. } => "the module may be damaged or incomplete; list_modules shows its status",
+        ReadError::Header { .. } => "this tag's header doesn't have the documented layout",
+    };
+    ToolError::new(e.to_string()).hint(hint)
 }

@@ -5,9 +5,10 @@
 use serde::Deserialize;
 
 use super::present;
-use crate::catalog::{Build, Tag, TagLookupError, TagSpec};
+use crate::catalog::{Build, Copy, Tag, TagLookupError, TagSpec};
 use crate::filters::{Mode, ModuleFilter, NameMatcher};
 use crate::output::ToolError;
+use crate::query;
 use crate::session::Session;
 
 #[derive(Clone, Debug, Default, clap::Args, Deserialize)]
@@ -67,6 +68,37 @@ pub fn tag<'s>(session: &'s Session, text: &str, arg: &BuildArg) -> Result<(&'s 
         }
         Err(TagLookupError::Ambiguous(tags)) => Err(present::ambiguous_tag(build, tag_text.trim(), &tags)),
     }
+}
+
+/// A tag and the copy of it to use.
+pub struct TagCopy<'s> {
+    pub build: &'s Build,
+    pub tag: &'s Tag,
+    pub copy: Copy,
+    /// Set when the tag has other copies (they can be chosen with `module=`).
+    pub other_copies_hint: Option<String>,
+}
+
+/// Resolves `[build:]<tag>` and picks its copy (PRD §6.4.6): the first one, or
+/// the one in the module matching `module`.
+pub fn tag_copy<'s>(
+    session: &'s Session,
+    text: &str,
+    arg: &BuildArg,
+    module: Option<&str>,
+) -> Result<TagCopy<'s>, ToolError> {
+    let (build, tag) = self::tag(session, text, arg)?;
+    let copy = query::choose_copy(build, tag, module_filter(module).as_ref()).ok_or_else(|| {
+        ToolError::new(format!(
+            "{} has no copy in a module matching '{}'",
+            build.display_name(tag),
+            module.unwrap_or_default()
+        ))
+        .hint("list_entries without module= lists its modules")
+    })?;
+    let other_copies_hint =
+        (tag.copies.len() > 1).then(|| present::other_copies_hint(tag.copies.len(), &build.module(copy).rel_path));
+    Ok(TagCopy { build, tag, copy, other_copies_hint })
 }
 
 pub fn name_matcher(query: &str, mode: Mode) -> Result<NameMatcher, ToolError> {

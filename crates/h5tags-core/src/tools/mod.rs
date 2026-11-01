@@ -7,6 +7,7 @@
 //! values; [`present`] and `output` turn the results into what the agent reads.
 
 pub mod args;
+mod header_dump;
 mod lists;
 pub mod present;
 mod reindex;
@@ -14,6 +15,7 @@ mod search;
 #[cfg(test)]
 mod tests;
 
+pub use header_dump::HeaderDump;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
 pub use reindex::{Reindex, What};
 pub use search::{Browse, SearchTags};

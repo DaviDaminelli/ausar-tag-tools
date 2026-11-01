@@ -7,6 +7,9 @@ pub mod filters;
 pub mod output;
 pub mod query;
 pub mod session;
+pub mod stored;
+#[cfg(test)]
+mod testdeploy;
 pub mod tools;
 
 pub use config::Config;

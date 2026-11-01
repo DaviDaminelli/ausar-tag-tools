@@ -11,7 +11,8 @@ use std::process::ExitCode;
 
 use clap::{ArgAction, Parser};
 use h5tags_core::session::ProgressSink;
-use h5tags_core::{Command, Config, Format, Session};
+use h5tags_core::tools::HeaderDump;
+use h5tags_core::{Command, Config, Format, Output, Session, ToolError};
 use preferences::{Key, Preferences};
 use progress::SpinnerHandle;
 use tracing_subscriber::EnvFilter;
@@ -60,6 +61,8 @@ struct Cli {
 enum CliCommand {
     #[command(flatten)]
     Tool(Command),
+    /// Every list of a tag's header, as stored (developer command, CLI only).
+    HeaderDump(HeaderDump),
     /// Show or change your display preferences (CLI only; the AI never sees them).
     Preferences {
         #[command(subcommand)]
@@ -214,8 +217,13 @@ enum Outcome {
     Failed(String),
 }
 
-/// Loads the builds and runs `tool`, reporting progress to `spinner`.
-fn run_tool(cli: &Cli, tool: &Command, spinner: Option<SpinnerHandle>) -> Outcome {
+/// Loads the builds and runs the command `name`, reporting progress to `spinner`.
+fn run_tool(
+    cli: &Cli,
+    name: &str,
+    run: impl FnOnce(&mut Session) -> Result<Output, ToolError>,
+    spinner: Option<SpinnerHandle>,
+) -> Outcome {
     let config = match load_config(cli) {
         Ok(c) => c,
         Err(e) => return Outcome::Failed(e),
@@ -229,9 +237,9 @@ fn run_tool(cli: &Cli, tool: &Command, spinner: Option<SpinnerHandle>) -> Outcom
         Err(e) => return Outcome::Failed(e.to_string()),
     };
     if let Some(s) = &spinner {
-        s.set_message(format!("running {}", tool.name()));
+        s.set_message(format!("running {name}"));
     }
-    Outcome::Done(tool.run(&mut session))
+    Outcome::Done(run(&mut session))
 }
 
 /// Writes `text`, translating colors for consoles that need it (older Windows).
@@ -247,9 +255,12 @@ fn print_out(text: &str, color: bool) {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let tool = match &cli.command {
+    // A tool (D7) or a CLI-only command: its name, and how to run it on the loaded builds.
+    type Run<'a> = Box<dyn FnOnce(&mut Session) -> Result<Output, ToolError> + 'a>;
+    let (name, run): (&str, Run) = match &cli.command {
         CliCommand::Preferences { action } => return run_preferences(action.as_ref(), cli.preferences.clone()),
-        CliCommand::Tool(tool) => tool,
+        CliCommand::Tool(tool) => (tool.name(), Box::new(|s| tool.run(s))),
+        CliCommand::HeaderDump(dump) => ("header-dump", Box::new(|s| dump.run(s))),
     };
 
     // Read once, and only if a setting can matter (D25).
@@ -270,7 +281,7 @@ fn main() -> ExitCode {
         .with_env_filter(EnvFilter::try_from_env("H5TAGS_LOG").unwrap_or_else(|_| EnvFilter::new(level)))
         .init();
 
-    let outcome = run_tool(&cli, tool, spinner.as_ref().map(progress::Spinner::handle));
+    let outcome = run_tool(&cli, name, run, spinner.as_ref().map(progress::Spinner::handle));
     if let Some(s) = spinner {
         s.finish(); // the line is gone before anything is printed
     }
@@ -343,6 +354,17 @@ mod tests {
         assert!(parse(&["preferences", "set", "colour", "off"]).is_err());
         // Tools are unchanged.
         assert!(matches!(parse(&["search-tags", "magnum"]).unwrap().command, CliCommand::Tool(_)));
+    }
+
+    #[test]
+    fn header_dump_is_a_cli_command() {
+        let cli = Cli::try_parse_from(["h5tags", "header-dump", "magnum", "--module", "11587"]).unwrap();
+        match cli.command {
+            CliCommand::HeaderDump(d) => assert_eq!((d.tag.as_str(), d.module.as_deref()), ("magnum", Some("11587"))),
+            _ => panic!("not header-dump"),
+        }
+        // Not a tool: the AI can't call it (PRD §6.7).
+        assert!(!h5tags_core::tools::TOOL_NAMES.contains(&"header_dump"));
     }
 
     #[test]

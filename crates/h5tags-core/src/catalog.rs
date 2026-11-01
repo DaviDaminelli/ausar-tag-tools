@@ -173,6 +173,12 @@ impl Build {
         &self.index.modules[copy.module as usize]
     }
 
+    /// Where `module` is on disk: its index path (`\`-separated, PRD §6.1)
+    /// under the deploy folder.
+    pub fn module_file(&self, module: &ModuleRecord) -> PathBuf {
+        self.config.deploy.join(module.rel_path.split('\\').collect::<PathBuf>())
+    }
+
     pub fn entry(&self, copy: Copy) -> &EntryRecord {
         &self.module(copy).entries[copy.entry as usize]
     }

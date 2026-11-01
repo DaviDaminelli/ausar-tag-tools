@@ -145,16 +145,9 @@ impl Tool for ListEntries {
         let (b, scope) = match &self.tag {
             None => (args::build(s, &self.build)?, EntryScope::All),
             Some(text) => {
-                let (b, tag) = args::tag(s, text, &self.build)?;
-                let copy = query::choose_copy(b, tag, module.as_ref()).ok_or_else(|| {
-                    let filter = self.module.as_deref().unwrap_or_default();
-                    ToolError::new(format!("{} has no copy in a module matching '{filter}'", b.display_name(tag)))
-                        .hint("list_entries without module= lists its modules")
-                })?;
-                if tag.copies.len() > 1 {
-                    hints.push(present::other_copies_hint(tag.copies.len(), &b.module(copy).rel_path));
-                }
-                (b, EntryScope::Tag(copy))
+                let t = args::tag_copy(s, text, &self.build, self.module.as_deref())?;
+                hints.extend(t.other_copies_hint);
+                (t.build, EntryScope::Tag(t.copy))
             }
         };
         let filters = Filters {

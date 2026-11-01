@@ -210,6 +210,15 @@ pub struct ReportItem {
     pub values: Vec<(&'static str, Cell)>,
 }
 
+/// One titled table of a result made of several (`## dependencies` in text,
+/// `"dependencies": {..}` in JSON).
+#[derive(Clone, Debug)]
+pub struct Part {
+    pub title: &'static str,
+    pub key: &'static str,
+    pub table: Table,
+}
+
 #[derive(Clone, Debug)]
 pub enum Output {
     Table(Table),
@@ -217,6 +226,11 @@ pub enum Output {
     Report {
         build: Option<String>,
         items: Vec<ReportItem>,
+    },
+    /// Several titled tables (e.g. `header-dump`), in order.
+    Parts {
+        build: Option<String>,
+        parts: Vec<Part>,
     },
 }
 
@@ -520,6 +534,31 @@ impl Output {
                 }
                 pretty(&Value::Object(obj))
             }
+            (Output::Parts { build, parts }, Format::Text | Format::Table) => {
+                let mut out = build.as_ref().map(|b| format!("build: {b}\n")).unwrap_or_default();
+                for (i, p) in parts.iter().enumerate() {
+                    if i > 0 {
+                        out.push('\n');
+                    }
+                    out.push_str(&paint(&format!("## {}", p.title), style::HEADER, color));
+                    out.push('\n');
+                    out.push_str(&match format {
+                        Format::Table => p.table.render_table(color),
+                        _ => p.table.render_text(),
+                    });
+                }
+                out
+            }
+            (Output::Parts { build, parts }, Format::Json) => {
+                let mut obj = Map::new();
+                if let Some(b) = build {
+                    obj.insert("build".into(), json!(b));
+                }
+                for p in parts {
+                    obj.insert(p.key.into(), p.table.render_json());
+                }
+                pretty(&Value::Object(obj))
+            }
         }
     }
 }
@@ -731,6 +770,41 @@ mod tests {
             )
         );
         assert!(!e.render_with(Format::Text, true).contains('\u{1b}'));
+    }
+
+    fn parts() -> Output {
+        let part = |title, key, name: &str| Part {
+            title,
+            key,
+            table: Table { total: 1, columns: vec![col::NAME], rows: vec![vec![name.into()]], ..Table::default() },
+        };
+        Output::Parts {
+            build: Some("forge".into()),
+            parts: vec![part("header", "header", "a"), part("tag structs", "tag_structs", "b")],
+        }
+    }
+
+    #[test]
+    fn parts_are_titled_tables() {
+        assert_eq!(
+            parts().render(Format::Text),
+            "build: forge
+## header
+total: 1
+name
+a
+
+## tag structs
+total: 1
+name
+b
+"
+        );
+        assert!(parts().render_with(Format::Table, true).contains(&painted("## tag structs", style::HEADER)));
+        let v: Value = serde_json::from_str(&parts().render(Format::Json)).unwrap();
+        assert_eq!(v["build"], "forge");
+        assert_eq!(v["tag_structs"]["rows"][0]["name"], "b");
+        assert_eq!(v["header"]["total"], 1);
     }
 
     #[test]
