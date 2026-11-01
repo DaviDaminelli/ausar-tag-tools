@@ -233,6 +233,27 @@ fn index_reads_reuses_and_drops_modules() {
 }
 
 #[test]
+fn index_reports_progress() {
+    use crate::index::Progress;
+    let tmp = TempDir::new("progress");
+    for name in ["a", "b", "c"] {
+        fs::write(tmp.0.join(format!("{name}.module")), sample(Version::V27)).unwrap();
+    }
+    let seen = std::sync::Mutex::new(Vec::new());
+    let record = |p: Progress| seen.lock().unwrap().push(p);
+    let (index, _) = Index::update_with_progress(&tmp.0, None, &|_: &str| false, &record).unwrap();
+    let mut seen = seen.into_inner().unwrap();
+    assert_eq!(seen.first(), Some(&Progress { stage: Progress::READING_MODULES, done: 0, total: 3 }));
+    seen.sort_by_key(|p| p.done); // workers report in any order
+    assert_eq!(seen.iter().map(|p| p.done).collect::<Vec<_>>(), [0, 1, 2, 3]);
+    // Nothing to read on a warm start: nothing reported.
+    let quiet = std::sync::Mutex::new(0);
+    let count = |_: Progress| *quiet.lock().unwrap() += 1;
+    Index::update_with_progress(&tmp.0, Some(index), &|_: &str| false, &count).unwrap();
+    assert_eq!(quiet.into_inner().unwrap(), 0);
+}
+
+#[test]
 fn index_records_issues_of_incomplete_modules() {
     let tmp = TempDir::new("incomplete");
     let full = sample(Version::V27);

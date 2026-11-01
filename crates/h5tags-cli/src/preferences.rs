@@ -12,18 +12,66 @@ pub struct Preferences {
     /// Colors in the terminal (`table` format only). Default: true.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<bool>,
+    /// The progress spinner on slow calls. Default: true.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<bool>,
 }
 
-/// The default when a preference isn't set.
-pub const DEFAULT_COLOR: bool = true;
+/// A preference, as named on the command line and in the file. All are on/off.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum Key {
+    /// Colors in the terminal.
+    Color,
+    /// The progress spinner on slow calls.
+    Progress,
+}
+
+impl Key {
+    pub const ALL: [Key; 2] = [Key::Color, Key::Progress];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Key::Color => "color",
+            Key::Progress => "progress",
+        }
+    }
+
+    /// The value when the preference isn't set.
+    pub fn default_value(self) -> bool {
+        match self {
+            Key::Color | Key::Progress => true,
+        }
+    }
+}
 
 const HEADER: &str = "\
-# h5tags preferences (CLI display only; the AI never sees colors).
+# h5tags preferences (CLI display only; the AI never sees them).
 # Change them with `h5tags preferences set|unset`, or edit this file.
 # `h5tags preferences set|unset` rewrites the whole file: comments added here are not kept.
 ";
 
 impl Preferences {
+    /// The value set in the file, if any.
+    pub fn get(&self, key: Key) -> Option<bool> {
+        match key {
+            Key::Color => self.color,
+            Key::Progress => self.progress,
+        }
+    }
+
+    /// Sets (`Some`) or removes (`None`) a preference.
+    pub fn set(&mut self, key: Key, value: Option<bool>) {
+        match key {
+            Key::Color => self.color = value,
+            Key::Progress => self.progress = value,
+        }
+    }
+
+    /// The value in effect: the file's, or the default.
+    pub fn value(&self, key: Key) -> bool {
+        self.get(key).unwrap_or(key.default_value())
+    }
+
     /// Reads `path`; a missing file means defaults.
     pub fn load(path: &Path) -> Result<Preferences, String> {
         match std::fs::read_to_string(path) {
@@ -64,8 +112,21 @@ mod tests {
 
     #[test]
     fn parses_color() {
-        assert_eq!(toml::from_str::<Preferences>("color = false").unwrap(), Preferences { color: Some(false) });
+        assert_eq!(
+            toml::from_str::<Preferences>("color = false").unwrap(),
+            Preferences { color: Some(false), progress: None }
+        );
         assert_eq!(toml::from_str::<Preferences>("").unwrap(), Preferences::default());
+    }
+
+    #[test]
+    fn keys_get_and_set() {
+        let mut p = Preferences::default();
+        assert!(Key::ALL.iter().all(|&k| p.get(k).is_none() && p.value(k) == k.default_value()));
+        p.set(Key::Progress, Some(false));
+        assert_eq!((p.get(Key::Progress), p.value(Key::Progress), p.progress), (Some(false), false, Some(false)));
+        p.set(Key::Progress, None);
+        assert_eq!(p, Preferences::default());
     }
 
     #[test]
@@ -84,7 +145,7 @@ mod tests {
     fn save_and_load_round_trip() {
         let dir = std::env::temp_dir().join(format!("h5tags-prefs-test-{}", std::process::id()));
         let path = dir.join("sub").join("preferences.toml");
-        let prefs = Preferences { color: Some(false) };
+        let prefs = Preferences { color: Some(false), progress: None };
         prefs.save(&path).unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.starts_with("# h5tags preferences") && text.ends_with("color = false\n"), "{text}");

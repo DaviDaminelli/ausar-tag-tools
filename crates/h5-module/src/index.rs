@@ -230,8 +230,13 @@ pub fn read_module(found: &FoundModule) -> Result<ModuleRecord, ModuleError> {
 
 /// Reads the modules `which` (indices into `found`) in parallel; each read only
 /// touches its own file. Returns `(index into found, result)` in any order.
-fn read_in_parallel(found: &[FoundModule], which: &[usize]) -> Vec<(usize, Result<ModuleRecord, ModuleError>)> {
+fn read_in_parallel(
+    found: &[FoundModule],
+    which: &[usize],
+    progress: &(dyn Fn(Progress) + Sync),
+) -> Vec<(usize, Result<ModuleRecord, ModuleError>)> {
     let next = AtomicUsize::new(0);
+    let done = AtomicUsize::new(0);
     let results = Mutex::new(Vec::with_capacity(which.len()));
     let workers = std::thread::available_parallelism().map_or(1, |n| n.get()).min(which.len().max(1));
     std::thread::scope(|s| {
@@ -240,11 +245,25 @@ fn read_in_parallel(found: &[FoundModule], which: &[usize]) -> Vec<(usize, Resul
                 while let Some(&i) = which.get(next.fetch_add(1, Ordering::Relaxed)) {
                     let result = read_module(&found[i]);
                     results.lock().unwrap().push((i, result));
+                    let done = done.fetch_add(1, Ordering::Relaxed) + 1;
+                    progress(Progress { stage: Progress::READING_MODULES, done, total: which.len() });
                 }
             });
         }
     });
     results.into_inner().unwrap()
+}
+
+/// How far a long step is, for callers that show it. The index itself never prints.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Progress {
+    pub stage: &'static str,
+    pub done: usize,
+    pub total: usize,
+}
+
+impl Progress {
+    pub const READING_MODULES: &'static str = "reading modules";
 }
 
 const CACHE_MAGIC: &[u8; 8] = b"H5TAGIDX";
@@ -259,6 +278,16 @@ impl Index {
         deploy: &Path,
         previous: Option<Index>,
         force: &(dyn Fn(&str) -> bool + Sync),
+    ) -> io::Result<(Index, UpdateReport)> {
+        Self::update_with_progress(deploy, previous, force, &|_| {})
+    }
+
+    /// [`Index::update`], reporting each module read to `progress` (from any thread).
+    pub fn update_with_progress(
+        deploy: &Path,
+        previous: Option<Index>,
+        force: &(dyn Fn(&str) -> bool + Sync),
+        progress: &(dyn Fn(Progress) + Sync),
     ) -> io::Result<(Index, UpdateReport)> {
         let start = Instant::now();
         let found = find_modules(deploy)?;
@@ -283,7 +312,10 @@ impl Index {
         report.removed = old.len();
         report.read = to_read.len();
 
-        for (i, result) in read_in_parallel(&found, &to_read) {
+        if !to_read.is_empty() {
+            progress(Progress { stage: Progress::READING_MODULES, done: 0, total: to_read.len() });
+        }
+        for (i, result) in read_in_parallel(&found, &to_read, progress) {
             slots[i] = Some(result);
         }
 

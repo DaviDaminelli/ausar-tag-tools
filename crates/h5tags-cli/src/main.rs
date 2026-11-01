@@ -2,14 +2,18 @@
 //! `h5tags-core` (decisions D7); output goes to stdout, logs to stderr.
 
 mod preferences;
+mod progress;
 
+use std::cell::LazyCell;
 use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{ArgAction, Parser};
+use h5tags_core::session::ProgressSink;
 use h5tags_core::{Command, Config, Format, Session};
-use preferences::Preferences;
+use preferences::{Key, Preferences};
+use progress::SpinnerHandle;
 use tracing_subscriber::EnvFilter;
 
 /// Reads Halo 5 .module tags.
@@ -37,6 +41,9 @@ struct Cli {
     /// No colors this time. To turn them off for good: `h5tags preferences set color off`.
     #[arg(long, global = true)]
     no_color: bool,
+    /// No progress spinner this time. For good: `h5tags preferences set progress off`.
+    #[arg(long, global = true)]
+    no_progress: bool,
     /// Preferences file (default: preferences.toml in your user config folder,
     /// e.g. %APPDATA%\h5tags on Windows, ~/.config/h5tags on Linux).
     #[arg(long, global = true)]
@@ -62,28 +69,18 @@ enum CliCommand {
 
 #[derive(clap::Subcommand)]
 enum PreferenceAction {
-    /// Set a preference, e.g. `set color off`.
-    #[command(subcommand)]
-    Set(SetPreference),
-    /// Remove a preference: back to its default.
-    Unset {
+    /// Set a preference: `set color off`, `set progress on` (also true/false, yes/no).
+    Set {
         #[arg(value_enum)]
-        key: PreferenceKey,
-    },
-}
-
-#[derive(clap::Subcommand)]
-enum SetPreference {
-    /// Colors in the terminal: on or off (also true/false, yes/no).
-    Color {
+        key: Key,
         #[arg(action = ArgAction::Set, value_parser = clap::builder::BoolishValueParser::new())]
         value: bool,
     },
-}
-
-#[derive(Clone, Copy, clap::ValueEnum)]
-enum PreferenceKey {
-    Color,
+    /// Remove a preference: back to its default.
+    Unset {
+        #[arg(value_enum)]
+        key: Key,
+    },
 }
 
 fn on_off(value: bool) -> &'static str {
@@ -104,9 +101,11 @@ fn run_preferences(action: Option<&PreferenceAction>, file: Option<PathBuf>) -> 
             (Ok(_), true) => "exists".to_owned(),
         };
         println!("file: {} ({state})", path.display());
-        let color = loaded.as_ref().ok().and_then(|p| p.color);
-        let source = if color.is_some() { "set in the file" } else { "default" };
-        println!("color: {} ({source})", on_off(color.unwrap_or(preferences::DEFAULT_COLOR)));
+        let prefs = loaded.unwrap_or_default();
+        for key in Key::ALL {
+            let source = if prefs.get(key).is_some() { "set in the file" } else { "default" };
+            println!("{}: {} ({source})", key.name(), on_off(prefs.value(key)));
+        }
         return ExitCode::SUCCESS;
     };
     let mut prefs = match loaded {
@@ -116,14 +115,14 @@ fn run_preferences(action: Option<&PreferenceAction>, file: Option<PathBuf>) -> 
             return ExitCode::from(2);
         }
     };
-    let message = match action {
-        PreferenceAction::Set(SetPreference::Color { value }) => {
-            prefs.color = Some(*value);
-            format!("color: {}", on_off(*value))
+    let message = match *action {
+        PreferenceAction::Set { key, value } => {
+            prefs.set(key, Some(value));
+            format!("{}: {}", key.name(), on_off(value))
         }
-        PreferenceAction::Unset { key: PreferenceKey::Color } => {
-            prefs.color = None;
-            format!("color: back to the default ({})", on_off(preferences::DEFAULT_COLOR))
+        PreferenceAction::Unset { key } => {
+            prefs.set(key, None);
+            format!("{}: back to the default ({})", key.name(), on_off(key.default_value()))
         }
     };
     match prefs.save(&path) {
@@ -184,16 +183,55 @@ fn use_color(
     preference().unwrap_or(!no_color_env)
 }
 
-/// The `color` preference; a broken file is reported and ignored.
-fn color_preference(path: Option<PathBuf>) -> Option<bool> {
-    let path = path.or_else(preferences::default_path)?;
-    match Preferences::load(&path) {
-        Ok(p) => p.color,
-        Err(e) => {
-            eprintln!("warning: preferences file ignored: {e}");
-            None
-        }
+/// The progress spinner only on a terminal (stderr), and not with `-v` (log
+/// lines would make it flicker). Precedence: `--no-progress`, then the
+/// preferences file, then on (D27).
+fn use_progress(
+    stderr_terminal: bool,
+    no_progress_flag: bool,
+    verbose: bool,
+    preference: impl FnOnce() -> Option<bool>,
+) -> bool {
+    if !stderr_terminal || no_progress_flag || verbose {
+        return false;
     }
+    preference().unwrap_or(Key::Progress.default_value())
+}
+
+/// The preferences file; a broken file is reported and ignored.
+fn read_preferences(path: Option<PathBuf>) -> Preferences {
+    let Some(path) = path.or_else(preferences::default_path) else { return Preferences::default() };
+    Preferences::load(&path).unwrap_or_else(|e| {
+        eprintln!("warning: preferences file ignored: {e}");
+        Preferences::default()
+    })
+}
+
+/// What a tool call ended with.
+enum Outcome {
+    Done(Result<h5tags_core::Output, h5tags_core::ToolError>),
+    /// The config or the builds couldn't be loaded.
+    Failed(String),
+}
+
+/// Loads the builds and runs `tool`, reporting progress to `spinner`.
+fn run_tool(cli: &Cli, tool: &Command, spinner: Option<SpinnerHandle>) -> Outcome {
+    let config = match load_config(cli) {
+        Ok(c) => c,
+        Err(e) => return Outcome::Failed(e),
+    };
+    let sink: ProgressSink = match spinner.clone() {
+        Some(s) => Box::new(move |build, p| s.set_message(progress::progress_message(build, p))),
+        None => Box::new(|_, _| {}),
+    };
+    let mut session = match Session::open_with_progress(config, sink) {
+        Ok(s) => s,
+        Err(e) => return Outcome::Failed(e.to_string()),
+    };
+    if let Some(s) = &spinner {
+        s.set_message(format!("running {}", tool.name()));
+    }
+    Outcome::Done(tool.run(&mut session))
 }
 
 /// Writes `text`, translating colors for consoles that need it (older Windows).
@@ -209,49 +247,50 @@ fn print_out(text: &str, color: bool) {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let level = match cli.verbose {
-        0 => "warn",
-        1 => "info",
-        _ => "debug",
-    };
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(EnvFilter::try_from_env("H5TAGS_LOG").unwrap_or_else(|_| EnvFilter::new(level)))
-        .init();
-
     let tool = match &cli.command {
         CliCommand::Preferences { action } => return run_preferences(action.as_ref(), cli.preferences.clone()),
         CliCommand::Tool(tool) => tool,
     };
 
-    let config = match load_config(&cli) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::from(2);
-        }
+    // Read once, and only if a setting can matter (D25).
+    let prefs = LazyCell::new(|| read_preferences(cli.preferences.clone()));
+    let stdout_terminal = std::io::stdout().is_terminal();
+    let show_progress =
+        use_progress(std::io::stderr().is_terminal(), cli.no_progress, cli.verbose > 0, || prefs.get(Key::Progress));
+    let spinner = show_progress.then(|| progress::Spinner::start("loading"));
+
+    let level = match cli.verbose {
+        0 => "warn",
+        1 => "info",
+        _ => "debug",
     };
-    let mut session = match Session::open(config) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::from(2);
-        }
-    };
+    let log_spinner = spinner.as_ref().map(progress::Spinner::handle);
+    tracing_subscriber::fmt()
+        .with_writer(move || progress::LogWriter(log_spinner.clone()))
+        .with_env_filter(EnvFilter::try_from_env("H5TAGS_LOG").unwrap_or_else(|_| EnvFilter::new(level)))
+        .init();
+
+    let outcome = run_tool(&cli, tool, spinner.as_ref().map(progress::Spinner::handle));
+    if let Some(s) = spinner {
+        s.finish(); // the line is gone before anything is printed
+    }
+
     // People get aligned tables; scripts reading a pipe or file get JSON (D23).
-    let terminal = std::io::stdout().is_terminal();
-    let format = cli.format.unwrap_or(if terminal { Format::Table } else { Format::Json });
+    let format = cli.format.unwrap_or(if stdout_terminal { Format::Table } else { Format::Json });
     let no_color_env = std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty());
-    let preferences_path = cli.preferences.clone();
-    let color = use_color(format, terminal, cli.no_color, || color_preference(preferences_path), no_color_env);
-    match tool.run(&mut session) {
-        Ok(out) => {
+    let color = use_color(format, stdout_terminal, cli.no_color, || prefs.get(Key::Color), no_color_env);
+    match outcome {
+        Outcome::Done(Ok(out)) => {
             print_out(&out.render_with(format, color), color);
             ExitCode::SUCCESS
         }
-        Err(e) => {
+        Outcome::Done(Err(e)) => {
             print_out(&e.render_with(format, color), color);
             ExitCode::from(1)
+        }
+        Outcome::Failed(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
         }
     }
 }
@@ -283,23 +322,37 @@ mod tests {
     #[test]
     fn preferences_command_parses() {
         let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("h5tags").chain(args.iter().copied()));
-        let cli = parse(&["preferences", "set", "color", "off"]).unwrap();
+        let action = |args: &[&str]| match parse(args).map(|c| c.command) {
+            Ok(CliCommand::Preferences { action }) => action,
+            _ => panic!("not a preferences command: {args:?}"),
+        };
         assert!(matches!(
-            cli.command,
-            CliCommand::Preferences { action: Some(PreferenceAction::Set(SetPreference::Color { value: false })) }
+            action(&["preferences", "set", "color", "off"]),
+            Some(PreferenceAction::Set { key: Key::Color, value: false })
         ));
         assert!(matches!(
-            parse(&["preferences", "set", "color", "yes"]).unwrap().command,
-            CliCommand::Preferences { action: Some(PreferenceAction::Set(SetPreference::Color { value: true })) }
+            action(&["preferences", "set", "progress", "yes"]),
+            Some(PreferenceAction::Set { key: Key::Progress, value: true })
         ));
+        assert!(matches!(
+            action(&["preferences", "unset", "progress"]),
+            Some(PreferenceAction::Unset { key: Key::Progress })
+        ));
+        assert!(action(&["preferences"]).is_none());
         assert!(parse(&["preferences", "set", "color", "maybe"]).is_err());
-        assert!(matches!(parse(&["preferences"]).unwrap().command, CliCommand::Preferences { action: None }));
-        assert!(matches!(
-            parse(&["preferences", "unset", "color"]).unwrap().command,
-            CliCommand::Preferences { action: Some(PreferenceAction::Unset { key: PreferenceKey::Color }) }
-        ));
+        assert!(parse(&["preferences", "set", "colour", "off"]).is_err());
         // Tools are unchanged.
         assert!(matches!(parse(&["search-tags", "magnum"]).unwrap().command, CliCommand::Tool(_)));
+    }
+
+    #[test]
+    fn progress_only_on_a_terminal_without_verbose_logs() {
+        assert!(use_progress(true, false, false, || None));
+        assert!(!use_progress(true, false, false, || Some(false)));
+        // Not a terminal, --no-progress or -v: off, and the file isn't read.
+        assert!(!use_progress(false, false, false, read_never));
+        assert!(!use_progress(true, true, false, read_never));
+        assert!(!use_progress(true, false, true, read_never));
     }
 
     #[test]

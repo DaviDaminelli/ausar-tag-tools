@@ -3,14 +3,24 @@
 use std::path::{Path, PathBuf};
 
 use h5_defs::Definitions;
+pub use h5_module::index::Progress;
 use h5_module::index::{Index, UpdateReport};
 
 use crate::catalog::Build;
 use crate::config::{BuildConfig, Config};
 
+/// Receives progress of long steps: the build's name and how far it is.
+/// Called from worker threads. The CLI draws it; the MCP server ignores it.
+pub type ProgressSink = Box<dyn Fn(&str, Progress) + Send + Sync>;
+
 pub struct Session {
     cache_dir: PathBuf,
     builds: Vec<Build>,
+    progress: ProgressSink,
+}
+
+fn no_progress() -> ProgressSink {
+    Box::new(|_, _| {})
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -35,6 +45,7 @@ fn load_build(
     cache_dir: &Path,
     previous: Option<Index>,
     force: &(dyn Fn(&str) -> bool + Sync),
+    progress: &ProgressSink,
 ) -> Result<(Build, UpdateReport), SessionError> {
     let defs = Definitions::load(&cfg.defs).map_err(|source| SessionError::Defs {
         build: cfg.name.clone(),
@@ -43,11 +54,9 @@ fn load_build(
     })?;
     let cache = cache_dir.join(format!("{}.index", cfg.name));
     let previous = previous.or_else(|| Index::load(&cache));
-    let (index, report) = Index::update(&cfg.deploy, previous, force).map_err(|source| SessionError::Deploy {
-        build: cfg.name.clone(),
-        path: cfg.deploy.clone(),
-        source,
-    })?;
+    let report_progress = |p: Progress| progress(&cfg.name, p);
+    let (index, report) = Index::update_with_progress(&cfg.deploy, previous, force, &report_progress)
+        .map_err(|source| SessionError::Deploy { build: cfg.name.clone(), path: cfg.deploy.clone(), source })?;
     tracing::info!(build = %cfg.name, ?report, "index ready");
     if (report.read > 0 || report.removed > 0 || report.failed > 0)
         && let Err(e) = index.save(&cache)
@@ -60,20 +69,26 @@ fn load_build(
 impl Session {
     /// Loads every build of `config`.
     pub fn open(config: Config) -> Result<Session, SessionError> {
+        Session::open_with_progress(config, no_progress())
+    }
+
+    /// [`Session::open`], reporting long steps (here and in later calls such
+    /// as `reindex`) to `progress`.
+    pub fn open_with_progress(config: Config, progress: ProgressSink) -> Result<Session, SessionError> {
         let cache_dir = config.cache_dir();
         let never = |_: &str| false;
         let builds = config
             .builds
             .iter()
-            .map(|cfg| load_build(cfg, &cache_dir, None, &never).map(|(b, _)| b))
+            .map(|cfg| load_build(cfg, &cache_dir, None, &never, &progress).map(|(b, _)| b))
             .collect::<Result<_, _>>()?;
-        Ok(Session { cache_dir, builds })
+        Ok(Session { cache_dir, builds, progress })
     }
 
     /// A session over builds already in memory (tests, embedding).
     pub fn from_builds(cache_dir: PathBuf, builds: Vec<Build>) -> Session {
         assert!(!builds.is_empty(), "a session needs at least one build");
-        Session { cache_dir, builds }
+        Session { cache_dir, builds, progress: no_progress() }
     }
 
     pub fn builds(&self) -> &[Build] {
@@ -88,7 +103,7 @@ impl Session {
     pub fn reindex(&mut self, b: usize, force: &(dyn Fn(&str) -> bool + Sync)) -> Result<UpdateReport, SessionError> {
         let previous = std::mem::take(&mut self.builds[b].index);
         let cfg = self.builds[b].config.clone();
-        let (build, report) = load_build(&cfg, &self.cache_dir, Some(previous), force)?;
+        let (build, report) = load_build(&cfg, &self.cache_dir, Some(previous), force, &self.progress)?;
         self.builds[b] = build;
         Ok(report)
     }
