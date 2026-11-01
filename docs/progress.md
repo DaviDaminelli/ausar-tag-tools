@@ -232,3 +232,15 @@ Q9 answered: the k-th resource struct of a tag is its resource [k].
 | Path steps containing `.` / `[…]`, handled       | 125 / 157        |
 | Explanation headings found as sections           | 1,555 of 1,555   |
 | Time, every path and heading of every definition | 0.17 s           |
+
+**Step 4a: `read_tag`** (text and JSON from one view; AGENT_GUIDE §4)
+
+| What                                                             | Forge                           | Xbox                            |
+| ---------------------------------------------------------------- | ------------------------------- | ------------------------------- |
+| Every tag rendered (text + JSON), failures                       | 62,976, 0                       | 57,537, 0                       |
+| Time, every tag (modules opened once)                            | 21.7 s                          | 34.1 s                          |
+| Text lines / text size / JSON size                               | 3,141,820 / 153.4 MB / 525.9 MB | 2,426,448 / 121.8 MB / 428.1 MB |
+| Average / largest tag at depth 2 (lines)                         | 49 / 994 (Mantis bipeds)        | 42 / 994                        |
+| `read_tag` on the assault rifle, one CLI call (session included) | 726 lines, 219–227 ms           |                                 |
+
+The output matches the sample agreed with the user (D36).

@@ -367,13 +367,13 @@ Two checks run for every struct field, tag block field and the main struct:
 
 ### 7.2 Text format: field lines
 
-One field per line. Columns separated by two or more spaces, aligned within a section:
+One field per line. In `text` (what the AI reads), columns are separated by exactly two spaces; in `table` (people, CLI), they are aligned within each run of fields under one heading (decisions D36):
 
 ```
 <indent><name>  <short type>  <value>  <units>  <extras>
 ```
 
-- Indent: 2 spaces per nesting level below the nearest heading.
+- Indent: 2 spaces per nesting level: the main struct's fields have none, each struct, array or tag block entry adds 2 (headings too) (D36).
 - Short type names are defined in `docs/AGENT_GUIDE.md` §4 (normative). Examples: `real`, `int16`, `enum16`, `flags32`, `bounds`, `tagref`, `stringid`, `blkidx`, `block[N]`, `struct`, `data`, `function`, `resource`.
 - Units and range (`[min-max]`) follow the value.
 - Extras: options (§7.5), markers (`detail=full`), states (§8).

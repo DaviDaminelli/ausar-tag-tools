@@ -136,3 +136,14 @@ PRD §6.4.2 splits paths at `.` and `[`, but 282 real names contain those charac
 - **Passing through a tag block without an index** uses entry 0, as a block shown without an index expands entry 0 (PRD §6.4.2).
 - **Sections** end at the next heading of the same or a higher rank among the same fields. Headings are class sections (rank 2), explanations and group headings (rank 1). Structs and tag blocks don't end a section: they are fields of it. A section label below the top level counts as a group heading.
 - The path and section rules live in `h5-meta` (`path.rs`), shared by `read_tag`, `get_definition` and `outline`. PRD §6.4.2 and §6.4.3 updated.
+
+## D36. How `read_tag` lays out a tag (2026-11-01, approved by the user)
+The output follows PRD §7 and AGENT_GUIDE §4, with these choices, agreed on a real sample (the assault rifle):
+- **Columns:** `text`, what the AI reads, separates columns with exactly two spaces and doesn't pad them, since padding costs tokens and adds nothing for the AI. `table`, for people in a terminal, aligns the name and type columns within each run of fields under one heading. Same rule as lists (D23). PRD §7.2 updated.
+- **Indentation** is nesting: the main struct's fields have none; each struct, array or tag block entry adds 2 spaces, for headings and fields alike. A line belongs to the nearest heading above it with less indentation.
+- **Entry labels from a tag reference** use the target's file name (`unsc_ads_default.effect`), so block headings stay short; the field line shows the full name.
+- **Numbers** are exact: the shortest form that reads back to the stored value (`0.1708791`, `1`), never rounded.
+- **An explanation with no text whose title is the next field's name is not shown**: 103 of the 547 textless explanations do this (`firing` before the `firing` struct), and the field's own heading already says it. Same idea as custom widgets (D34).
+- **A tag reference with no listed name and no index entry** shows its global ID and stored class.
+- **`[*]` reads** put each field's options once in a `legend:` block (AGENT_GUIDE §4.4); JSON keeps them on every field.
+- Copy identity is computed on each call (block checksums; PRD §6.4.6) until the results cache (§6.9, M5).
