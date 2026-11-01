@@ -1,0 +1,9 @@
+[package]
+name = "h5-defs"
+description = "Loads Lord Zedd's H5Tags definitions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+h5-module.workspace = true
