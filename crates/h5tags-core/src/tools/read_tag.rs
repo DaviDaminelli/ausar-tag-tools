@@ -59,7 +59,7 @@ pub struct ReadTag {
 }
 
 /// The tag line (PRD §7.3) and its JSON form.
-fn title(b: &Build, tag: &Tag, copy: Copy, identity: Identity, detail: Detail, view: &mut TagView) {
+pub(super) fn title(b: &Build, tag: &Tag, copy: Copy, identity: Identity, detail: Detail, view: &mut TagView) {
     let name = b.display_name(tag);
     let mut line = format!("# {} {name}  {}  build={}", tag.class, tag.global_id, b.name);
     let mut json = Map::new();

@@ -152,8 +152,9 @@ fn columns(f: &FieldView) -> Vec<String> {
     if let Some(h) = &f.help {
         cols.push(format!("# {h}"));
     }
-    // Name, type and value always; the optional columns only when they say something.
-    let optional = cols.split_off(3);
+    // Name and type always; the value and the optional columns only when they
+    // say something (a definition's fields have no value).
+    let optional = cols.split_off(2);
     cols.extend(optional.into_iter().filter(|c| !c.is_empty()));
     while cols.last().is_some_and(|c| c.is_empty()) {
         cols.pop();

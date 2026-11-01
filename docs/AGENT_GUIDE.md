@@ -160,6 +160,10 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | Empty result with `hint: … The class exists (it has a definition) …` | No tags of that class are in the indexed modules | Don't say the game has none; its tags are in modules that aren't indexed |
 | `browse` rows ending in `\` | Subfolders, with the number of tags under each (recursively) | — |
 | `list_resource_kinds` | Each asset kind with its count and total size | — |
+| `# <class> <name> (definition)` (`get_definition`, `outline(class=)`) | The class's schema from its definition alone: no tag data, no values | Field types, units, options and help apply to every tag of the class |
+| `get_definition` `block  (max N)` / `tagref  [proj]` / `blkidx  → barrels` / `(N options)` | A tag block and its maximum entry count; the classes a reference allows; the block an index points into; an enum or flags field with more options than shown (`options=all` lists them) | — |
+| `outline` `(N fields)  path=…` | How many fields the struct or tag block holds directly, and the path to read it with | Read only the part you need: `read_tag(path=...)` |
+| `outline(tag=)` `block[N] {labels}` | The tag's entry count and labels; nested blocks are shown as entry 0 has them | Other entries can have different counts |
 | `definition_status` `has definition` | Whether a definition XML exists for the class | No → that class's tags can't be read field by field, only listed and followed by references |
 | `definition_status` mismatches + `checked N of M tags` | Size or GUID mismatches found so far between the definition and real tags of that class, and how many of its tags have been checked (kept across sessions) | Mismatches → values from that class may be wrong where flagged. "None found" only covers the N tags checked, not the whole class |
 | `tag_copies` `identical` / `differ` | Whether every copy of the tag has the same stored data (checked on the data itself) | `differ` → values can depend on the module; say which copy you used |
@@ -191,6 +195,9 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `compressed` | Size stored in the module, or `(not stored in this module)` |
 | `count` | Number of entries |
 | `total size` | Sum of the uncompressed sizes |
+| `field path` | Where a field is in its class (`barrels[*].trigger mode`; `[*]` = in every entry of that tag block). Use it as `path=` |
+| `field type` | The field's definition type (`_field_short_enum`); `explanation`/`heading` for a matched heading |
+| `matched` | What matched the query: `name`, `old name '…'` (an earlier name of the field), `label '…'`, `option …`, `help`, `units`, `explanation '…'`, `heading '…'` |
 
 Results may come from the tool's cache (kept across sessions). A cached result is always identical to a fresh one, so you never need to "refresh" it. Only `reindex` forces a rebuild, and the tool keeps itself up to date when game files change.
 

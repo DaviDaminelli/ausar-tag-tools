@@ -54,6 +54,9 @@ pub mod col {
     pub const COMPRESSED: Column = Column { header: "compressed", key: "compressed" };
     pub const COUNT: Column = Column { header: "count", key: "count" };
     pub const TOTAL_SIZE: Column = Column { header: "total size", key: "total_size" };
+    pub const FIELD_PATH: Column = Column { header: "field path", key: "path" };
+    pub const FIELD_TYPE: Column = Column { header: "field type", key: "field_type" };
+    pub const MATCHED: Column = Column { header: "matched", key: "matched" };
 
     pub const ALL: &[Column] = &[
         GLOBAL_ID,
@@ -74,6 +77,9 @@ pub mod col {
         COMPRESSED,
         COUNT,
         TOTAL_SIZE,
+        FIELD_PATH,
+        FIELD_TYPE,
+        MATCHED,
     ];
 }
 

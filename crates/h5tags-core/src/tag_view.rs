@@ -93,11 +93,11 @@ fn hidden_type(f: &Field) -> bool {
 }
 
 /// Hidden by default (PRD §7.6): padding, `_field_tag`, and `!` fields.
-fn is_hidden(f: &Field) -> bool {
+pub(crate) fn is_hidden(f: &Field) -> bool {
     hidden_type(f) || f.name.is_hidden()
 }
 
-fn short_type(t: FieldType, count: Option<u32>) -> String {
+pub(crate) fn short_type(t: FieldType, count: Option<u32>) -> String {
     use FieldType as T;
     let s = match t {
         T::Real | T::RealFraction | T::Angle => "real",
@@ -173,6 +173,55 @@ pub fn problem_text(p: &Problem, path: &str) -> String {
     }
 }
 
+/// What field `fields[i]` of a definition is in a view (tags and definitions alike).
+pub(crate) enum Role {
+    /// Not shown: the internal header fields, editor widgets, and headings at `detail=brief`.
+    Skip,
+    Heading(ViewNode),
+    Field,
+}
+
+/// The role of `fields[i]`; `top`: the fields are the main struct's.
+pub(crate) fn role(fields: &[Field], i: usize, top: bool, detail: Detail) -> Role {
+    let f = &fields[i];
+    if f.is_internal() {
+        return Role::Skip;
+    }
+    match f.kind {
+        FieldKind::Known(FieldType::Explanation) => {
+            // An explanation with no text naming the next field only repeats
+            // that field's own heading (decisions D36).
+            let names_next = f.text.as_deref().is_none_or(|t| t.trim().is_empty())
+                && fields.get(i + 1).is_some_and(|n| n.name.display.eq_ignore_ascii_case(&f.name.display));
+            if names_next || detail == Detail::Brief {
+                return Role::Skip;
+            }
+            let text = f.text.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(|t| match detail {
+                Detail::Full => t.to_owned(),
+                _ => {
+                    let mut lines = t.lines();
+                    let first = lines.next().unwrap_or_default().trim_end().to_owned();
+                    if lines.next().is_some() { format!("{first} […]") } else { first }
+                }
+            });
+            Role::Heading(ViewNode::Heading { kind: HeadingKind::Explanation, title: f.name.display.clone(), text })
+        }
+        FieldKind::Known(FieldType::Custom) => {
+            let (kind, title) = match custom_role(fields, i) {
+                Some(Custom::ClassSection(t)) if top => (HeadingKind::ClassSection, t),
+                Some(Custom::ClassSection(t) | Custom::Group(t)) => (HeadingKind::Group, t),
+                _ => return Role::Skip,
+            };
+            if detail == Detail::Brief {
+                Role::Skip
+            } else {
+                Role::Heading(ViewNode::Heading { kind, title, text: None })
+            }
+        }
+        _ => Role::Field,
+    }
+}
+
 struct Converter<'s, 'l> {
     settings: ViewSettings,
     lookup: &'l dyn Lookup,
@@ -180,7 +229,15 @@ struct Converter<'s, 'l> {
     scopes: Vec<(&'s Body<'s>, String)>,
 }
 
-fn join(path: &str, step: &str) -> String {
+/// Entry labels as a block heading shows them: at most 8, then `+N more` (PRD §7.3).
+pub(crate) fn label_list(labels: &[String]) -> String {
+    let shown: Vec<&str> = labels.iter().take(MAX_LABELS).map(String::as_str).collect();
+    let more = labels.len().saturating_sub(MAX_LABELS);
+    let more = if more > 0 { format!(", +{more} more") } else { String::new() };
+    format!("{{{}{more}}}", shown.join(", "))
+}
+
+pub(crate) fn join(path: &str, step: &str) -> String {
     if path.is_empty() { step.to_owned() } else { format!("{path}.{step}") }
 }
 
@@ -196,34 +253,13 @@ impl<'s> Converter<'s, '_> {
         let mut hidden = 0usize;
         for (i, n) in body.children.iter().enumerate() {
             let f = n.field;
-            if f.is_internal() {
-                continue;
-            }
-            match f.kind {
-                FieldKind::Known(FieldType::Explanation) => {
-                    // An explanation with no text naming the next field only repeats
-                    // that field's own heading (decisions D36).
-                    let names_next = f.text.as_deref().is_none_or(|t| t.trim().is_empty())
-                        && fields.get(i + 1).is_some_and(|n| n.name.display.eq_ignore_ascii_case(&f.name.display));
-                    if !names_next && let Some(v) = self.explanation(f) {
-                        c.children.push(v);
-                    }
+            match role(fields, i, level == 0 && path.is_empty(), self.settings.detail) {
+                Role::Skip => continue,
+                Role::Heading(h) => {
+                    c.children.push(h);
                     continue;
                 }
-                FieldKind::Known(FieldType::Custom) => {
-                    let (kind, title) = match custom_role(fields, i) {
-                        Some(Custom::ClassSection(t)) if level == 0 && path.is_empty() => {
-                            (HeadingKind::ClassSection, t)
-                        }
-                        Some(Custom::ClassSection(t) | Custom::Group(t)) => (HeadingKind::Group, t),
-                        _ => continue,
-                    };
-                    if self.settings.detail != Detail::Brief {
-                        c.children.push(ViewNode::Heading { kind, title, text: None });
-                    }
-                    continue;
-                }
-                _ => {}
+                Role::Field => {}
             }
             if is_hidden(f) && !self.settings.show_hidden {
                 hidden += 1;
@@ -248,21 +284,6 @@ impl<'s> Converter<'s, '_> {
         }
         self.scopes.pop();
         c
-    }
-
-    fn explanation(&self, f: &Field) -> Option<ViewNode> {
-        if self.settings.detail == Detail::Brief {
-            return None;
-        }
-        let text = f.text.as_deref().map(str::trim).filter(|t| !t.is_empty()).map(|t| match self.settings.detail {
-            Detail::Full => t.to_owned(),
-            _ => {
-                let mut lines = t.lines();
-                let first = lines.next().unwrap_or_default().trim_end().to_owned();
-                if lines.next().is_some() { format!("{first} […]") } else { first }
-            }
-        });
-        Some(ViewNode::Heading { kind: HeadingKind::Explanation, title: f.name.display.clone(), text })
     }
 
     fn field(&mut self, n: &'s h5_meta::Node<'s>, path: &str, level: u32) -> FieldView {
@@ -328,10 +349,7 @@ impl<'s> Converter<'s, '_> {
         } else if b.count == 0 {
             v.state = state(marker::EMPTY, "empty");
         } else {
-            let shown: Vec<&str> = labels.iter().take(MAX_LABELS).map(String::as_str).collect();
-            let more = labels.len().saturating_sub(MAX_LABELS);
-            let more = if more > 0 { format!(", +{more} more") } else { String::new() };
-            let mut summary = format!("{{{}{more}}}", shown.join(", "));
+            let mut summary = label_list(&labels);
             if level < self.settings.depth
                 && let Some(first) = b.entries.first()
             {
@@ -563,7 +581,7 @@ impl<'s> Converter<'s, '_> {
 
 /// An entry's label (PRD §6.4.4): its labelling field's value; tag references
 /// by file name (decisions D36); else the entry index.
-fn entry_label(e: &Body<'_>, i: usize) -> String {
+pub(crate) fn entry_label(e: &Body<'_>, i: usize) -> String {
     let text = e.label.and_then(|l| match &e.children[l].content {
         Content::Value(Value::StringId(s)) => s.text.clone(),
         Content::Value(Value::String(s)) => Some(s.clone()),

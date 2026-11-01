@@ -107,8 +107,14 @@ pub enum DefinitionLoadError {
 /// The parsed definition of `tag`'s class; `None` if the class has none.
 pub fn load_definition(build: &Build, tag: &Tag) -> Result<Option<Definition>, DefinitionLoadError> {
     let Some(path) = build.classes.get(&tag.class).and_then(|c| c.definition.as_ref()) else { return Ok(None) };
-    let xml = std::fs::read_to_string(path).map_err(|error| DefinitionLoadError::Read { path: path.clone(), error })?;
-    Definition::parse(&xml).map(Some).map_err(|error| DefinitionLoadError::Parse { path: path.clone(), error })
+    load_definition_file(path).map(Some)
+}
+
+/// Parses one definition file.
+pub fn load_definition_file(path: &std::path::Path) -> Result<Definition, DefinitionLoadError> {
+    let xml =
+        std::fs::read_to_string(path).map_err(|error| DefinitionLoadError::Read { path: path.to_owned(), error })?;
+    Definition::parse(&xml).map_err(|error| DefinitionLoadError::Parse { path: path.to_owned(), error })
 }
 
 #[cfg(test)]

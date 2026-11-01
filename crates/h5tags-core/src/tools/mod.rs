@@ -7,6 +7,7 @@
 //! values; [`present`] and `output` turn the results into what the agent reads.
 
 pub mod args;
+mod definitions;
 mod header_dump;
 mod lists;
 pub mod present;
@@ -16,6 +17,7 @@ mod search;
 #[cfg(test)]
 mod tests;
 
+pub use definitions::{GetDefinition, Outline, Scope, SearchDefinitions};
 pub use header_dump::HeaderDump;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
 pub use read_tag::ReadTag;
@@ -54,7 +56,19 @@ macro_rules! tools {
     };
 }
 
-tools!(SearchTags, Browse, ListClasses, ListModules, ListEntries, ListResourceKinds, ReadTag, Reindex);
+tools!(
+    SearchTags,
+    Browse,
+    ListClasses,
+    ListModules,
+    ListEntries,
+    ListResourceKinds,
+    ReadTag,
+    GetDefinition,
+    Outline,
+    SearchDefinitions,
+    Reindex
+);
 
 #[cfg(test)]
 mod registry_tests {
