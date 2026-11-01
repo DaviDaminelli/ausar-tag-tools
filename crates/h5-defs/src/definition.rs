@@ -31,6 +31,10 @@ pub struct Field {
     pub children: Vec<Field>,
     /// An explanation's text content, as written (line breaks kept).
     pub text: Option<String>,
+    /// The field's step in a path: its display name, unique among its
+    /// siblings (`name#2`, PRD §6.4.2). `None` for explanations and customs.
+    /// Set once, when the definition is parsed.
+    pub step: Option<String>,
 }
 
 impl Field {
@@ -57,6 +61,23 @@ impl Field {
 
     fn is(&self, t: FieldType) -> bool {
         self.kind == FieldKind::Known(t)
+    }
+
+    /// The `srcguid` as the 16 bytes a tag stores for this struct type: a
+    /// Windows GUID, its first three groups little-endian (format-notes "GUIDs").
+    pub fn guid(&self) -> Option<[u8; 16]> {
+        let hex: Vec<u8> = self.attr("srcguid")?.bytes().filter(|&b| b != b'-').collect();
+        if hex.len() != 32 {
+            return None;
+        }
+        let mut g = [0u8; 16];
+        for (i, b) in g.iter_mut().enumerate() {
+            *b = u8::from_str_radix(std::str::from_utf8(&hex[i * 2..i * 2 + 2]).ok()?, 16).ok()?;
+        }
+        g[0..4].reverse();
+        g[4..6].reverse();
+        g[6..8].reverse();
+        Some(g)
     }
 
     fn has_srcguid(&self, guid: &str) -> bool {
@@ -131,6 +152,15 @@ pub fn unique_names(fields: &[Field]) -> Vec<Option<String>> {
         .collect()
 }
 
+/// Sets every field's path step, at every depth.
+fn set_steps(fields: &mut [Field]) {
+    let steps = unique_names(fields);
+    for (f, step) in fields.iter_mut().zip(steps) {
+        f.step = step;
+        set_steps(&mut f.children);
+    }
+}
+
 fn children_size(fields: &[Field]) -> Option<u32> {
     fields.iter().try_fold(0u32, |sum, f| sum.checked_add(f.size()?))
 }
@@ -199,7 +229,10 @@ impl Definition {
             }
         }
         match (root, stack.last()) {
-            (Some(fields), None) => Ok(Definition { fields }),
+            (Some(mut fields), None) => {
+                set_steps(&mut fields);
+                Ok(Definition { fields })
+            }
             (_, Some(open)) => Err(DefinitionError::Unclosed(open.element().to_owned())),
             (None, None) => Err(DefinitionError::NotAPlugin(String::new())),
         }
@@ -274,6 +307,7 @@ fn open(e: &BytesStart<'_>) -> Result<Open, DefinitionError> {
         options: Vec::new(),
         children: Vec::new(),
         text: None,
+        step: None,
     })))
 }
 

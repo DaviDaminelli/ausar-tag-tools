@@ -194,3 +194,34 @@ fn common_structs_are_recognized() {
     assert!(f.fields[0].is_mapping_function());
     assert!(!d.fields[1].is_mapping_function());
 }
+
+#[test]
+fn srcguid_bytes_are_in_windows_order() {
+    // format-notes "GUIDs": the first three groups are stored little-endian.
+    let d = sample();
+    assert_eq!(
+        d.fields[1].guid(),
+        Some([0x46, 0x01, 0x1d, 0x15, 0x9c, 0x47, 0x1f, 0x18, 0x39, 0x70, 0xec, 0x86, 0x90, 0x43, 0xbc, 0x33])
+    );
+    assert_eq!(d.fields[0].guid(), None, "no srcguid");
+    let bad = Definition::parse(r#"<plugin><_field_struct name="s" srcguid="xyz"/></plugin>"#).unwrap();
+    assert_eq!(bad.fields[0].guid(), None);
+}
+
+#[test]
+fn each_field_knows_its_path_step() {
+    // The unique names are computed once, when the definition is parsed.
+    let d = Definition::parse(
+        r#"<plugin>
+        <_field_real name="speed" />
+        <_field_explanation name="speed" />
+        <_field_struct name="s"><_field_real name="x" /><_field_real name="X" /></_field_struct>
+        <_field_real name="Speed" />
+        </plugin>"#,
+    )
+    .unwrap();
+    let steps: Vec<Option<&str>> = d.fields.iter().map(|f| f.step.as_deref()).collect();
+    assert_eq!(steps, [Some("speed"), None, Some("s"), Some("Speed#2")]);
+    let inner: Vec<Option<&str>> = d.fields[2].children.iter().map(|f| f.step.as_deref()).collect();
+    assert_eq!(inner, [Some("x"), Some("X#2")]);
+}
