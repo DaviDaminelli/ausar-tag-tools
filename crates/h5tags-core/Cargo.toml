@@ -1,0 +1,17 @@
+[package]
+name = "h5tags-core"
+description = "Config, builds and the tools shared by the h5tags CLI and MCP server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+h5-defs.workspace = true
+h5-module.workspace = true
+clap.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+toml.workspace = true
+tracing.workspace = true
