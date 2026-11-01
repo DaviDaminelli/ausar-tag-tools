@@ -168,3 +168,34 @@ fn names_and_rules_over_every_definition() {
     );
     assert!(t.unclean.is_empty(), "see above");
 }
+
+/// Path syntax (PRD §6.4.2) separates steps with `.` and indexes with `[i]`:
+/// how many path steps contain those characters?
+#[test]
+#[ignore]
+fn path_steps_with_separator_characters() {
+    fn visit(fields: &[Field], file: &str, out: &mut BTreeMap<char, (usize, Vec<String>)>) {
+        for f in fields {
+            if let Some(step) = &f.step {
+                for c in ['.', '[', ']'] {
+                    if step.contains(c) {
+                        let e = out.entry(c).or_default();
+                        e.0 += 1;
+                        if e.1.len() < 6 {
+                            e.1.push(format!("{file}: {step:?}"));
+                        }
+                    }
+                }
+            }
+            visit(&f.children, file, out);
+        }
+    }
+    let mut out = BTreeMap::new();
+    for p in std::fs::read_dir(tags_dir()).unwrap().map(|e| e.unwrap().path()) {
+        let def = Definition::parse(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        visit(&def.fields, &p.file_name().unwrap().to_string_lossy(), &mut out);
+    }
+    for (c, (n, ex)) in &out {
+        println!("{c:?}: {n} steps, e.g. {ex:?}");
+    }
+}
