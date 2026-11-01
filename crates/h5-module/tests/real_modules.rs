@@ -503,3 +503,85 @@ fn every_tag_header_parses_and_checks() {
     }
     assert!(parse_errors.is_empty() && failures.is_empty(), "see above");
 }
+
+/// M2, PRD §12 Q10: for entries with copies in several modules, does an equal
+/// `assetChecksum` (or an equal block checksum list) mean equal stored data?
+/// Copies are entries of the same kind and name; each is compared with the
+/// first copy found, by decompressed bytes.
+#[test]
+#[ignore]
+fn copy_identity() {
+    use std::collections::HashMap;
+
+    use h5_module::Section;
+
+    let modules = find_modules(&deploy()).unwrap();
+    let maps: Vec<_> = modules.iter().map(|f| map_file(&f.path).unwrap()).collect();
+    let parsed: Vec<Module> = maps.iter().map(|m| Module::parse(m).unwrap()).collect();
+    // (kind, name) → every (module, entry) holding it.
+    let mut copies: HashMap<(EntryKind, String), Vec<(usize, u32)>> = HashMap::new();
+    for (mi, m) in parsed.iter().enumerate() {
+        for (i, e) in m.entries.iter().enumerate() {
+            let name = m.name(i as u32).unwrap().to_ascii_lowercase();
+            copies.entry((e.kind(), name)).or_default().push((mi, i as u32));
+        }
+    }
+    let entry = |(mi, i): (usize, u32)| &parsed[mi].entries[i as usize];
+    let read = |(mi, i): (usize, u32)| parsed[mi].read_entry(i);
+    let blocks = |(mi, i): (usize, u32)| -> Vec<(Option<u64>, u32)> {
+        parsed[mi].entry_blocks(i).unwrap().iter().map(|b| (b.checksum, b.uncompressed_size)).collect()
+    };
+    let tag_part =
+        |(mi, i): (usize, u32)| [Section::Header, Section::TagData].map(|s| parsed[mi].read_section(i, s).unwrap());
+
+    let start = Instant::now();
+    let (mut pairs, mut not_stored) = (0usize, 0usize);
+    let mut groups: BTreeMap<(&str, usize), usize> = BTreeMap::new(); // (kind, copies) → entries
+    // (kind, assetChecksum equal, data equal) → copies; the same with block checksum lists.
+    let mut by_checksum: BTreeMap<(&str, bool, bool), usize> = BTreeMap::new();
+    let mut by_blocks: BTreeMap<(&str, bool, bool), usize> = BTreeMap::new();
+    let mut gid_differs = 0usize;
+    let mut only_resource_data_differs = 0usize;
+    let mut examples: BTreeMap<(&str, bool, bool), Vec<String>> = BTreeMap::new();
+    for ((kind, name), list) in copies.iter().filter(|(_, l)| l.len() > 1) {
+        let k = kind.as_str();
+        *groups.entry((k, list.len())).or_default() += 1;
+        let first = list[0];
+        let Ok(first_data) = read(first) else {
+            not_stored += list.len() - 1;
+            continue;
+        };
+        for &other in &list[1..] {
+            let Ok(data) = read(other) else {
+                not_stored += 1;
+                continue;
+            };
+            pairs += 1;
+            let same_data = data == first_data;
+            let same_checksum = entry(other).asset_checksum == entry(first).asset_checksum;
+            gid_differs += usize::from(entry(other).global_id != entry(first).global_id);
+            *by_checksum.entry((k, same_checksum, same_data)).or_default() += 1;
+            *by_blocks.entry((k, blocks(other) == blocks(first), same_data)).or_default() += 1;
+            if !same_data && *kind == EntryKind::Tag && tag_part(other) == tag_part(first) {
+                only_resource_data_differs += 1;
+            }
+            let ex = examples.entry((k, same_checksum, same_data)).or_default();
+            if ex.len() < 2 {
+                ex.push(format!("{name}: {} vs {}", modules[first.0].rel_path, modules[other.0].rel_path));
+            }
+        }
+    }
+    println!(
+        "entries with copies, by (kind, copies): {groups:?}; {pairs} copies compared with the first, {not_stored} not stored here; {:.2?}",
+        start.elapsed()
+    );
+    println!("copies with another global ID than the first: {gid_differs}");
+    println!("(kind, assetChecksum equal, data equal) → copies: {by_checksum:?}");
+    println!("(kind, block checksum list equal, data equal) → copies: {by_blocks:?}");
+    println!("tags whose copies differ only in resource data: {only_resource_data_differs}");
+    for (k, ex) in &examples {
+        for x in ex {
+            println!("  e.g. {k:?}: {x}");
+        }
+    }
+}
