@@ -1,6 +1,7 @@
 //! The common filters (PRD §6.3): one meaning everywhere, implemented once
 //! (decisions D9). Domain values: tools parse their inputs into these.
 
+use std::borrow::Cow;
 use std::str::FromStr;
 
 use h5_module::FourCc;
@@ -23,38 +24,74 @@ pub enum Mode {
     Exact,
 }
 
+/// A case-insensitive substring search, compiled once. Matching allocates
+/// nothing per text (the regex engine searches literals with fast byte search).
+#[derive(Clone, Debug)]
+pub struct Substring(Regex);
+
+impl Substring {
+    fn new(text: &str) -> Substring {
+        Substring(
+            RegexBuilder::new(&regex::escape(text))
+                .case_insensitive(true)
+                .build()
+                .expect("an escaped literal is a valid regex"),
+        )
+    }
+}
+
 /// A compiled `query` + `mode`.
-#[derive(Clone)]
+///
+/// Names are matched as a tag path plus the class name: the display name is
+/// `<path>.<class>`, so it never has to be built to be compared.
+#[derive(Clone, Debug)]
 pub enum NameMatcher {
-    Contains(String),
+    Contains {
+        query: String,
+        finder: Substring,
+    },
     Regex(Regex),
+    /// The query, ASCII lowercase.
     Exact(String),
 }
 
 impl NameMatcher {
+    /// Case-insensitive matching uses ASCII case folding: tag paths are ASCII,
+    /// and byte offsets of matches stay valid in the original text.
     pub fn new(query: &str, mode: Mode) -> Result<NameMatcher, String> {
         Ok(match mode {
-            Mode::Default => NameMatcher::Contains(query.to_lowercase()),
-            Mode::Exact => NameMatcher::Exact(query.to_lowercase()),
+            Mode::Default => NameMatcher::Contains { query: query.to_ascii_lowercase(), finder: Substring::new(query) },
+            Mode::Exact => NameMatcher::Exact(query.to_ascii_lowercase()),
             Mode::Regex => NameMatcher::Regex(
                 RegexBuilder::new(query).case_insensitive(true).build().map_err(|e| format!("invalid regex: {e}"))?,
             ),
         })
     }
 
-    /// Matches a tag path, or for `exact` also its display name.
-    pub fn matches(&self, path: &str, display_name: &str) -> bool {
+    /// True if `q` equals `<path>.<class>`, compared in parts.
+    fn equals_display(q: &str, path: &str, class: &str) -> bool {
+        let p = path.len();
+        !class.is_empty()
+            && q.len() == p + 1 + class.len()
+            && q.is_char_boundary(p)
+            && q[..p].eq_ignore_ascii_case(path)
+            && q.as_bytes()[p] == b'.'
+            && q[p + 1..].eq_ignore_ascii_case(class)
+    }
+
+    /// Matches a tag path, or for `exact` also its display name `<path>.<class>`.
+    pub fn matches(&self, path: &str, class: &str) -> bool {
         match self {
-            NameMatcher::Contains(q) => path.to_lowercase().contains(q),
+            NameMatcher::Contains { finder, .. } => finder.0.is_match(path),
             NameMatcher::Regex(r) => r.is_match(path),
-            NameMatcher::Exact(q) => path.eq_ignore_ascii_case(q) || display_name.eq_ignore_ascii_case(q),
+            NameMatcher::Exact(q) => path.eq_ignore_ascii_case(q) || Self::equals_display(q, path, class),
         }
     }
 
     /// The query text of a `default`-mode matcher.
     pub fn plain_query(&self) -> Option<&str> {
         match self {
-            NameMatcher::Contains(q) => Some(q),
+            NameMatcher::Contains { query, .. } => Some(query),
             _ => None,
         }
     }
@@ -116,25 +153,30 @@ impl SizeRange {
 
 /// `module`: case-insensitive substring of the module path.
 #[derive(Clone, Debug)]
-pub struct ModuleFilter(String);
+pub struct ModuleFilter(Substring);
 
 impl ModuleFilter {
     pub fn new(text: &str) -> ModuleFilter {
-        ModuleFilter(text.to_lowercase())
+        ModuleFilter(Substring::new(text))
     }
 
     pub fn matches(&self, module_path: &str) -> bool {
-        module_path.to_lowercase().contains(&self.0)
+        self.0.0.is_match(module_path)
     }
+}
+
+/// A resource's kind without markers (D12); `resource` if its name doesn't say.
+pub(crate) fn resource_kind(e: &EntryRecord) -> &str {
+    e.resource_name().map_or("resource", |r| r.kind)
 }
 
 /// An entry's kind (PRD §6.3): its class code for a tag, its resource kind
 /// without markers for a resource (D12), `file` otherwise.
-pub fn entry_kind(e: &EntryRecord) -> String {
+pub fn entry_kind(e: &EntryRecord) -> Cow<'_, str> {
     match e.kind() {
-        EntryKind::Tag => e.class_code.to_string(),
-        EntryKind::Resource => e.resource_name().map_or_else(|| "resource".to_owned(), |r| r.kind.to_owned()),
-        EntryKind::File => "file".to_owned(),
+        EntryKind::Tag => Cow::Owned(e.class_code.to_string()),
+        EntryKind::Resource => Cow::Borrowed(resource_kind(e)),
+        EntryKind::File => Cow::Borrowed("file"),
     }
 }
 
@@ -146,21 +188,21 @@ pub struct KindFilter {
 
 impl KindFilter {
     pub fn new(build: &Build, kind: &str) -> KindFilter {
-        KindFilter { class: build.find_class(kind).map(|c| c.code), text: kind.trim().to_lowercase() }
+        KindFilter { class: build.find_class(kind).map(|c| c.code), text: kind.trim().to_owned() }
     }
 
     pub fn matches(&self, e: &EntryRecord) -> bool {
         match e.kind() {
             EntryKind::Tag => self.class == Some(e.class_code),
-            EntryKind::Resource => entry_kind(e).to_lowercase() == self.text,
-            EntryKind::File => self.text == "file",
+            EntryKind::Resource => resource_kind(e).eq_ignore_ascii_case(&self.text),
+            EntryKind::File => self.text.eq_ignore_ascii_case("file"),
         }
     }
 
     /// True if the kind names a class with tags, or `file`: then an empty
     /// result is a plain fact, not a sign the kind doesn't exist.
     pub fn is_known_kind(&self) -> bool {
-        self.class.is_some() || self.text == "file"
+        self.class.is_some() || self.text.eq_ignore_ascii_case("file")
     }
 }
 
@@ -201,10 +243,9 @@ impl Filters {
     pub fn matches_tag(&self, build: &Build, tag: &Tag) -> bool {
         self.class.is_none_or(|c| tag.class == c)
             && self.module.as_ref().is_none_or(|m| tag.copies.iter().any(|&c| m.matches(&build.module(c).rel_path)))
-            && self
-                .name
-                .as_ref()
-                .is_none_or(|n| n.or_class == Some(tag.class) || n.matcher.matches(&tag.path, &build.display_name(tag)))
+            && self.name.as_ref().is_none_or(|n| {
+                n.or_class == Some(tag.class) || n.matcher.matches(&tag.path, &build.class_name(tag.class))
+            })
     }
 
     /// For file entries: name (a resource matches by its owner's tag path),
@@ -213,7 +254,10 @@ impl Filters {
         self.module.as_ref().is_none_or(|m| m.matches(module_path))
             && self.kind.as_ref().is_none_or(|k| k.matches(e))
             && self.size.contains(e.uncompressed_size)
-            && self.name.as_ref().is_none_or(|n| n.matcher.matches(e.tag_path(), e.owner_name()))
+            && self.name.as_ref().is_none_or(|n| {
+                let (path, class) = e.owner_parts();
+                n.matcher.matches(path, class)
+            })
     }
 }
 
@@ -252,12 +296,12 @@ mod tests {
     fn name_modes() {
         let path = r"objects\weapons\pistol\magnum\magnum";
         let display = r"objects\weapons\pistol\magnum\magnum.weapon";
-        assert!(NameMatcher::new("MAGNUM", Mode::Default).unwrap().matches(path, display));
-        assert!(NameMatcher::new(r"magnum|pistol", Mode::Regex).unwrap().matches(path, display));
-        assert!(!NameMatcher::new(r"^magnum", Mode::Regex).unwrap().matches(path, display));
-        assert!(NameMatcher::new(display, Mode::Exact).unwrap().matches(path, display));
-        assert!(NameMatcher::new(&path.to_uppercase(), Mode::Exact).unwrap().matches(path, display));
-        assert!(!NameMatcher::new("magnum", Mode::Exact).unwrap().matches(path, display));
+        assert!(NameMatcher::new("MAGNUM", Mode::Default).unwrap().matches(path, "weapon"));
+        assert!(NameMatcher::new(r"magnum|pistol", Mode::Regex).unwrap().matches(path, "weapon"));
+        assert!(!NameMatcher::new(r"^magnum", Mode::Regex).unwrap().matches(path, "weapon"));
+        assert!(NameMatcher::new(display, Mode::Exact).unwrap().matches(path, "weapon"));
+        assert!(NameMatcher::new(&path.to_uppercase(), Mode::Exact).unwrap().matches(path, "weapon"));
+        assert!(!NameMatcher::new("magnum", Mode::Exact).unwrap().matches(path, "weapon"));
         assert!(NameMatcher::new("(", Mode::Regex).is_err());
     }
 

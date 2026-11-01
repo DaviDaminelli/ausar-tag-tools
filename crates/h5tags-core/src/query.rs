@@ -8,7 +8,7 @@ use h5_module::index::{EntryKind, EntryRecord, ModuleRecord};
 use serde::Deserialize;
 
 use crate::catalog::{Build, Copy, Tag};
-use crate::filters::{Filters, ModuleFilter, entry_kind};
+use crate::filters::{Filters, ModuleFilter, resource_kind};
 
 /// Tags matching `filters`, in tag path order (PRD §6.3).
 pub fn search_tags<'b>(build: &'b Build, filters: &Filters) -> Vec<&'b Tag> {
@@ -35,11 +35,12 @@ pub fn similar_names(build: &Build, text: &str, max: usize) -> Vec<String> {
     if wanted.is_empty() {
         return Vec::new();
     }
-    // Every distinct name once, keyed in lowercase, as first seen.
-    let mut names: HashMap<String, &str> = HashMap::new();
+    // Every distinct name once, keyed in lowercase, as first seen. Both sides
+    // borrow from the catalog (`path_lower` has the same layout as `path`).
+    let mut names: HashMap<&str, &str> = HashMap::new();
     for t in &build.tags {
-        for part in t.path.split('\\') {
-            names.entry(part.to_ascii_lowercase()).or_insert(part);
+        for (lower, part) in t.path_lower.split('\\').zip(t.path.split('\\')) {
+            names.entry(lower).or_insert(part);
         }
     }
     let mut scored: Vec<(f64, &str)> = names
@@ -72,14 +73,16 @@ pub fn browse<'b>(build: &'b Build, folder: &str) -> Option<Folder<'b>> {
     let folder = folder.trim_matches('\\');
     let prefix = if folder.is_empty() { String::new() } else { format!("{}\\", folder.to_ascii_lowercase()) };
     let start = build.tags.partition_point(|t| t.path_lower < prefix);
-    let mut subfolders: BTreeMap<String, Subfolder> = BTreeMap::new();
+    // Keyed by the lowercase folder name, borrowed from `path_lower`.
+    let mut subfolders: BTreeMap<&str, Subfolder> = BTreeMap::new();
     let mut tags = Vec::new();
     for t in build.tags[start..].iter().take_while(|t| t.path_lower.starts_with(&prefix)) {
-        match t.path[prefix.len()..].split_once('\\') {
-            Some((sub, _)) => {
+        let rest = &t.path[prefix.len()..];
+        match rest.find('\\') {
+            Some(end) => {
                 subfolders
-                    .entry(sub.to_ascii_lowercase())
-                    .or_insert_with(|| Subfolder { name: sub.to_owned(), tag_count: 0 })
+                    .entry(&t.path_lower[prefix.len()..prefix.len() + end])
+                    .or_insert_with(|| Subfolder { name: rest[..end].to_owned(), tag_count: 0 })
                     .tag_count += 1
             }
             None => tags.push(t),
@@ -118,32 +121,39 @@ pub enum EntrySort {
 
 #[derive(Clone, Copy)]
 pub struct EntryHit<'b> {
+    /// Position of `module` in the index (modules are in path order).
+    pub module_index: usize,
     pub module: &'b ModuleRecord,
     pub entry: &'b EntryRecord,
 }
 
-/// File entries in `scope` matching `filters`, sorted.
+/// File entries in `scope` matching `filters`, sorted. Entries are filtered
+/// while iterating; only the matches are collected.
 pub fn entries<'b>(build: &'b Build, scope: EntryScope, filters: &Filters, sort: EntrySort) -> Vec<EntryHit<'b>> {
-    let in_scope: Vec<EntryHit> = match scope {
+    let keep = |h: &EntryHit| filters.matches_entry(&h.module.rel_path, h.entry);
+    let mut hits: Vec<EntryHit> = match scope {
         EntryScope::All => build
             .index
             .modules
             .iter()
-            .flat_map(|module| module.entries.iter().map(move |entry| EntryHit { module, entry }))
+            .enumerate()
+            .flat_map(|(module_index, module)| {
+                module.entries.iter().map(move |entry| EntryHit { module_index, module, entry })
+            })
+            .filter(keep)
             .collect(),
         EntryScope::Tag(copy) => {
-            let module = build.module(copy);
-            let owner = build.entry(copy);
+            let (module_index, module, owner) = (copy.module as usize, build.module(copy), build.entry(copy));
             std::iter::once(owner)
                 .chain(owner.resources.iter().filter_map(|&r| module.entries.get(r as usize)))
-                .map(|entry| EntryHit { module, entry })
+                .map(|entry| EntryHit { module_index, module, entry })
+                .filter(keep)
                 .collect()
         }
     };
-    let mut hits: Vec<EntryHit> =
-        in_scope.into_iter().filter(|h| filters.matches_entry(&h.module.rel_path, h.entry)).collect();
     match sort {
-        EntrySort::Name => hits.sort_by_cached_key(|h| (h.entry.name.to_ascii_lowercase(), h.module.rel_path.clone())),
+        // One lowercase key per hit; ties keep module path order.
+        EntrySort::Name => hits.sort_by_cached_key(|h| (h.entry.name.to_ascii_lowercase(), h.module_index)),
         EntrySort::Size => hits.sort_by_key(|h| std::cmp::Reverse(h.entry.uncompressed_size)),
     }
     hits
@@ -163,14 +173,14 @@ pub struct KindTotal {
 
 /// Every resource kind with its entry count and total size, by kind.
 pub fn resource_kinds(build: &Build) -> Vec<KindTotal> {
-    let mut kinds: BTreeMap<String, KindTotal> = BTreeMap::new();
+    // Keyed by the kind borrowed from the entry names; owned only in the result.
+    let mut kinds: BTreeMap<&str, (usize, u64)> = BTreeMap::new();
     for e in build.index.modules.iter().flat_map(|m| &m.entries).filter(|e| e.kind() == EntryKind::Resource) {
-        let kind = entry_kind(e);
-        let total = kinds.entry(kind.clone()).or_insert(KindTotal { kind, count: 0, bytes: 0 });
-        total.count += 1;
-        total.bytes += e.uncompressed_size;
+        let total = kinds.entry(resource_kind(e)).or_default();
+        total.0 += 1;
+        total.1 += e.uncompressed_size;
     }
-    kinds.into_values().collect()
+    kinds.into_iter().map(|(kind, (count, bytes))| KindTotal { kind: kind.to_owned(), count, bytes }).collect()
 }
 
 /// A module's health, from its structural checks (decisions D14).

@@ -647,6 +647,7 @@ h5tags/
 - **Newtypes where values can be mixed up** (`GlobalId`, `FourCc`, `Size`), not for every number. Sentinel values (`-1`) are turned into `Option` or a named constant at the parsing boundary.
 - **Names from the glossary (§4):** module, file entry, tag, resource, class, copy, compression block, data block, etc. The same name in code, output and docs.
 - **Idiomatic Rust over checklists:** `match` on enums rather than trait hierarchies; no method-length or field-count quotas; no abstraction until a second use exists.
+- **No wasted work in loops over tags or entries** (tens of thousands per call): no allocation per item (compare borrowed text, use the catalog's precomputed lowercase paths, compile matchers once per call), filter while iterating instead of collecting first, and compute display text only for the rows shown (D26).
 - **Tests:** unit tests run on synthetic data built by the tests (never game files). Real-file tests are `#[ignore]`d and read `H5_DEPLOY`. New format parsing (M2 on) is written test-first: the expected facts become the tests, then the code. Every PRD §9 check is an automated test.
 - **Errors:** library code doesn't `unwrap` or panic on file contents; malformed data becomes a typed error with the location (module, entry, block, field path). `unwrap` is for invariants the code itself guarantees.
 - **Format facts:** every fact the code relies on has an entry in `docs/format-notes.md` stating how it was verified. Docs, comments and commit messages describe the files' format, never where game files were obtained.

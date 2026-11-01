@@ -1,6 +1,7 @@
 //! One build in memory (decisions D8): tags by global ID and by path, classes
 //! and copies, derived from the index. Domain only: typed inputs, typed results.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
@@ -158,8 +159,9 @@ impl Build {
         Build { name, config, index, defs, tags, by_id, by_path, classes }
     }
 
-    pub fn class_name(&self, code: FourCc) -> String {
-        self.classes.get(&code).map_or_else(|| code.to_string(), |c| c.name.clone())
+    /// Borrowed from the class list; the code itself if the class is unknown.
+    pub fn class_name(&self, code: FourCc) -> Cow<'_, str> {
+        self.classes.get(&code).map_or_else(|| Cow::Owned(code.to_string()), |c| Cow::Borrowed(c.name.as_str()))
     }
 
     /// Tag path + `.` + class name (PRD §4).

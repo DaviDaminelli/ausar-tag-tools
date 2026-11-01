@@ -53,12 +53,21 @@ impl EntryRecord {
         self.resource_name().map_or(&self.name, |r| r.owner)
     }
 
+    /// The tag path and class name of the tag this entry belongs to, from its
+    /// owner name `<path>.<class>`. Other files: the file name and `""`.
+    pub fn owner_parts(&self) -> (&str, &str) {
+        match self.kind() {
+            EntryKind::File => (&self.name, ""),
+            _ => {
+                let (path, class) = split_tag_name(self.owner_name());
+                (path, class.unwrap_or(""))
+            }
+        }
+    }
+
     /// The tag path this entry belongs to (the owner name without `.class`).
     pub fn tag_path(&self) -> &str {
-        match self.kind() {
-            EntryKind::File => &self.name,
-            _ => split_tag_name(self.owner_name()).0,
-        }
+        self.owner_parts().0
     }
 }
 

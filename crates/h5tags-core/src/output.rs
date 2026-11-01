@@ -148,6 +148,11 @@ impl From<String> for Cell {
         Cell::Text(s)
     }
 }
+impl From<std::borrow::Cow<'_, str>> for Cell {
+    fn from(s: std::borrow::Cow<'_, str>) -> Cell {
+        Cell::Text(s.into_owned())
+    }
+}
 impl From<&str> for Cell {
     fn from(s: &str) -> Cell {
         Cell::Text(s.to_owned())
