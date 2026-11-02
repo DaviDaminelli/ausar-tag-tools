@@ -377,3 +377,11 @@ End-to-end over stdio (JSON-RPC lines into `h5tags-mcp --config h5tags.toml`): `
 | ---------------------------------------- | --------------------------- |
 | `initialize` result (with instructions)  | 1,562 characters            |
 | `tools/list` result (11 tools, schemas)  | 15,169 characters, ≈ 3,792 tokens |
+
+### Step 5: "What a change affects" in the guide (2026-11-01)
+
+AGENT_GUIDE §2.1: a seven-step workflow (compare with a tag that already behaves as wanted; check on a third tag; follow references out; find references in; search definitions for the behaviour's words; separate tag settings from engine behaviour; answer with a change list), with the battery comparison as its example, plus one rule for tools named in the guide but not built yet. The guide went from 26,681 to 29,546 bytes (275 lines, ≈ 7,386 tokens when read whole as the `h5tags://guide` resource).
+
+### Step 6: README and `.mcp.json` (2026-11-01)
+
+`README.md` with the nine parts of PRD §14, in order. Measured for it: release binaries `h5tags` 4,495,360 bytes (4.5 MB) and `h5tags-mcp` 6,919,680 bytes (6.9 MB), Windows x64. `.mcp.json` registers the development server for this project (`cargo run -q --bin h5tags-mcp -- --config h5tags.toml`). Found while writing it: `guid_check` is accepted in the config but not read; the GUID check always behaves as `warn` (the README says so).
