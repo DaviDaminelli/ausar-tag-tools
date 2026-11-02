@@ -1,12 +1,12 @@
 [package]
 name = "h5tags-cli"
-description = "h5tags command-line tool"
+description = "Ausar Tag Tools: the command-line tool"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [[bin]]
-name = "h5tags"
+name = "ausar-tag-cli"
 path = "src/main.rs"
 
 [dependencies]

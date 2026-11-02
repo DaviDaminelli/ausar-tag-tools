@@ -612,3 +612,8 @@ Seen: the agent didn't read `h5tags://guide` this time and didn't check a candid
 M5b done-when: `query_field` over all `weap` tags in 2.7 s (< 5 s); a fresh session answered the battery and dropped-weapon questions correctly, labelling engine behaviour as inference; the magazine question was answered correctly in the first session (8 calls, ≈ 6.2k tokens of tool results).
 
 After the rerun (D64): `diff_tags` results with differences end with the candidates hint; 149 `h5tags-core` tests and clippy pass.
+
+**M5b closed (2026-11-02):** the user moved on to M5c on the acceptance rerun's results; the D64 hint has tests but wasn't tried in a session.
+
+## M5c: distribution (in progress, 2026-11-02; plan D63)
+- Step 1: programs renamed `ausar-tag-cli` and `ausar-tag-mcp` (only the programs, D63 update); workspace tests pass.

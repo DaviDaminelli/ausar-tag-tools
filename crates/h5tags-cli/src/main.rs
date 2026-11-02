@@ -20,7 +20,7 @@ use tracing_subscriber::EnvFilter;
 
 /// Reads Halo 5 .module tags.
 #[derive(Parser)]
-#[command(name = "h5tags", version)]
+#[command(name = "ausar-tag-cli", version)]
 struct Cli {
     #[command(flatten)]
     config: ConfigArgs,

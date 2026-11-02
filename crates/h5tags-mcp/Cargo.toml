@@ -1,12 +1,12 @@
 [package]
 name = "h5tags-mcp"
-description = "h5tags MCP server (stdio)"
+description = "Ausar Tag Tools: the MCP server (stdio)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
 [[bin]]
-name = "h5tags-mcp"
+name = "ausar-tag-mcp"
 path = "src/main.rs"
 
 [dependencies]

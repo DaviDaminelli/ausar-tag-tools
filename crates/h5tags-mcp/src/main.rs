@@ -17,7 +17,7 @@ use server::{Server, SessionSlot};
 
 /// The h5tags tools for AI clients, over MCP on stdio.
 #[derive(Parser)]
-#[command(name = "h5tags-mcp", version)]
+#[command(name = "ausar-tag-mcp", version)]
 struct Args {
     #[command(flatten)]
     config: ConfigArgs,
