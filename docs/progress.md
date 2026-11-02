@@ -483,3 +483,13 @@ Dependencies with no reference field pointing to them: 0 on both samples.
 | `search-values battery_remaining` | 49 tags (HUD screens holding `ammo_or_battery_remaining_decision`, `battery_remaining_expression`); 52 lines, ≈ 1,667 tokens; 331 ms (second call; the first after a rebuild took 2.6 s without scanning, cause not measured). In the M4 simulation the same finding took header dumps worth ≈ 17,700 tokens. |
 
 The token budget test still passes (no replayed call grew).
+
+### M5a done-when: `find_references(in)` against an independent pass (2026-11-02; `h5tags-core` `real_reference_survey` `incoming_references_match_an_independent_pass`)
+
+Instead of 3 tags, every target: an independent pass reads every tag copy's reference fields from its header and tag data (`read_stored_tag`, not the scan) and lists, per target, the tags whose copies point to it; `referrers` (the scan's reverse index, what `find_references(in)` shows) is compared for each target.
+
+| | Forge sample | Xbox sample |
+| --- | --- | --- |
+| Targets with the same referencing tags | **76,724 of 76,724** | **68,184 of 68,184** |
+| Target–tag pairs | 202,569 | 187,941 |
+| Independent pass | 9.46 s | 8.52 s |

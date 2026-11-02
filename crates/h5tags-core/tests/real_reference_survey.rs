@@ -127,3 +127,48 @@ fn references_without_a_dependency() {
         println!("scan {label}: {bytes} bytes decompressed in {:.2?}", start.elapsed());
     }
 }
+
+/// M5a done-when (PRD §9), for every target instead of 3: `find_references(in)`
+/// (the scan's reverse index) against an independent pass that reads every
+/// tag copy's reference fields from its header and tag data directly.
+#[test]
+#[ignore]
+fn incoming_references_match_an_independent_pass() {
+    use std::collections::{BTreeSet, HashMap};
+
+    use h5_module::GlobalId;
+    use h5tags_core::references::{header_scan, referrers};
+
+    let (s, _cache) = common::real_session("core-reference-check");
+    let b = &s.builds()[0];
+    let start = Instant::now();
+    // Target → the tags (global IDs) with a copy whose fields point to it.
+    let mut direct: HashMap<GlobalId, BTreeSet<GlobalId>> = HashMap::new();
+    for tag in &b.tags {
+        for &copy in &tag.copies {
+            let Ok(stored) = read_stored_tag(b, copy) else { continue };
+            for r in &stored.header.tag_references {
+                if let Some(f) = stored.header.reference_field(&stored.tag_data, r).filter(|f| !f.is_null()) {
+                    direct.entry(f.global_id).or_default().insert(tag.global_id);
+                }
+            }
+        }
+    }
+    println!("independent pass: {} targets in {:.2?}", direct.len(), start.elapsed());
+    let (scan, _) = header_scan(b);
+    let (mut same, mut differ) = (0usize, Vec::new());
+    for (target, tags) in &direct {
+        let found: BTreeSet<GlobalId> = referrers(b, scan, *target).iter().map(|r| r.tag.global_id).collect();
+        if &found == tags {
+            same += 1;
+        } else if differ.len() < 5 {
+            differ.push(format!("{target}: direct {} vs find_references {}", tags.len(), found.len()));
+        }
+    }
+    let referenced_tags: usize = direct.values().map(BTreeSet::len).sum();
+    println!("targets with the same referencing tags: {same} of {} ({referenced_tags} target-tag pairs)", direct.len());
+    for d in &differ {
+        println!("  differs: {d}");
+    }
+    assert!(differ.is_empty());
+}
