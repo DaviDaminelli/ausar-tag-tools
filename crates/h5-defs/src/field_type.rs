@@ -114,3 +114,14 @@ field_types! {
     OldStringId "_field_old_string_id" Fixed(4);
     Tag "_field_tag" Fixed(4);
 }
+
+impl FieldType {
+    /// Angle types store radians, though definitions label them in degrees
+    /// (docs/format-notes.md "Angle units").
+    pub fn is_angle(self) -> bool {
+        matches!(
+            self,
+            FieldType::Angle | FieldType::AngleBounds | FieldType::RealEulerAngles2d | FieldType::RealEulerAngles3d
+        )
+    }
+}

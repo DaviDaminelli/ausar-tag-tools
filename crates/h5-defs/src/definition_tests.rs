@@ -232,3 +232,12 @@ fn each_field_knows_its_path_step() {
     let inner: Vec<Option<&str>> = d.fields[2].children.iter().map(|f| f.step.as_deref()).collect();
     assert_eq!(inner, [Some("x"), Some("X#2")]);
 }
+
+#[test]
+fn the_angle_types_are_the_four_that_store_radians() {
+    let angles: Vec<&str> = FieldType::ALL.iter().filter(|t| t.is_angle()).map(|t| t.xml_name()).collect();
+    assert_eq!(
+        angles,
+        ["_field_angle", "_field_angle_bounds", "_field_real_euler_angles_2d", "_field_real_euler_angles_3d"]
+    );
+}
