@@ -298,7 +298,7 @@ Two checks run for every struct field, tag block field and the main struct:
 
 #### 6.4.6 Which copy is read
 
-- **Copy identity** is decided by the stored data, not by `assetChecksum` (§12, Q10): v27 = all copies have the same compression block checksums (hashes of the uncompressed data, already in the block list; no decompression); v23 (no block checksums) = identical compressed bytes, otherwise decompress both copies' header and tag data and compare. Results are cached (§6.9).
+- **Copy identity** is decided by the stored data, not by `assetChecksum` (§12, Q10): v27 = all copies have the same compression block checksums (hashes of the uncompressed data, already in the block list; no decompression); v23 (no block checksums) = identical compressed bytes, otherwise decompress both copies' header and tag data and compare. Fast enough not to be cached (§6.9, D60).
 - If all copies are identical: read any one; output says `copies: N (identical)`.
 - If copies differ: read the copy in the **latest layer**: the module whose name has the highest version (`…-rtx-<version>-<revision>.module`; the base `…-rtx-1.module` is the lowest). Between modules of the same version, the first by module path sorted ascending (ordinal, case-insensitive). Output says `copies: N (differ; reading <module>, the latest layer; use module= to choose)`; when `module=` chose another copy, without `, the latest layer`. Every tool uses this rule (§12 Q5, D58).
 
@@ -307,12 +307,12 @@ Two checks run for every struct field, tag block field and the main struct:
 - `get_definition(class, path?, section?, depth=2, detail=normal, options=auto, show_hidden=false, confirm_large=false, format=text, build?)`: the schema from the definition only: fields, types, units, ranges, help, options, nesting, computed offsets (help and offsets at `detail=full`, decisions D37). No tag data. Whole reads have the same size guard as `read_tag` (§6.4.1), with the class's outline instead. Paths use §6.4.2 syntax; tag block fields are stepped into without an index (`[i]`/`[*]` are accepted and ignored). This is the **field dictionary**: definitions are not repeated inside `read_tag` output beyond what `detail` asks for.
 - `search_definitions(query, class?, scope=all|names|options|help, build?, offset=0, limit=50)`: case-insensitive substring search across **all** definitions: field display names (`names`), enum/flag option names (`options`), help text, units and explanation text (`help`). Hits where the query is a whole word of the matched text come first, then the other substring hits (since M4; otherwise `age` lists every "damage" and "percentage" first). Each hit: class code + name, field path (tag block fields written `name[*]`), field type, and which part matched. Answers "which class controls X, and where?".
 - `outline(tag?, class?, depth=2, build?)`: exactly one of `tag` or `class` MUST be given. Returns only the section tree: class sections, explanation headings, struct fields, array fields and tag block fields, each with its field path and number of direct fields; for a tag, also entry counts and labels for tag block fields. No values. **This is the first call for any large tag** (§5.3 list).
-- `definition_status(build?)`: per class in the index: has definition (yes/no), and any size or GUID mismatches **detected so far** (kept in the results cache across runs, §6.9), with how many of the class's tags have been checked. It is also the **definition gap list** (decisions D33), the input for writing or dumping missing definitions (§10):
+- `definition_status(class?, build?, offset=0, limit=100)`: per class in the index: has definition (yes/no), and what reading **every** tag copy of the class with it found: size mismatches, GUID mismatches, GUIDs in no definition, other read problems, layouts (distinct main struct GUIDs). The first call checks every tag copy (on all cores, about 1–2 s per sample); the result is kept in the results cache (§6.9), so later calls are instant (D60; formerly "detected so far" by other reads). With `class`, that class's gap list. It is also the **definition gap list** (decisions D33), the input for writing or dumping missing definitions (§10):
   - classes with no definition, with their tag counts;
   - size mismatches, each with the field path where it starts;
   - struct GUIDs found in no definition, each with its class and field path;
   - each class's main struct GUID (one per class, a layout fingerprint, `docs/format-notes.md` "GUIDs"), so a class whose layout differs between builds shows up.
-  The list can be exported (JSON) for that work.
+  The list can be exported with `format=json` for that work.
 
 ### 6.6 Analysis (`FR-5`)
 
@@ -354,11 +354,11 @@ Two checks run for every struct field, tag block field and the main struct:
 
 ### 6.9 Results cache (`FR-7`)
 - Expensive results that depend only on the game files and definitions are stored on disk in `cache_dir`, next to the index, and reused across calls, processes and sessions. Work done for one call (by any agent or the CLI) speeds up every later call that needs it:
-  - copy identity per tag (§6.4.6);
   - the header scan (§6.2);
-  - definition check results per class: size and GUID mismatches, and how many tags were checked (§6.4.5, `definition_status`).
-- Each cached result is keyed by what it depends on: the module files (path, size, modification time) and, where relevant, the definition file. It is dropped when any of them changes. `reindex(what=results)` clears it, optionally per module or class.
-- The cache never changes a result, only how fast it comes (§7.6, no hidden state). The one exception is `definition_status`, which reports what has been checked so far and says how much that covers (`checked 120 of 340 tags`).
+  - the definition check: per tag copy, the size and GUID mismatches, other read problems and main struct GUID found by reading it with its class's definition (§6.4.5, `definition_status`), kept per module.
+  - Not cached: copy identity per tag (§6.4.6). Measured (D60): it adds nothing measurable to a call, even on v23 where copies are decompressed to compare.
+- Each cached result is keyed by what it depends on: the module files (path, size, modification time) and, where relevant, the definition files. It is dropped when any of them changes. `reindex(what=results)` clears the definition check, optionally per module (`class=` doesn't narrow it: it works per module, like the header scan).
+- The cache never changes a result, only how fast it comes (§7.6, no hidden state).
 
 ## 7. Output format
 

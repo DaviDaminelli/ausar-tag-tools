@@ -289,11 +289,38 @@ pub fn layer_text(layer: h5_module::names::Layer) -> String {
     if layer.version == 0 { "base".into() } else { format!("{}-{}", layer.version, layer.revision) }
 }
 
+/// `<what> built: N tags, T s`, on the call that had to build it.
+fn built(label: &'static str, key: &'static str, tags: usize, elapsed: std::time::Duration) -> crate::output::Summary {
+    let value = format!("{tags} tags, {:.2} s", elapsed.as_secs_f64());
+    crate::output::Summary { label, key, value: value.into() }
+}
+
 /// `header scan built: N tags, T s`, on the call that had to scan (PRD §6.2).
-pub fn scan_built(built: Option<crate::references::ScanBuilt>) -> Option<crate::output::Summary> {
-    let b = built?;
-    let value = format!("{} tags, {:.2} s", b.tags, b.elapsed.as_secs_f64());
-    Some(crate::output::Summary { label: "header scan built", key: "header_scan_built", value: value.into() })
+pub fn scan_built(b: Option<crate::references::ScanBuilt>) -> Option<crate::output::Summary> {
+    b.map(|b| built("header scan built", "header_scan_built", b.tags, b.elapsed))
+}
+
+/// `definition check built: N tags, T s`, on the call that had to check (PRD §6.9).
+pub fn check_built(b: Option<crate::def_check::CheckBuilt>) -> Option<crate::output::Summary> {
+    b.map(|b| built("definition check built", "definition_check_built", b.tags, b.elapsed))
+}
+
+/// A gap of `definition_status(class=)`, as its `gap` column says it.
+pub fn gap_text(kind: &crate::def_check::GapKind) -> String {
+    use crate::def_check::GapKind;
+    match kind {
+        GapKind::Unreadable(why) => format!("unreadable: {why}"),
+        GapKind::Size => "size".into(),
+        GapKind::Guid { known: true, .. } => "GUID".into(),
+        GapKind::Guid { known: false, .. } => "GUID (in no definition)".into(),
+        GapKind::MainStruct(_) => "main struct".into(),
+    }
+}
+
+/// Modules the definition check couldn't read: their tags aren't counted.
+pub fn unchecked_modules_hint(failed: &[(String, String)]) -> String {
+    let named: Vec<String> = failed.iter().take(3).map(|(m, e)| format!("{m} ({e})")).collect();
+    format!("{} module(s) couldn't be checked; their tags aren't counted: {}", failed.len(), named.join("; "))
 }
 
 /// `query_field` errors, with the next step where there is one.

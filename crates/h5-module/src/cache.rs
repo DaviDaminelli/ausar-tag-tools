@@ -1,5 +1,6 @@
-//! What the index and the header scan share: their cache files (a magic, a
-//! format number, then postcard), and reading modules in parallel.
+//! What the index, the header scan and the definition check share: their
+//! cache files (a magic, a format number, then postcard), and reading modules
+//! in parallel.
 
 use std::fs;
 use std::io;
@@ -12,7 +13,7 @@ use serde::de::DeserializeOwned;
 
 /// A cache file's kind and shape: `magic` tells the kinds apart, `format`
 /// is bumped whenever the stored types change.
-pub(crate) struct CacheFile {
+pub struct CacheFile {
     pub magic: &'static [u8; 8],
     pub format: u32,
     /// For log lines: "index", "header scan".
@@ -66,7 +67,7 @@ impl CacheFile {
 /// Runs `work` on each of `items` on all cores; `done(n)` after each one, from
 /// any thread. Returns `(item, result)` pairs in any order. Each item
 /// is one module: work never shares a file.
-pub(crate) fn in_parallel<T: Send>(
+pub fn in_parallel<T: Send>(
     items: &[usize],
     work: &(dyn Fn(usize) -> T + Sync),
     done: &(dyn Fn(usize) + Sync),

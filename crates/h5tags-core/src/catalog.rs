@@ -12,6 +12,7 @@ use h5_module::names::split_tag_name;
 use h5_module::{FourCc, GlobalId};
 
 use crate::config::BuildConfig;
+use crate::def_check::CheckSlot;
 use crate::references::ScanSlot;
 use crate::stored::{Store, TagCache};
 
@@ -91,6 +92,8 @@ pub struct Build {
     pub store: Store,
     /// The header scan (PRD §6.2), loaded or built on first need.
     pub(crate) scan: ScanSlot,
+    /// The definition check (PRD §6.9), loaded or built on first need.
+    pub(crate) check: CheckSlot,
 }
 
 impl std::fmt::Debug for Build {
@@ -186,12 +189,19 @@ impl Build {
             classes,
             store: Store::new(tag_cache),
             scan: ScanSlot::default(),
+            check: CheckSlot::default(),
         }
     }
 
     /// Where the header scan is cached (next to the index).
     pub fn with_scan_cache(mut self, path: PathBuf) -> Build {
         self.scan.cache = Some(path);
+        self
+    }
+
+    /// Where the definition check is cached (next to the index).
+    pub fn with_check_cache(mut self, path: PathBuf) -> Build {
+        self.check.cache = Some(path);
         self
     }
 

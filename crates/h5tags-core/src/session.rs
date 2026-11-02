@@ -74,7 +74,8 @@ fn load_build(
         tracing::warn!(cache = %cache.display(), error = %e, "couldn't save the index cache");
     }
     let build = Build::new_sharing(cfg.name.clone(), cfg.clone(), index, defs, tag_cache.clone())
-        .with_scan_cache(cache_dir.join(format!("{}.scan", cfg.name)));
+        .with_scan_cache(cache_dir.join(format!("{}.scan", cfg.name)))
+        .with_check_cache(cache_dir.join(format!("{}.check", cfg.name)));
     Ok((build, report))
 }
 
@@ -135,6 +136,11 @@ impl Session {
     /// Returns how many modules were dropped from the cache.
     pub fn forget_header_scan(&mut self, b: usize, force: &dyn Fn(&str) -> bool) -> usize {
         crate::references::forget_header_scan(&mut self.builds[b], force)
+    }
+
+    /// The same for the definition check (`reindex(what=results)`, PRD §6.9).
+    pub fn forget_definition_check(&mut self, b: usize, force: &dyn Fn(&str) -> bool) -> usize {
+        crate::def_check::forget_definition_check(&mut self.builds[b], force)
     }
 
     /// The build to label results with: its name when more than one is configured.

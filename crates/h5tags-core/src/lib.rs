@@ -3,6 +3,7 @@
 
 pub mod catalog;
 pub mod config;
+pub mod def_check;
 pub mod def_view;
 pub mod diff;
 pub mod field_query;

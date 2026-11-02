@@ -65,6 +65,15 @@ pub mod col {
     pub const VALUE: Column = Column { header: "value", key: "value" };
     pub const A: Column = Column { header: "a", key: "a" };
     pub const B: Column = Column { header: "b", key: "b" };
+    pub const CHECKED: Column = Column { header: "checked", key: "checked" };
+    pub const SIZE_MISMATCHES: Column = Column { header: "size mismatches", key: "size_mismatches" };
+    pub const GUID_MISMATCHES: Column = Column { header: "GUID mismatches", key: "guid_mismatches" };
+    pub const UNKNOWN_GUIDS: Column = Column { header: "unknown GUIDs", key: "unknown_guids" };
+    pub const OTHER_PROBLEMS: Column = Column { header: "other problems", key: "other_problems" };
+    pub const LAYOUTS: Column = Column { header: "layouts", key: "layouts" };
+    pub const GAP: Column = Column { header: "gap", key: "gap" };
+    pub const GUID: Column = Column { header: "GUID", key: "guid" };
+    pub const EXAMPLE: Column = Column { header: "example", key: "example" };
 
     pub const ALL: &[Column] = &[
         GLOBAL_ID,
@@ -96,6 +105,15 @@ pub mod col {
         VALUE,
         A,
         B,
+        CHECKED,
+        SIZE_MISMATCHES,
+        GUID_MISMATCHES,
+        UNKNOWN_GUIDS,
+        OTHER_PROBLEMS,
+        LAYOUTS,
+        GAP,
+        GUID,
+        EXAMPLE,
     ];
 }
 

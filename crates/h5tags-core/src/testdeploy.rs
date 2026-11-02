@@ -57,54 +57,71 @@ pub struct TestDeploy {
     pub session: Session,
 }
 
+/// What a test deploy holds besides the weapon, its bullet and the mesh.
+struct Options<'a> {
+    second: SecondCopy,
+    tag_cache_bytes: usize,
+    /// More weapons (see [`TestDeploy::with_weapons`]).
+    counts: &'a [Option<i32>],
+    /// The folders the map's modules go in, if it is added.
+    map: Option<&'a [&'a str]>,
+    /// The weapon's definition.
+    definition: &'a str,
+}
+
+impl Default for Options<'_> {
+    fn default() -> Self {
+        Options {
+            second: SecondCopy::None,
+            tag_cache_bytes: megabytes(DEFAULT_TAG_CACHE_MB),
+            counts: &[],
+            map: None,
+            definition: WEAPON_DEFINITION,
+        }
+    }
+}
+
 impl TestDeploy {
     /// `name` keeps tests running in parallel apart.
     pub fn new(name: &str) -> TestDeploy {
-        TestDeploy::with(name, SecondCopy::None)
+        TestDeploy::build(name, Options::default())
     }
 
     pub fn with(name: &str, second: SecondCopy) -> TestDeploy {
-        TestDeploy::with_tag_cache(name, second, megabytes(DEFAULT_TAG_CACHE_MB))
+        TestDeploy::build(name, Options { second, ..Options::default() })
     }
 
     /// With a tag cache of `tag_cache_bytes`.
     pub fn with_tag_cache(name: &str, second: SecondCopy, tag_cache_bytes: usize) -> TestDeploy {
-        TestDeploy::build(name, second, tag_cache_bytes, &[], None)
+        TestDeploy::build(name, Options { second, tag_cache_bytes, ..Options::default() })
     }
 
     /// With more weapons after the first, in the same module: `more_<i>.weapon`
     /// (global ID `MORE_WEAPON_ID + i`), each the sample weapon with `count` = `counts[i]`;
     /// `None` = a weapon whose data is no tag (it can't be read).
     pub fn with_weapons(name: &str, counts: &[Option<i32>]) -> TestDeploy {
-        TestDeploy::build(name, SecondCopy::None, megabytes(DEFAULT_TAG_CACHE_MB), counts, None)
+        TestDeploy::build(name, Options { counts, ..Options::default() })
     }
 
     /// With a map, [`MAP`]: a base module whose load manifest lists the weapon,
     /// the bullet and [`NOT_INDEXED_ID`], and an update layer whose manifest
     /// drops the weapon.
     pub fn with_map(name: &str) -> TestDeploy {
-        TestDeploy::build(
-            name,
-            SecondCopy::None,
-            megabytes(DEFAULT_TAG_CACHE_MB),
-            &[],
-            Some(&["any", "levels", "menu"]),
-        )
+        TestDeploy::build(name, Options { map: Some(&["any", "levels", "menu"]), ..Options::default() })
     }
 
     /// The same map, its modules at the top of the deploy folder.
     pub fn with_flat_map(name: &str) -> TestDeploy {
-        TestDeploy::build(name, SecondCopy::None, megabytes(DEFAULT_TAG_CACHE_MB), &[], Some(&[]))
+        TestDeploy::build(name, Options { map: Some(&[]), ..Options::default() })
     }
 
-    /// `map`: the folders the map's modules go in, if it is added.
-    fn build(
-        name: &str,
-        second: SecondCopy,
-        tag_cache_bytes: usize,
-        counts: &[Option<i32>],
-        map: Option<&[&str]>,
-    ) -> TestDeploy {
+    /// With `definition` as the weapon's definition instead of [`WEAPON_DEFINITION`].
+    pub fn with_definition(name: &str, definition: &str) -> TestDeploy {
+        TestDeploy::build(name, Options { definition, ..Options::default() })
+    }
+
+    fn build(name: &str, o: Options<'_>) -> TestDeploy {
+        let Options { second, tag_cache_bytes, counts, map, definition } = o;
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -157,14 +174,15 @@ impl TestDeploy {
         }
         let defs = dir.0.join("defs");
         fs::create_dir_all(&defs).unwrap();
-        fs::write(defs.join("(weap)weapon.xml"), WEAPON_DEFINITION).unwrap();
+        fs::write(defs.join("(weap)weapon.xml"), definition).unwrap();
 
         let (index, _) = Index::update(&deploy, None, &|_| false).unwrap();
         let definitions = Definitions::load(&defs).unwrap();
         let cfg = BuildConfig { name: "forge".into(), deploy, defs, resource_defs: None };
         let build =
             Build::new_sharing("forge".into(), cfg, index, definitions, Arc::new(TagCache::new(tag_cache_bytes)))
-                .with_scan_cache(dir.0.join("cache").join("forge.scan"));
+                .with_scan_cache(dir.0.join("cache").join("forge.scan"))
+                .with_check_cache(dir.0.join("cache").join("forge.check"));
         TestDeploy { session: Session::from_builds(dir.0.join("cache"), vec![build]), dir }
     }
 

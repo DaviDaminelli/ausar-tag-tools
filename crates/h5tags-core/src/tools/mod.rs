@@ -7,6 +7,7 @@
 //! values; [`present`] and `output` turn the results into what the agent reads.
 
 pub mod args;
+mod definition_status;
 mod definitions;
 mod diff_tags;
 mod find_references;
@@ -23,6 +24,7 @@ mod tag_copies;
 #[cfg(test)]
 mod tests;
 
+pub use definition_status::DefinitionStatus;
 pub use definitions::{GetDefinition, Outline, Scope, SearchDefinitions};
 pub use diff_tags::DiffTags;
 pub use find_references::{Direction, FindReferences};
@@ -97,6 +99,7 @@ tools!(
     GetDefinition,
     Outline,
     SearchDefinitions,
+    DefinitionStatus,
     FindReferences,
     TagCopies,
     SearchValues,
