@@ -420,3 +420,7 @@ Plain reals with a degree unit: radian-like values only at `hlmt` `shadow slope 
 ### Retest of "AR vs SMG barrels" (2026-11-01, second fresh session)
 
 The server was the release build from 22:08, before the angle and GUID fixes (committed 23:01), so angles came without `rad`/degrees and the agent inferred radians again. The retest found three gaps in `detail=brief` (D45), all reproduced with the current code on `read-tag 0x00008595 --path barrels --detail brief --depth 3`: `automatic fire variations` (8 entries) showed only entry 0 with no count; the wield-penalty structs lost their `warning: definition GUID mismatch`; collapsed structs showed only `struct`. After the fix the same read is 115 lines, 7,441 characters (≈ 1,860 tokens), with 16 lines or annotations carrying block counts, warnings and `→ path=`. The agent also noted the penalty curves show as `(curve, 68 bytes)`: mapping functions aren't decoded in v1 (PRD §10 item 9).
+
+### Curve fingerprints (2026-11-01, Forge sample; decisions D46)
+
+`barrels[0].accuracy penalties.single wield penalties.firing penalty function[0].function`: assault rifle `(curve, 68 bytes, #9a7cc512)`, SMG `(curve, 68 bytes, #d7f84014)`, so their firing penalty curves differ (the retest's open question). Every tag still reads and renders: Forge 62,976 tags, all with no problem and no divergence (8.7 s); Xbox 57,537 read, 57,518 clean (9.6 s), the same counts as before; `real_read` passes on both.
