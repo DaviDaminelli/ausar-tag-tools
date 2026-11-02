@@ -587,3 +587,157 @@ fn m3_checks_on_the_five_classes() {
     assert_eq!(by_class.len(), 5, "every class has sample tags");
     assert!(!failed, "checks 1, 2, 4 or 5 failed: see above");
 }
+
+/// Reads every tag of `H5_DEPLOY` that has a definition and passes it to `f`
+/// with its class key (`weap weapon`) and name.
+fn for_each_read_tag(mut f: impl FnMut(&str, &str, &h5_meta::ReadTag<'_>)) -> usize {
+    let deploy = PathBuf::from(std::env::var("H5_DEPLOY").expect("set H5_DEPLOY"));
+    let defs = Definitions::load(&tags_dir()).unwrap();
+    let mut parsed: HashMap<FourCc, Option<Definition>> = HashMap::new();
+    let mut tags = 0;
+    for module in find_modules(&deploy).unwrap() {
+        let map = map_file(&module.path).unwrap();
+        let m = Module::parse(&map).unwrap();
+        for (i, e) in m.entries.iter().enumerate().filter(|(_, e)| e.kind() == EntryKind::Tag) {
+            let i = i as u32;
+            let name = m.name(i).unwrap();
+            let class = split_tag_name(name).1.unwrap_or_default();
+            let Some(def) = parsed
+                .entry(e.class_code)
+                .or_insert_with(|| {
+                    let file = defs.find(e.class_code, Some(class))?;
+                    Definition::parse(&std::fs::read_to_string(&file.path).ok()?).ok()
+                })
+                .as_ref()
+            else {
+                continue;
+            };
+            let (Ok(h), Ok(data)) = (m.read_section(i, Section::Header), m.read_section(i, Section::TagData)) else {
+                continue;
+            };
+            let header = TagHeader::parse(&h).unwrap();
+            tags += 1;
+            f(&format!("{} {class}", e.class_code), name, &read_tag(def, &header, &data));
+        }
+    }
+    tags
+}
+
+/// One group of the angle survey: how its non-zero values look as radians
+/// and as degrees.
+#[derive(Default)]
+struct AngleStats {
+    values: usize,
+    nonzero: usize,
+    above_pi: usize,
+    above_two_pi: usize,
+    /// × 180/π is a whole number of degrees (the value was typed in degrees and stored in radians).
+    whole_degrees_if_radians: usize,
+    /// The value itself is a whole number (stored as typed).
+    whole_as_stored: usize,
+    /// The largest |value| and where.
+    largest: (f32, String),
+}
+
+impl AngleStats {
+    fn add(&mut self, v: f32, at: impl FnOnce() -> String) {
+        self.values += 1;
+        if v == 0.0 || !v.is_finite() {
+            return;
+        }
+        self.nonzero += 1;
+        let a = v.abs();
+        self.above_pi += usize::from(a > std::f32::consts::PI + 1e-4);
+        self.above_two_pi += usize::from(a > std::f32::consts::TAU + 1e-4);
+        let d = f64::from(v).to_degrees();
+        self.whole_degrees_if_radians += usize::from((d - d.round()).abs() < 1e-3);
+        self.whole_as_stored += usize::from((f64::from(v) - f64::from(v).round()).abs() < 1e-5);
+        if a > self.largest.0 {
+            self.largest = (a, at());
+        }
+    }
+}
+
+/// D31 survey: are angle fields stored in radians or in degrees? Every
+/// definition labels them `degrees`, the editor's unit (PRD §5.3 units).
+#[test]
+#[ignore]
+fn angle_units_survey() {
+    use h5_defs::field_type::FieldType as T;
+    use h5_meta::Value;
+
+    /// Per real-typed field with a degree unit: (class field path) → (radian-like, other non-zero).
+    type ByField = BTreeMap<String, (usize, usize)>;
+
+    fn visit(
+        body: &Body<'_>,
+        path: &str,
+        tag: (&str, &str),
+        out: &mut BTreeMap<String, AngleStats>,
+        by_field: &mut ByField,
+    ) {
+        for n in &body.children {
+            let p = format!("{path}.{}", n.name.unwrap_or_default());
+            match &n.content {
+                Content::Struct(b) | Content::Array(b) => visit(b, &p, tag, out, by_field),
+                Content::Block(b) => b.entries.iter().for_each(|e| visit(e, &p, tag, out, by_field)),
+                Content::Value(v) => {
+                    let h5_defs::definition::FieldKind::Known(t) = n.field.kind else { continue };
+                    let angle = matches!(t, T::Angle | T::AngleBounds | T::RealEulerAngles2d | T::RealEulerAngles3d);
+                    let units = n.field.name.units.as_deref().unwrap_or("");
+                    // Reals whose unit is a degree, for comparison.
+                    let degree_real = !angle && t == T::Real && units.contains("degree");
+                    if !angle && !degree_real {
+                        continue;
+                    }
+                    let key = format!("{} [{}]", t.xml_name(), if units.is_empty() { "no unit" } else { units });
+                    let s = out.entry(key).or_default();
+                    match v {
+                        Value::Real(x) => {
+                            s.add(*x, || format!("{} {p}", tag.1));
+                            if degree_real && *x != 0.0 {
+                                let d = f64::from(*x).to_degrees();
+                                let radian_like = x.abs() <= std::f32::consts::TAU
+                                    && (d - d.round()).abs() < 1e-3
+                                    && x.fract() != 0.0;
+                                let e = by_field.entry(format!("{} {p}", tag.0)).or_default();
+                                if radian_like { e.0 += 1 } else { e.1 += 1 }
+                            }
+                        }
+                        Value::Reals(xs) => xs.iter().for_each(|x| s.add(*x, || format!("{} {p}", tag.1))),
+                        _ => {}
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let start = Instant::now();
+    let mut stats: BTreeMap<String, AngleStats> = BTreeMap::new();
+    let mut by_field = ByField::new();
+    let tags = for_each_read_tag(|class, name, r| visit(&r.root, "", (class, name), &mut stats, &mut by_field));
+    println!("{tags} tags in {:.2?}", start.elapsed());
+    println!("type [unit]: values, non-zero, |v|>π, |v|>2π, whole degrees if radians, whole as stored, largest |v|");
+    for (k, s) in stats.iter().filter(|(_, s)| s.nonzero > 0) {
+        println!(
+            "{k}: {} {} {} {} {} {} {} at {}",
+            s.values,
+            s.nonzero,
+            s.above_pi,
+            s.above_two_pi,
+            s.whole_degrees_if_radians,
+            s.whole_as_stored,
+            s.largest.0,
+            s.largest.1
+        );
+    }
+    println!(
+        "real-typed fields with a degree unit, radian-like values (non-zero, ≤ 2π, whole degrees if radians) / others:"
+    );
+    let mut fields: Vec<_> = by_field.iter().filter(|(_, c)| c.0 > 0).collect();
+    fields.sort_by_key(|(_, c)| std::cmp::Reverse(c.0));
+    for (k, (rad, other)) in fields.iter().take(20) {
+        println!("  {rad:6} / {other:6}  {k}");
+    }
+}

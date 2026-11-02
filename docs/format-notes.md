@@ -169,6 +169,14 @@ Measured 2026-11-01 (same test) over every value of every tag. Odd values cluste
 - **Tag block counts over the definition's `max`:** 0 (Forge and Xbox).
 - **Reals:** 12,758,290 on Forge; 110 not finite, at 4 fields (`effe` `near fade cutoff`, `runtime overdraw`; `shit` edge offsets/scales).
 
+### Angle units (survey `h5-meta` `real_tags` `angle_units_survey`, 2026-11-01, Forge and Xbox samples)
+**Angle-typed fields store radians**, although every definition labels them `degrees` (or `degrees per second`, …): that is the editor's unit. The types are `_field_angle`, `_field_angle_bounds`, `_field_real_euler_angles_2d` and `_field_real_euler_angles_3d`. The evidence, from every non-zero value of those types:
+- **Round in degrees, not as stored.** Designers type round numbers. Forge `_field_angle` with unit `degrees`: 5,843 non-zero values, 5,351 (92%) a whole number of degrees once converted from radians, 34 whole as stored. `_field_angle_bounds [degrees]`: 3,053, 2,755 (90%), 0. Euler angles: ≈ 85%, and at most 5 whole as stored. Xbox: the same (`_field_angle [degrees]` 6,823 non-zero, 6,176 whole degrees, 93 whole as stored).
+- **Within one turn.** No `_field_angle [degrees]` or `_field_real_euler_angles_*` value exceeds 2π; the largest are exactly 2π (6.283185, 360°) and, for a field whose unit says `degrees [0, 180]`, exactly π (3.1415925). Only rates (`degrees per second`, `deg/s/s`) go past 2π, as rates can.
+- Example: battle rifle view kick deceleration `23.561945` = 1350°/s/s; weapon `error angle` bounds `0.0026179939..0.04014257` = 0.15°..2.3°.
+
+**`_field_real` fields with a degree unit store what they say**, degrees: whole as stored, and up to 356 (`atmosphere_fog` `fog light.yaw angle [0 to 360]`), 65 (`character` `ai max steering angle`), 20 (`area_screen_effect` `hue left`). Exceptions whose every value looks like radians (non-zero, ≤ 2π, whole degrees once converted, not whole as stored): `hlmt` `shadow slope scale bias` and `… (dynamic lights)` (3,389 values each), `licn` `angle fade cutoff` and `angle fade range` (29 each), `vehi` `physics types.type-alien_scout.steering control.overdampen cusp angle` (7). These are per-field exceptions, not a rule.
+
 ## Map info files (`.mapinfo`)
 - Observed on `ng25r_ss_pistons_remixed.mapinfo` (Forge, 2377 bytes, 2026-10-31). Binary format, not documented in AusarDocs; only its readable strings have been looked at. It contains the map name, its scenario path (`levels\multi\ng25r_ss_pistons_remixed\ng25r_ss_pistons_remixed`), and an ordered list of module paths: the map's **module stack**.
   - Order seen: for each layer `-rtx-1`, then `-rtx-11587-1`, then `-rtx-12719-1`: `any\levels\globals-…`, `%(Platform)\levels\globals-…`, `any\levels\multi\<map>\<map>-…`, `%(Platform)\levels\multi\<map>\<map>-…`.
