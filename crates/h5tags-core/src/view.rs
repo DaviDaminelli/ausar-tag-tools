@@ -3,6 +3,8 @@
 //! the same nodes (PRD §13). `text` separates columns with two spaces;
 //! `table` aligns them (decisions D36).
 
+use std::borrow::Cow;
+
 use serde_json::{Map, Value, json};
 
 /// Ends the title of the heading that opens a `path=` read: `barrels[0]  (path)`.
@@ -265,30 +267,46 @@ fn write_nodes(nodes: &[ViewNode], depth: usize, lines: &mut Lines) {
 /// One `detail=brief` row: the block entry (or read target) it lies in, its
 /// full path and its value.
 struct BriefRow<'v> {
-    group: Option<String>,
+    /// Index into the groups' paths.
+    group: Option<usize>,
     path: &'v str,
     value: String,
 }
 
-fn brief_rows<'v>(nodes: &'v [ViewNode], mut group: Option<String>, rows: &mut Vec<BriefRow<'v>>) {
-    for n in nodes {
-        match n {
-            // A read's target, or one entry of a `[*]` read.
-            ViewNode::Heading { kind: HeadingKind::Target, title, .. } => {
-                group = Some(title.strip_suffix(PATH_TARGET).unwrap_or(title).to_owned());
+/// The rows of `nodes`, and the paths of the groups they lie in (one per
+/// read target or block entry, not one copy per row).
+#[derive(Default)]
+struct Brief<'v> {
+    groups: Vec<Cow<'v, str>>,
+    rows: Vec<BriefRow<'v>>,
+}
+
+impl<'v> Brief<'v> {
+    fn collect(&mut self, nodes: &'v [ViewNode], mut group: Option<usize>) {
+        for n in nodes {
+            match n {
+                // A read's target, or one entry of a `[*]` read.
+                ViewNode::Heading { kind: HeadingKind::Target, title, .. } => {
+                    self.groups.push(Cow::Borrowed(title.strip_suffix(PATH_TARGET).unwrap_or(title)));
+                    group = Some(self.groups.len() - 1);
+                }
+                ViewNode::Heading { .. } => {}
+                ViewNode::Field(f) => match &f.container {
+                    Some(c) if !c.children.is_empty() => {
+                        let entry = c.index.map(|i| {
+                            self.groups.push(Cow::Owned(format!("{}[{i}]", f.path)));
+                            self.groups.len() - 1
+                        });
+                        self.collect(&c.children, entry.or(group));
+                    }
+                    _ => {
+                        let cols = columns(f);
+                        let value =
+                            cols.get(2).filter(|v| !v.is_empty()).cloned().unwrap_or_else(|| f.short_type.clone());
+                        self.rows.push(BriefRow { group, path: &f.path, value });
+                    }
+                },
             }
-            ViewNode::Heading { .. } => {}
-            ViewNode::Field(f) => match &f.container {
-                Some(c) if !c.children.is_empty() => {
-                    let entry = c.index.map(|i| format!("{}[{i}]", f.path)).or_else(|| group.clone());
-                    brief_rows(&c.children, entry, rows);
-                }
-                _ => {
-                    let cols = columns(f);
-                    let value = cols.get(2).filter(|v| !v.is_empty()).cloned().unwrap_or_else(|| f.short_type.clone());
-                    rows.push(BriefRow { group: group.clone(), path: &f.path, value });
-                }
-            },
         }
     }
 }
@@ -297,23 +315,27 @@ fn brief_rows<'v>(nodes: &'v [ViewNode], mut group: Option<String>, rows: &mut V
 /// entry go under an `in <entry path>:` line, indented, with paths relative
 /// to it (decisions D40).
 fn write_brief(nodes: &[ViewNode], out: &mut String) {
-    let mut rows = Vec::new();
-    brief_rows(nodes, None, &mut rows);
+    use std::fmt::Write;
+    let mut b = Brief::default();
+    b.collect(nodes, None);
+    let group = |r: &BriefRow<'_>| r.group.map(|g| &*b.groups[g]);
     // A row's path inside its group; `None` if the path doesn't start with it
     // (a section heading, a single value read).
     let inside: Vec<Option<&str>> =
-        rows.iter().map(|r| r.group.as_deref().and_then(|g| r.path.strip_prefix(g)?.strip_prefix('.'))).collect();
+        b.rows.iter().map(|r| group(r).and_then(|g| r.path.strip_prefix(g)?.strip_prefix('.'))).collect();
+    let rows = &b.rows;
     let mut i = 0;
+    // Writing to a String can't fail.
     while i < rows.len() {
         let run = (i..rows.len()).take_while(|&k| inside[k].is_some() && rows[k].group == rows[i].group).count();
         if run < 2 {
-            out.push_str(&format!("{}  {}\n", rows[i].path, rows[i].value));
+            let _ = writeln!(out, "{}  {}", rows[i].path, rows[i].value);
             i += 1;
             continue;
         }
-        out.push_str(&format!("in {}:\n", rows[i].group.as_deref().unwrap_or_default()));
+        let _ = writeln!(out, "in {}:", group(&rows[i]).unwrap_or_default());
         for k in i..i + run {
-            out.push_str(&format!("  {}  {}\n", inside[k].unwrap_or_default(), rows[k].value));
+            let _ = writeln!(out, "  {}  {}", inside[k].unwrap_or_default(), rows[k].value);
         }
         i += run;
     }
