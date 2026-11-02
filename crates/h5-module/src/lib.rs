@@ -8,6 +8,7 @@ pub mod cache;
 mod check;
 mod fourcc;
 mod global_id;
+pub mod identify;
 pub mod index;
 mod le;
 mod module;

@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use clap::{ArgAction, Parser};
 use h5tags_core::config::ConfigArgs;
 use h5tags_core::session::ProgressSink;
-use h5tags_core::tools::HeaderDump;
+use h5tags_core::tools::{HeaderDump, Identify};
 use h5tags_core::{Command, Format, Output, Session, ToolError};
 use preferences::{Key, Preferences};
 use progress::SpinnerHandle;
@@ -51,6 +51,7 @@ enum CliCommand {
     Tool(Command),
     /// Every list of a tag's header, as stored (developer command, CLI only).
     HeaderDump(HeaderDump),
+    Identify(Identify),
     /// Show or change your display preferences (CLI only; the AI never sees them).
     Preferences {
         #[command(subcommand)]
@@ -213,12 +214,14 @@ fn print_out(text: &str, color: bool) {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    // A tool (D7) or a CLI-only command: its name, and how to run it on the loaded builds.
+    // A tool (D7) or a CLI-only command: its name, and how to run it on the
+    // loaded builds; `identify` runs before any config exists (D63).
     type Run<'a> = Box<dyn FnOnce(&mut Session) -> Result<Output, ToolError> + 'a>;
-    let (name, run): (&str, Run) = match &cli.command {
+    let (name, run): (&str, Option<Run>) = match &cli.command {
         CliCommand::Preferences { action } => return run_preferences(action.as_ref(), cli.preferences.clone()),
-        CliCommand::Tool(tool) => (tool.name(), Box::new(|s| tool.run(s))),
-        CliCommand::HeaderDump(dump) => ("header-dump", Box::new(|s| dump.run(s))),
+        CliCommand::Tool(tool) => (tool.name(), Some(Box::new(|s| tool.run(s)))),
+        CliCommand::HeaderDump(dump) => ("header-dump", Some(Box::new(|s| dump.run(s)))),
+        CliCommand::Identify(_) => ("identify", None),
     };
 
     // Read once, and only if a setting can matter (D25).
@@ -239,7 +242,11 @@ fn main() -> ExitCode {
         .with_env_filter(EnvFilter::try_from_env("H5TAGS_LOG").unwrap_or_else(|_| EnvFilter::new(level)))
         .init();
 
-    let outcome = run_tool(&cli, name, run, spinner.as_ref().map(progress::Spinner::handle));
+    let outcome = match (run, &cli.command) {
+        (Some(run), _) => run_tool(&cli, name, run, spinner.as_ref().map(progress::Spinner::handle)),
+        (None, CliCommand::Identify(identify)) => Outcome::Done(identify.run()),
+        (None, _) => unreachable!("only identify runs without the builds"),
+    };
     if let Some(s) = spinner {
         s.finish(); // the line is gone before anything is printed
     }

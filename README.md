@@ -21,8 +21,8 @@ It builds or finds the programs, installs them, asks you where your game files a
 ## Install
 
 - Download a release binary when one is published, or
-- build it: `cargo build --release` (Rust 1.88 or later). This makes two programs in `target/release`: `h5tags` (the command line, 4.5 MB) and `h5tags-mcp` (the MCP server, 6.9 MB). Nothing else needs installing.
-- Copy both to a folder of their own, for example `%LOCALAPPDATA%\Programs\h5tags` on Windows (no administrator rights needed), and put the config next to them. An AI client keeps `h5tags-mcp` open while it runs, so a program in `target\release` can't be replaced by a rebuild until the client lets it go.
+- build it: `cargo build --release` (Rust 1.88 or later). This makes two programs in `target/release`: `ausar-tag-cli` (the command line, 4.5 MB) and `ausar-tag-mcp` (the MCP server, 6.9 MB). Nothing else needs installing.
+- Copy both to a folder of their own, for example `%LOCALAPPDATA%\Programs\h5tags` on Windows (no administrator rights needed), and put the config next to them. An AI client keeps `ausar-tag-mcp` open while it runs, so a program in `target\release` can't be replaced by a rebuild until the client lets it go.
 
 ## Configure
 
@@ -52,13 +52,15 @@ For a single build without a config file: `--deploy <folder> --defs <folder> [--
 
 The first run indexes every module (about 0.2 s for a 1.1 GB folder of modules); later runs reuse the index and only re-read modules whose files changed.
 
+Not sure which build a folder is? `ausar-tag-cli identify <folder>` (no config needed) shows its module formats (27 = Forge PC, 23 = Xbox One; others aren't supported yet), the game versions in its module names, and suggests a build name such as `xbox-97230`.
+
 ## Check it works
 
 Without any AI client:
 
 ```
-h5tags --format text list-modules
-h5tags --format text search-tags assault_rifle --class weap
+ausar-tag-cli --format text list-modules
+ausar-tag-cli --format text search-tags assault_rifle --class weap
 ```
 
 Correct output looks like this (your modules and counts will differ):
@@ -76,14 +78,14 @@ global ID	class	display name	copies
 …
 ```
 
-Every module should say `ok`. `h5tags --help` lists the commands; each command has `--help` too.
+Every module should say `ok`. `ausar-tag-cli --help` lists the commands; each command has `--help` too.
 
 ## Connect it to an AI client
 
 ### Claude Code
 
 ```
-claude mcp add h5tags -- C:\h5tags\h5tags-mcp.exe --config C:\h5tags\h5tags.toml
+claude mcp add h5tags -- C:\h5tags\ausar-tag-mcp.exe --config C:\h5tags\h5tags.toml
 ```
 
 - Without `--scope`, the server is available in the current project only (local scope). `claude mcp add --scope user h5tags -- …` makes it available in every project; `--scope project` writes it to the project's `.mcp.json` for everyone working on it.
@@ -97,7 +99,7 @@ Add an entry to `claude_desktop_config.json` (Windows: `%APPDATA%\Claude\`, macO
 {
   "mcpServers": {
     "h5tags": {
-      "command": "C:\\h5tags\\h5tags-mcp.exe",
+      "command": "C:\\h5tags\\ausar-tag-mcp.exe",
       "args": ["--config", "C:\\h5tags\\h5tags.toml"]
     }
   }
@@ -106,7 +108,7 @@ Add an entry to `claude_desktop_config.json` (Windows: `%APPDATA%\Claude\`, macO
 
 ### Other MCP clients
 
-`h5tags-mcp` is a stdio server: run `h5tags-mcp --config <file>` (or `--deploy … --defs …`) as the server command.
+`ausar-tag-mcp` is a stdio server: run `ausar-tag-mcp --config <file>` (or `--deploy … --defs …`) as the server command.
 
 ## First steps
 
@@ -120,7 +122,7 @@ How the assistant reads the results (and how to read them yourself): [docs/AGENT
 
 ## Troubleshooting
 
-- **The server isn't listed / doesn't start:** check the path to `h5tags-mcp` and the config file in the client's settings, then restart the client. Running the same command in a terminal shows any config error (it is printed before the server starts).
+- **The server isn't listed / doesn't start:** check the path to `ausar-tag-mcp` and the config file in the client's settings, then restart the client. Running the same command in a terminal shows any config error (it is printed before the server starts).
 - **Windows says the program was blocked, or the client reports a spawn error (`uv_spawn`):** Windows 11's Smart App Control can block programs you build yourself, since they aren't signed. Microsoft documents no way to allow a single program; it lets apps run that its cloud service judges safe or that carry a valid signature from a trusted provider. A rebuild produces a new file that is judged again; a debug build (`cargo build`, `target\debug\`) is a separate file. Turning Smart App Control off affects the whole PC, and on some PCs it can't be turned back on without resetting Windows.
 - **"no definition for class …":** the `defs` path doesn't point to H5Tags' `tags` folder, or that class has no definition.
 - **The first call after starting is slow:** the server is still loading or building the index; later calls are fast.

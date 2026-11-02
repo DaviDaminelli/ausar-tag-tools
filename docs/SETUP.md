@@ -15,13 +15,13 @@ The person can start it with: *"Set up h5tags for me, following docs/SETUP.md in
 ## 1. Find out what's there
 
 1. The operating system (the paths below are for Windows; macOS and Linux equivalents are given where they differ).
-2. Whether the programs already exist: `h5tags-mcp` and `h5tags` (`.exe` on Windows), prebuilt or in the h5tags folder's `target\release\`. If they exist, skip step 2.
+2. Whether the programs already exist: `ausar-tag-mcp` and `ausar-tag-cli` (`.exe` on Windows), prebuilt or in the h5tags folder's `target\release\`. If they exist, skip step 2.
 3. Which AI clients are installed: the `claude` command (Claude Code's command line), the Claude Code extension in VS Code, Claude Desktop. This decides step 6.
 
 ## 2. Build the programs (only if there are none)
 
 1. Check for Rust: `cargo --version` (Rust 1.88 or later). If it's missing, ask the person to install it from https://rustup.rs (on Windows it also needs Microsoft's C++ build tools, which its installer offers), or to get prebuilt programs from whoever gave them h5tags. Don't install it yourself unless they ask you to.
-2. In the h5tags folder: `cargo build --release`. It takes a few minutes the first time. The programs are `target\release\h5tags.exe` and `target\release\h5tags-mcp.exe`.
+2. In the h5tags folder: `cargo build --release`. It takes a few minutes the first time. The programs are `target\release\ausar-tag-cli.exe` and `target\release\ausar-tag-mcp.exe`.
 
 ## 3. Install them in their own folder
 
@@ -37,13 +37,28 @@ To update later: close or disconnect the AI clients using h5tags, copy the new p
 h5tags needs two things the person supplies. Ask for both paths; offer to look in a folder they name.
 
 - **The definitions:** Lord Zedd's H5Tags, its `tags` folder (holding files like `(weap)weapon.xml`) and its `tag_resources` folder. If the person doesn't have them, they are at https://github.com/Lord-Zedd/H5Tags; with their agreement, `git clone` it next to the programs.
-- **Each build's deploy folder:** the folder holding the `.module` files (anywhere below it; h5tags searches it recursively, whatever the layout). Forge (PC) modules are version 27, Xbox One modules version 23. A person may have one build or both.
+- **Each build's deploy folder:** the folder holding the `.module` files (anywhere below it; h5tags searches it recursively, whatever the layout). A person may have one build, several (Forge, Xbox One, beta builds), or other versions of them: configure only what they have.
 
-Check each path exists and holds what it should (`.xml` files in `tags`; `.module` files below the deploy folder) before writing the config.
+Check the definitions folder holds `.xml` files. Then run `ausar-tag-cli identify <folder>` on each deploy folder; it needs no config:
+
+```
+folder: path D:\Halo5\deploy, modules 11
+module formats: found 23 (11 modules, supported, xbox)
+tag header formats: found 27 (8 modules, supported)
+game versions: base yes, latest 97230-1
+suggested build name: name xbox-97230
+```
+
+- **module formats:** 27 = Forge (PC), 23 = Xbox One. `not supported` (also a `not supported yet` line): this build's format can't be read yet. Tell the person; a sample `.module` from it would let it be added. Don't configure that folder.
+- **tag header formats:** how many modules had a tag to sample; modules holding only a load manifest have none.
+- **game versions:** the update layers found in the module names; `latest` is the newest.
+- **suggested build name:** use it for the build's `name`, unless the person prefers another.
+- `note: found no .module files under this folder`: wrong folder; ask again.
+- A beta or other build may need its own definitions; ask the person, and use their folder as that build's `defs`.
 
 ## 5. Write the config and check it
 
-Write `h5tags.toml` next to the programs (step 3's folder). One `[[build]]` per deploy folder; the first is the default. Names use `a-z`, `0-9`, `_`, `-`.
+Write `h5tags.toml` next to the programs (step 3's folder). One `[[build]]` per deploy folder, named as `identify` suggested; the first is the default. Names use `a-z`, `0-9`, `_`, `-`.
 
 ```toml
 [[build]]
@@ -58,8 +73,8 @@ Use single quotes around Windows paths (TOML takes them as written). `cache_dir`
 Then check, from the programs' folder:
 
 ```
-h5tags --format text list-modules
-h5tags --format text search-tags assault_rifle --class weap
+ausar-tag-cli --format text list-modules
+ausar-tag-cli --format text search-tags assault_rifle --class weap
 ```
 
 Every module should say `ok`, and the search should find weapons. The first run indexes every module and can take a while on a full install. If a module says `!!`, tell the person what it says (an incomplete or damaged file is theirs to replace). If the programs won't start at all on Windows, see "Smart App Control" below.
@@ -69,13 +84,13 @@ Every module should say `ok`, and the search should find weapons. The first run 
 Use the full paths of step 3's programs and config.
 
 - **Claude Code, with the `claude` command:**
-  `claude mcp add --scope user h5tags -- <programs folder>\h5tags-mcp.exe --config <programs folder>\h5tags.toml`
+  `claude mcp add --scope user h5tags -- <programs folder>\ausar-tag-mcp.exe --config <programs folder>\h5tags.toml`
   (`--scope user`: available in every project.)
 - **Claude Code without the `claude` command** (for example only the VS Code extension): add the server to the top-level `"mcpServers"` object of `~/.claude.json` (`C:\Users\<name>\.claude.json`); create the object if it's missing. Back the file up first; change nothing else in it; check it is valid JSON afterwards, and that the backslashes in the paths survived (write them as `\\` in JSON).
   ```json
   "h5tags": {
     "type": "stdio",
-    "command": "C:\\Users\\<name>\\AppData\\Local\\Programs\\h5tags\\h5tags-mcp.exe",
+    "command": "C:\\Users\\<name>\\AppData\\Local\\Programs\\h5tags\\ausar-tag-mcp.exe",
     "args": ["--config", "C:\\Users\\<name>\\AppData\\Local\\Programs\\h5tags\\h5tags.toml"],
     "env": {}
   }
