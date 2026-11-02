@@ -55,6 +55,11 @@ pub struct Layer {
     pub revision: u32,
 }
 
+/// The highest update layer among module paths (`None`: base modules only).
+pub fn latest_layer<'a>(paths: impl IntoIterator<Item = &'a str>) -> Option<Layer> {
+    paths.into_iter().map(module_layer).filter(|l| l.version > 0).max()
+}
+
 /// The stack a module belongs to: its path without `-rtx-…` and `.module`
 /// (`any\levels\ui\mainmenu\mainmenu`), the same for the base and its updates.
 pub fn module_stack(name: &str) -> &str {

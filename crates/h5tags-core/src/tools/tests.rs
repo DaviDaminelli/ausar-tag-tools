@@ -244,6 +244,8 @@ fn list_classes_and_modules() {
 
     let v = run(&ListModules { build: BuildArg::default(), page: PageArgs::default() });
     assert_eq!(v["total"], 4);
+    // The build's formats and newest game version (D63).
+    assert_eq!((v["formats"].as_str(), v["latest_game_version"].as_str()), (Some("27 (forge)"), Some("11587-1")));
     let status: Vec<&str> = v["rows"].as_array().unwrap().iter().map(|r| r["status"].as_str().unwrap()).collect();
     assert_eq!(status[0], "ok");
     assert!(status[2].starts_with("!! incomplete file: 65.0 MB missing; 3 entries"), "{}", status[2]);

@@ -1,5 +1,6 @@
 //! `list_classes`, `list_modules`, `list_entries`, `list_resource_kinds` (PRD §6.3).
 
+use h5_module::names::latest_layer;
 use serde::Deserialize;
 
 use super::args::{self, BuildArg, PageArgs};
@@ -46,7 +47,8 @@ impl Tool for ListClasses {
 }
 
 /// Every module of the build: path, version, tag count, whether it has a load
-/// manifest, and its status (`ok`, or `!!` if it is damaged or incomplete).
+/// manifest, and its status (`ok`, or `!!` if it is damaged or incomplete);
+/// above them, the build's formats and its latest game version.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct ListModules {
     #[command(flatten)]
@@ -83,16 +85,30 @@ impl Tool for ListModules {
             ]
         });
         let rows: Vec<Vec<Cell>> = indexed.chain(failed).collect();
+        // Which build this is (D63): its formats and newest game version.
+        let latest = latest_layer(b.index.modules.iter().map(|m| m.rel_path.as_str()));
+        let summary = vec![
+            Summary {
+                label: "formats",
+                key: "formats",
+                value: present::format_names(b.index.modules.iter().map(|m| m.version)).into(),
+            },
+            Summary {
+                label: "latest game version",
+                key: "latest_game_version",
+                value: latest.map_or_else(|| "base".to_owned(), present::layer_text).into(),
+            },
+        ];
         Ok(Output::Table(Table {
             build: s.label(b),
             total: rows.len(),
+            summary,
             offset: self.page.offset,
             columns: vec![col::MODULE, col::VERSION, col::TAGS, col::LOAD_MANIFEST, col::STATUS],
             rows: self.page.page(&rows, 100).to_vec(),
             path_column: Some(0),
             wide_column: Some(0),
             hints: (damaged > 0).then(|| present::damaged_modules_hint(damaged)).into_iter().collect(),
-            ..Table::default()
         }))
     }
 }

@@ -294,6 +294,18 @@ pub fn compressed_size(e: &h5_module::index::EntryRecord) -> crate::output::Cell
     if e.stored { crate::output::Cell::Size(e.compressed_size as u64) } else { marker::NOT_STORED.into() }
 }
 
+/// Module formats with what they're known as: `23 (xbox), 27 (forge)`.
+pub fn format_names(versions: impl IntoIterator<Item = u32>) -> String {
+    let mut seen: Vec<u32> = versions.into_iter().collect();
+    seen.sort_unstable();
+    seen.dedup();
+    let names: Vec<String> = seen
+        .iter()
+        .map(|&v| crate::identify::format_label(v).map_or_else(|| v.to_string(), |l| format!("{v} ({l})")))
+        .collect();
+    names.join(", ")
+}
+
 /// A module's layer as its name gives it: `base`, or `<version>-<revision>`.
 pub fn layer_text(layer: h5_module::names::Layer) -> String {
     if layer.version == 0 { "base".into() } else { format!("{}-{}", layer.version, layer.revision) }

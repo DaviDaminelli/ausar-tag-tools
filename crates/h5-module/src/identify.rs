@@ -63,7 +63,7 @@ impl Folder {
 
     /// The highest update layer in the module names (`None`: base modules only).
     pub fn latest_layer(&self) -> Option<Layer> {
-        self.modules.iter().map(|m| m.layer).filter(|l| l.version > 0).max()
+        crate::names::latest_layer(self.modules.iter().map(|m| m.rel_path.as_str()))
     }
 }
 

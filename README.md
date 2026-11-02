@@ -1,6 +1,6 @@
 # h5tags
 
-`h5tags` reads the tags inside Halo 5 `.module` files and lets an AI assistant (Claude, over MCP) or you (on the command line) search, browse and read them: every field with its name, type, value, units, options and help text, and a clear reason whenever a value is empty or can't be read.
+`h5tags` reads the tags inside Halo 5 `.module` files and lets an AI assistant (over MCP) or you (on the command line) search, browse and read them: every field with its name, type, value, units, options and help text, and a clear reason whenever a value is empty or can't be read.
 
 Supported builds: **Halo 5: Forge** (Windows PC, module version 27) and **Halo 5: Guardians** (Xbox One, module version 23). Reading only: h5tags never changes a file.
 
@@ -12,7 +12,7 @@ Supported builds: **Halo 5: Forge** (Windows PC, module version 27) and **Halo 5
 
 ## Let your AI assistant set it up
 
-With Claude Code (or another assistant that can run commands), say:
+Say:
 
 > Set up h5tags for me, following docs/SETUP.md in the h5tags folder.
 
