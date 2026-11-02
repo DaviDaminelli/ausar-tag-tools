@@ -295,6 +295,16 @@ mod tests {
         Cli::command().debug_assert();
     }
 
+    /// The README's command list names every command, so it can't fall behind.
+    #[test]
+    fn readme_lists_every_command() {
+        use clap::CommandFactory;
+        let readme = include_str!("../../../README.md");
+        for c in Cli::command().get_subcommands().filter(|c| c.get_name() != "help") {
+            assert!(readme.contains(&format!("| `{}` |", c.get_name())), "README doesn't list `{}`", c.get_name());
+        }
+    }
+
     #[test]
     fn preferences_command_parses() {
         let parse = |args: &[&str]| Cli::try_parse_from(std::iter::once("h5tags").chain(args.iter().copied()));

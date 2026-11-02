@@ -1,8 +1,71 @@
-# h5tags
+# Ausar Tag Tools
 
-`h5tags` reads the tags inside Halo 5 `.module` files and lets an AI assistant (over MCP) or you (on the command line) search, browse and read them: every field with its name, type, value, units, options and help text, and a clear reason whenever a value is empty or can't be read.
+Ausar Tag Tools (`ausar-tag-mcp` for AI assistants, `ausar-tag-cli` for you) reads the tags inside Halo 5 `.module` files: search, browse and read them, every field with its name, type, value, units, options and help text, and a clear reason whenever a value is empty or can't be read. Also: what references what, one field across a whole class, the differences between two tags, which maps load a tag, and every version of a tag across game updates.
 
-Supported builds: **Halo 5: Forge** (Windows PC, module version 27) and **Halo 5: Guardians** (Xbox One, module version 23). Reading only: h5tags never changes a file.
+Supported builds: **Halo 5: Forge** (Windows PC, module version 27) and **Halo 5: Guardians** (Xbox One, module version 23). Reading only: it never changes a file.
+
+## How it works
+
+The tools were built aiming at a fast, efficient and reliable local use with an agent. Mainly resting on four things:
+
+- **Indexing.** The first run reads every module's file list into an index: each tag's path, class, size, resources, and the modules holding a copy of it. Later runs re-read only the modules whose files changed. Searching, browsing and listing use the index and don't open the modules.
+- **Caches.** Besides the index, two results that take a full pass over the tags are kept on disk and reused until the files they depend on change: a scan of every tag's references and strings (behind `find_references` and `search_values`), and a check of every tag against its definition (behind `definition_status`). A running server also keeps recently read tags in memory (`tag_cache_mb`).
+- **One tool per kind of question.** Finding: `search_tags`, `browse`, `search_definitions`, `search_values`. Structure: `outline`, `get_definition`. Reading: `read_tag`. Relations: `find_references`, `tag_copies`, `map_tags`, `which_maps`. Comparing: `query_field` (one field across every tag of a class, in one call), `diff_tags` (only the fields that differ between two tags). Status: `list_modules`, `list_classes`, `list_entries`, `list_resource_kinds`, `definition_status`.
+- **Parameters that keep results small.** `path=` and `section=` read one part of a tag; `depth=` and `detail=brief|normal|full` set how much of it; `class=`, `module=` and `filter=` narrow lists; `offset` and `limit` page them. A whole read above about 3,000 tokens returns the tag's outline instead, unless `confirm_large=true`.
+
+For reliability, results explain both the tags and their fields, so the agent doesn't have to guess what it reads:
+
+- **Fields:** at the default detail, every value comes with its field's name, type, units and range from the definitions, and enum and flag values with their option names; `detail=full` adds the field's help text. `get_definition` explains a field without reading any tag, and `search_definitions` finds the fields that deal with a behaviour ("heat", "drop") across every class.
+- **Tags:** what a tag stores besides its values (references to other tags, string IDs, data, resources, copies in update layers, load manifests) is shown and explained in plain words in the guide (`docs/AGENT_GUIDE.md`, built into the server).
+- **Limits:** every empty, missing or unreadable value is marked as such (`(empty)`, `(not in indexed modules)`, `!!`), and the server's instructions tell the agent not to report a failed read as a fact and to say when a conclusion is inference.
+
+## Benchmarks
+
+Measured on the two samples this was developed with, release build, Windows 11 (no full game install measured yet):
+
+| Sample                         | Modules | Tag copies | Classes |
+| ------------------------------ | ------- | ---------- | ------- |
+| Forge (PC), base module 1.1 GB | 10      | 62,976     | 210     |
+| Xbox One                       | 11      | 58,846     | 215     |
+
+**Response time**
+
+| What                                                                    | Time                                        |
+| ----------------------------------------------------------------------- | ------------------------------------------- |
+| A tool call inside a running MCP session                                | 6–98 ms                                     |
+| Read one tag or one part of it                                          | 10–22 ms                                    |
+| Index every module, first run (Forge, 87,221 file entries)              | 0.18–0.25 s                                 |
+| Scan every tag's references, first time (then cached)                   | 1.6 s (Forge), 1.4 s (Xbox)                 |
+| Check every tag against its definition, first time / from the cache     | 1.2 s / 0.3 s (Forge), 1.5 s / 0.3 s (Xbox) |
+| One field across all 118 weapons, as a command (program start included) | 2.7 s                                       |
+| Compare two weapons; which maps load a tag; a map's tags (commands)     | 0.6–0.7 s each                              |
+
+**Tokens per result** (≈ characters ÷ 4)
+
+| Call                                                    | Tokens                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------ |
+| A whole weapon tag, if read whole (battle rifle)        | ≈ 8,750: the size guard returns its outline instead, ≈ 1,050 |
+| One barrel of a weapon, brief                           | ≈ 1,100                                                      |
+| Magazine size of every weapon (`query_field`)           | ≈ 1,260                                                      |
+| Assault rifle vs SMG barrels (`diff_tags path=barrels`) | ≈ 1,740                                                      |
+| Which maps load a tag (`which_maps`)                    | ≈ 30                                                         |
+
+**Real questions, answered by Claude Code with the tools**
+
+| Question                                                                                                                              | Tool calls | Tool results    | Result                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------- | ---------- | --------------- | ---------------------------------------------------------------------------------------- |
+| "Which tags reference this projectile?" (fresh session)                                                                               | 4          | ≈ 230 tokens    | correct                                                                                  |
+| "What is the magazine size of every weapon?"                                                                                          | 8          | ≈ 6,200 tokens  | correct (spot-checked values match)                                                      |
+| "What would it take to make the battle rifle use a battery, like the plasma pistol, and what else would that change?" (fresh session) | 36         | ≈ 21,300 tokens | correct change list; HUD, ammo pickups and the tags using it covered; inference labelled |
+| "Would that battery level be kept if the weapon is dropped and picked up again?" (same session)                                       | 2          | ≈ 300 tokens    | engine behaviour named as such, related fields shown, a test to confirm in game          |
+
+**Checks behind "reliable"**
+
+- Every tag copy of both samples read with its definition: all 62,976 Forge copies read completely (some with the harmless GUID label warning); of 58,846 Xbox copies, 19 in 5 classes don't fit their definitions, and those are reported as such, never misread.
+- "What references this tag" matches an independent pass over every target: 76,724 (Forge) and 68,184 (Xbox).
+- Values match what a player knows: the magazine sizes of the battle rifle, assault rifle, carbine and railgun, the battle rifle's 3-round burst, and the grenade limit (5 of 5). The answers in the table above were re-checked value by value against the tools.
+
+Every measurement, with its date and method, is in [docs/progress.md](docs/progress.md).
 
 ## Requirements
 
@@ -120,14 +183,54 @@ Ask the assistant, for example:
 
 How the assistant reads the results (and how to read them yourself): [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md). The server also gives it that guide as the resource `h5tags://guide`.
 
+## Commands
+
+The assistant and the command line have the same tools: over MCP they're named with `_` (`read_tag`), on the command line with `-` (`ausar-tag-cli read-tag`). Three commands exist only on the command line. `ausar-tag-cli <command> --help` lists a command's parameters; `--format text` shows exactly what the assistant reads.
+
+| Command               | What it answers                                                                          |
+| --------------------- | ---------------------------------------------------------------------------------------- |
+| `search-tags`         | Tags by part of their path, class or module                                              |
+| `browse`              | Tag paths as folders: subfolders and the tags in each                                    |
+| `list-classes`        | Every class, its tag count, and whether it has a definition                              |
+| `list-modules`        | Every module and its status; the build's formats and latest game version                 |
+| `list-entries`        | File entries (tags, assets, other files) by kind and size, from the index only           |
+| `list-resource-kinds` | Every asset kind, with counts and total size                                             |
+| `read-tag`            | A tag's fields: values, units, options; whole, or one `path=` or `section=`              |
+| `get-definition`      | A class's fields from its definition: types, units, ranges, options, help                |
+| `outline`             | The section tree of a tag or a class, with field paths and entry counts                  |
+| `search-definitions`  | Which classes and fields deal with something, across every definition                    |
+| `definition-status`   | How well the definitions fit each class's tags; the gap list for a class                 |
+| `find-references`     | What a tag references, and what references it (recursively if asked)                     |
+| `tag-copies`          | Every copy of a tag across modules and update layers                                     |
+| `search-values`       | Tags holding a string_id name or a referenced tag's name                                 |
+| `query-field`         | One field across every tag of a class, with `filter=` and `sort=`                        |
+| `diff-tags`           | The fields that differ between two tags of a class                                       |
+| `map-tags`            | The tags a map loads (its load manifest)                                                 |
+| `which-maps`          | The maps that load a tag                                                                 |
+| `reindex`             | Rebuilds the index or the caches (rarely needed: they update themselves)                 |
+| `identify`            | Command line only: what a folder of modules is, and a build name for it; needs no config |
+| `header-dump`         | Command line only: a tag's header lists as stored (for development)                      |
+| `preferences`         | Command line only: colors and the progress display                                       |
+
+## Guides
+
+| Document                                                                                                                   | For                                                                | What it covers                                                                                                                                                        |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [docs/AGENT_GUIDE.md](docs/AGENT_GUIDE.md)                                                                                 | The assistant (built into the server as `h5tags://guide`), and you | How to research with the tools (which tool for which question, what a change affects), how to read every result, column and marker, and what each part of a tag means |
+| [docs/SETUP.md](docs/SETUP.md)                                                                                             | An AI assistant setting this up for you                            | Step-by-step setup: programs, folders, config, checks, connecting the client                                                                                          |
+| [docs/PRD.md](docs/PRD.md)                                                                                                 | Development                                                        | What the tools must do, and the milestones                                                                                                                            |
+| [docs/decisions.md](docs/decisions.md), [docs/format-notes.md](docs/format-notes.md), [docs/progress.md](docs/progress.md) | Development                                                        | Why the tools behave as they do; how each format fact was verified; every check and measurement, dated                                                                |
+
 ## Troubleshooting
 
 - **The server isn't listed / doesn't start:** check the path to `ausar-tag-mcp` and the config file in the client's settings, then restart the client. Running the same command in a terminal shows any config error (it is printed before the server starts).
-- **Windows says the program was blocked, or the client reports a spawn error (`uv_spawn`):** Windows 11's Smart App Control can block programs you build yourself, since they aren't signed. Microsoft documents no way to allow a single program; it lets apps run that its cloud service judges safe or that carry a valid signature from a trusted provider. A rebuild produces a new file that is judged again; a debug build (`cargo build`, `target\debug\`) is a separate file. Turning Smart App Control off affects the whole PC, and on some PCs it can't be turned back on without resetting Windows.
+- **Windows says the program was blocked, or the client reports a spawn error (`uv_spawn`):** Windows 11's Smart App Control can block programs you build yourself, since they aren't signed. Microsoft documents no way to allow a single program; it lets apps run that its cloud service judges safe or that carry a valid signature from a trusted provider. A rebuild produces a new file that is judged again; a debug build (`cargo build`, `target\debug\`) is a separate file
 - **"no definition for class …":** the `defs` path doesn't point to H5Tags' `tags` folder, or that class has no definition.
-- **The first call after starting is slow:** the server is still loading or building the index; later calls are fast.
+- **The first call after starting is slow:** the server is still loading or building the index; later calls will use it and are way faster.
 - **Logs** go to stderr, never stdout (stdout carries the MCP protocol). `H5TAGS_LOG=debug` shows more. Claude Code shows them with `claude --debug`; Claude Desktop writes them to its logs folder (`mcp-server-h5tags.log`).
 
 ## Legal
+
+**Evaluation copy.** Ausar Tag Tools is shared with invited testers for evaluation. All rights reserved: please don't redistribute it or its source without permission.
 
 h5tags contains no game files, no definitions and no third-party code; you supply the game files and the H5Tags definitions yourself. The module format comes from [AusarDocs](https://github.com/ElDewrito/AusarDocs) and from tests on real files; field names and types come from Lord Zedd's [H5Tags](https://github.com/Lord-Zedd/H5Tags). [Reclaimer](https://github.com/Gravemind2401/Reclaimer) was a reference for how a tag viewer behaves; none of its code is used.
