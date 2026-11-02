@@ -582,3 +582,20 @@ Counts match the layer survey's. Workspace tests (139 in `h5tags-core`) and clip
 | overview page (100 classes) | ≈ 1,175 tokens | ≈ 1,165 tokens |
 
 Results identical before and after chunking. Copy identity not cached: `tag_copies` on the Xbox DMR 186–203 ms vs 182–197 ms for `search_tags` (D60). Workspace tests (147 in `h5tags-core`) and clippy pass.
+
+Smart App Control (D54): the release build of 2026-11-02 14:50 (`h5tags-mcp.exe` and `h5tags.exe`, no metadata added) ran normally, as the MCP server and the CLI. Since the block at 09:38 the same day: 1 release build run, 0 blocked.
+
+### M5b acceptance session (2026-11-02; the user's test session with the release MCP build, continued after earlier tests: about 166k tokens in context when it started)
+
+| Question | Calls | Tool results | Context growth | Result |
+| --- | --- | --- | --- | --- |
+| "What is the magazine size of every weapon?" | 8 (2 `query_field`) | ≈ 6.2k tokens | ≈ 20k | correct (AR 36, BR 36, carbine 20, railgun 1; 67 with a magazine, 51 empty, 3 spot-checked); said it read the newest copies |
+| (extra) incineration cannon textures | 11 | ≈ 15.2k (one recursive `find_references class=bitm`: ≈ 10k) | ≈ 36k | 11 own bitmaps, all `(not in indexed modules)`, said so without calling them missing; Halo history from memory, labelled as such |
+| Battery BR | 26 | ≈ 26.1k, of which the `h5tags://guide` resource ≈ 10.4k | ≈ 59k | change list (flags, rounds per shot, age per round, magazine zeroed or removed, HUD bitmap and screen, refill type, extended-magazine attachment, referrers), patterns checked across the class with `query_field`, inference and "test in game" labelled; noticed the latest-layer default and corrected its earlier battle rifle answers |
+| Dropped-weapon battery | 9 | ≈ 4.3k | ≈ 8k | "decided by the engine"; related fields (object abandonment, AI drop settings, `battery depleted` state), a test plan; game knowledge labelled |
+
+Values checked with the CLI: BR latest copy 15 rounds per second (base copy 29.999998), rounds per shot 1, rounds total maximum 144, refill UNSC, low ammo threshold 6, abandonment countdown 12 s; plasma pistol age per round 0.01, rounds per shot 0, countdown 10 s; storm rifle age per round 0.0104. All match.
+
+Seen: the agent read `h5tags://guide` for the battery question (D56's pointer; the M4 agent never did), at ≈ 10.4k tokens. The guide's §2.1 example is this same question, so the agent knew which fields to check (it re-read every value). `diff_tags(path="WEAPON")` failed: `path=` takes fields, not class sections (the hint listed field names; the agent recovered). The largest results: whole-tag `diff_tags` (200 rows ≈ 4.1k, then 70 more ≈ 1.7k) and the recursive bitmap list (≈ 10k).
+
+Fixes after the session (D61): guide §2.1 example replaced (SMG vs DMR bullets, values checked with the CLI: velocities 1500/3000, air gravity scale 1/0, maximum range 100/250); `diff_tags section=` (BR vs plasma pistol `section=WEAPON`: 141 rows, first page 9,126 characters ≈ 2,282 tokens). 149 `h5tags-core` tests and clippy pass. Next: the battery question again in a fresh session.
