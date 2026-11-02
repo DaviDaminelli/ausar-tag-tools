@@ -424,3 +424,7 @@ The server was the release build from 22:08, before the angle and GUID fixes (co
 ### Curve fingerprints (2026-11-01, Forge sample; decisions D46)
 
 `barrels[0].accuracy penalties.single wield penalties.firing penalty function[0].function`: assault rifle `(curve, 68 bytes, #9a7cc512)`, SMG `(curve, 68 bytes, #d7f84014)`, so their firing penalty curves differ (the retest's open question). Every tag still reads and renders: Forge 62,976 tags, all with no problem and no divergence (8.7 s); Xbox 57,537 read, 57,518 clean (9.6 s), the same counts as before; `real_read` passes on both.
+
+### Second retest of "AR vs SMG barrels" (2026-11-01; release built after the brief fix, before the curve fingerprints)
+
+Confirmed fixed by the agent: angle fields marked `rad` ("the degree conversions in brackets are just arithmetic"), `automatic fire variations block[8] showing [0]`, and `→ path=` on collapsed structs. New findings: (1) a direct `read_tag path=barrels[0].accuracy penalties.single wield penalties` didn't show the struct's GUID warning (fixed, D47); (2) the agent treated warned values as unreliable, since the bare warning didn't say the values were read (fixed: the warning explains itself, D47); (3) brief shows no units (by design, PRD §7.6); (4) curves not comparable (fixed by D46 after that build); (5) `diff_tags`/`query_field` not reachable (M5). After D47 the same path read shows, in normal and brief: `warning: definition GUID mismatch at barrels[0].accuracy penalties.single wield penalties (values read; only the struct type ID differs)`.
