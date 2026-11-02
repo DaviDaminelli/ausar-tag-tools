@@ -493,3 +493,17 @@ Instead of 3 tags, every target: an independent pass reads every tag copy's refe
 | Targets with the same referencing tags | **76,724 of 76,724** | **68,184 of 68,184** |
 | Target–tag pairs | 202,569 | 187,941 |
 | Independent pass | 9.46 s | 8.52 s |
+
+### M5a acceptance session (2026-11-02; fresh Claude Code in the test folder)
+
+Windows Smart App Control blocked the release `h5tags-mcp.exe` (09:38 build, unsigned; Microsoft documents no per-app exception, and on this PC it can't be turned back on once off), so the session ran the **debug build of 09:14**: it has `find_references`; it lacks `tag_copies`, `search_values` and the largest-first class summary, none of which the question needed.
+
+"Which tags reference the battle rifle's bullet?": 4 calls (`browse` of the projectiles folder, `read_tag br.weapon path=barrels[*].projectile`, `find_references in` for `br_bullet.projectile`, and for `br_bullet_hardlight.projectile`). Answer: `br.weapon` (3 of 3 copies) and `br_tuning.weapon`, the same as the CLI and the independent pass; the hardlight bullet is referenced only by `br_barrel_kinetic.weapon_attachment_barrel`. It said which copy it read, that it didn't read `br_tuning` for the field, and that only the indexed modules were searched. The header scan built on first use in 6.34 s (debug build; release: 1.23 s).
+
+Token budget test: the session's 4 calls added (browse 289, read_tag 253, find_references 217 and 156 characters); 49 calls, 129,401 characters, 155,299 budgeted; passes.
+
+### M5a done-when (PRD §9)
+- Token budget test passes: yes (49 calls).
+- Header scan builds on both samples: yes (Forge 1.28 s, Xbox 1.15 s, release; target < 2 min on a full install not measurable here).
+- `find_references(in)` matches a manual check on 3 tags: done for every target instead (76,724 Forge, 68,184 Xbox, all match).
+- A fresh session answers "Which tags reference this projectile?" within its budget: yes (4 calls, ≈ 230 tokens of tool results).

@@ -203,6 +203,23 @@ const CALLS: &[(&str, &str, usize)] = &[
         r#"{"tag":"objects\\weapons\\rifle\\smg\\smg.weapon","path":"barrels","detail":"brief","depth":5}"#,
         10774,
     ),
+    // M5a acceptance session: "Which tags reference the battle rifle's bullet?"
+    ("browse", r#"{"path":"objects\\weapons\\rifle\\br\\projectiles"}"#, 347),
+    (
+        "read_tag",
+        r#"{"tag":"objects\\weapons\\rifle\\br\\br.weapon","path":"barrels[*].projectile","detail":"brief"}"#,
+        304,
+    ),
+    (
+        "find_references",
+        r#"{"tag":"objects\\weapons\\rifle\\br\\projectiles\\br_bullet.projectile","direction":"in","limit":200}"#,
+        261,
+    ),
+    (
+        "find_references",
+        r#"{"tag":"objects\\weapons\\rifle\\br\\projectiles\\br_bullet_hardlight.projectile","direction":"in","limit":200}"#,
+        188,
+    ),
 ];
 
 /// Budgets are the measured size plus this share.
