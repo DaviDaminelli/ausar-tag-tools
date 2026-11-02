@@ -232,3 +232,9 @@ The agent never reads the guide, so a bare `warning: definition GUID mismatch` r
 
 ## D48. A next step on partly shown tag blocks (2026-11-01, from the third M4 retest; chosen by the user)
 A tag block expanded to its entry 0 now says where the other entries are when it has more than one: in the normal view its heading ends in `→ path=<block>[*]` (after the entry's label; `block[N]` is already on the line), and in brief its line reads `<block>  block[8]  showing [0] of 8  → path=<block>[*]` (brief has no labels, so the count follows the index, as the user's chosen preview showed). It is the same `→ path=` signal collapsed structs carry. A block with one entry gets none: entry 0 is all of it.
+
+## D49. M5 plan (2026-11-01, approved by the user)
+- **Split in two**, each with its own done-when (PRD §9): **M5a** = token budget test, header scan (with Q12), `find_references`, `tag_copies`, `search_values`; **M5b** = `get_field`, `query_field`, `diff_tags` (same build; cross-build stays M6), `map_tags`, `which_maps` (with Q5, Q8), `definition_status` (the gap list, D33) and the results cache (§6.9). The battery-BR and dropped-weapon questions are M5b's, since they need tools from both halves.
+- **Order** as planned: budget test → header scan and references → queries → diff → maps → status and cache.
+- **Token budgets:** each replayed call's measured text size plus 20%.
+- **Tag paths in tests:** the budget test replays the AI's real calls, so it keeps their tag paths (the user: tests may check real file names; what stays out of code is naming specific `.module` files in comments).
