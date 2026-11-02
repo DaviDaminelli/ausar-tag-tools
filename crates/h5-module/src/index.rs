@@ -6,12 +6,12 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
+use crate::cache::{CacheFile, in_parallel};
 use crate::check::checks;
 use crate::fourcc::FourCc;
 use crate::global_id::GlobalId;
@@ -155,6 +155,11 @@ impl ModuleRecord {
         self.entries.iter().filter(|e| e.kind() == EntryKind::Tag).count()
     }
 
+    /// The module's file in the deploy folder `deploy` (`rel_path` uses `\`).
+    pub fn path_in(&self, deploy: &Path) -> PathBuf {
+        deploy.join(self.rel_path.split('\\').collect::<PathBuf>())
+    }
+
     pub fn has_loadmanifest(&self) -> bool {
         self.entries.iter().any(|e| e.kind() == EntryKind::File && e.name == LOAD_MANIFEST)
     }
@@ -228,32 +233,6 @@ pub fn read_module(found: &FoundModule) -> Result<ModuleRecord, ModuleError> {
     ModuleRecord::from_module(found.rel_path.clone(), found.stamp, &module)
 }
 
-/// Reads the modules `which` (indices into `found`) in parallel; each read only
-/// touches its own file. Returns `(index into found, result)` in any order.
-fn read_in_parallel(
-    found: &[FoundModule],
-    which: &[usize],
-    progress: &(dyn Fn(Progress) + Sync),
-) -> Vec<(usize, Result<ModuleRecord, ModuleError>)> {
-    let next = AtomicUsize::new(0);
-    let done = AtomicUsize::new(0);
-    let results = Mutex::new(Vec::with_capacity(which.len()));
-    let workers = std::thread::available_parallelism().map_or(1, |n| n.get()).min(which.len().max(1));
-    std::thread::scope(|s| {
-        for _ in 0..workers {
-            s.spawn(|| {
-                while let Some(&i) = which.get(next.fetch_add(1, Ordering::Relaxed)) {
-                    let result = read_module(&found[i]);
-                    results.lock().unwrap().push((i, result));
-                    let done = done.fetch_add(1, Ordering::Relaxed) + 1;
-                    progress(Progress { stage: Progress::READING_MODULES, done, total: which.len() });
-                }
-            });
-        }
-    });
-    results.into_inner().unwrap()
-}
-
 /// How far a long step is, for callers that show it. The index itself never prints.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Progress {
@@ -266,9 +245,8 @@ impl Progress {
     pub const READING_MODULES: &'static str = "reading modules";
 }
 
-const CACHE_MAGIC: &[u8; 8] = b"H5TAGIDX";
-/// Bump when [`Index`] or its records change shape.
-const CACHE_FORMAT: u32 = 2;
+/// Bump `format` when [`Index`] or its records change shape.
+const CACHE: CacheFile = CacheFile { magic: b"H5TAGIDX", format: 2, what: "index" };
 
 impl Index {
     /// Brings `previous` up to date with the modules under `deploy`: new and
@@ -315,7 +293,8 @@ impl Index {
         if !to_read.is_empty() {
             progress(Progress { stage: Progress::READING_MODULES, done: 0, total: to_read.len() });
         }
-        for (i, result) in read_in_parallel(&found, &to_read, progress) {
+        let done = |done| progress(Progress { stage: Progress::READING_MODULES, done, total: to_read.len() });
+        for (i, result) in in_parallel(&to_read, &|i| read_module(&found[i]), &done) {
             slots[i] = Some(result);
         }
 
@@ -337,42 +316,11 @@ impl Index {
     /// Loads a cached index. Returns `None` (and logs why) if it is missing,
     /// unreadable or from another cache format.
     pub fn load(path: &Path) -> Option<Index> {
-        let bytes = match fs::read(path) {
-            Ok(b) => b,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => return None,
-            Err(e) => {
-                tracing::warn!(cache = %path.display(), error = %e, "index cache unreadable; rebuilding");
-                return None;
-            }
-        };
-        let body = bytes
-            .strip_prefix(CACHE_MAGIC.as_slice())
-            .and_then(|rest| rest.split_first_chunk::<4>())
-            .filter(|(format, _)| u32::from_le_bytes(**format) == CACHE_FORMAT)
-            .map(|(_, body)| body);
-        let Some(body) = body else {
-            tracing::info!(cache = %path.display(), "index cache is from another format; rebuilding");
-            return None;
-        };
-        match postcard::from_bytes(body) {
-            Ok(index) => Some(index),
-            Err(e) => {
-                tracing::warn!(cache = %path.display(), error = %e, "index cache is corrupt; rebuilding");
-                None
-            }
-        }
+        CACHE.load(path)
     }
 
     /// Writes the cache atomically (temporary file, then rename).
     pub fn save(&self, path: &Path) -> io::Result<()> {
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        let mut bytes = CACHE_MAGIC.to_vec();
-        bytes.extend_from_slice(&CACHE_FORMAT.to_le_bytes());
-        bytes.extend(postcard::to_stdvec(self).map_err(io::Error::other)?);
-        let tmp = path.with_extension("tmp");
-        fs::write(&tmp, bytes)?;
-        fs::rename(&tmp, path)
+        CACHE.save(path, self)
     }
 }

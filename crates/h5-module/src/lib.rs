@@ -4,6 +4,7 @@
 //! No definitions, no XML, no MCP. Format facts and their sources are in
 //! `docs/format-notes.md`.
 
+mod cache;
 mod check;
 mod fourcc;
 mod global_id;
@@ -12,6 +13,7 @@ mod le;
 mod module;
 pub mod murmur3;
 pub mod names;
+pub mod scan;
 pub mod tag;
 pub mod text;
 

@@ -192,7 +192,7 @@ impl Build {
     /// Where `module` is on disk: its index path (`\`-separated, PRD §6.1)
     /// under the deploy folder.
     pub fn module_file(&self, module: &ModuleRecord) -> PathBuf {
-        self.config.deploy.join(module.rel_path.split('\\').collect::<PathBuf>())
+        module.path_in(&self.config.deploy)
     }
 
     pub fn entry(&self, copy: Copy) -> &EntryRecord {
