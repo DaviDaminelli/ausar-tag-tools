@@ -69,7 +69,8 @@ Every measurement, with its date and method, is in [docs/progress.md](docs/progr
 
 ## Requirements
 
-- Windows, Linux or macOS (x64 or ARM64).
+- Release zips: Windows x64 (a Linux x64 zip on request). Building from source also works on macOS and on ARM64.
+- On Windows: Microsoft's **Visual C++ Redistributable** (x64), the runtime the programs use. Most PCs already have it, since many programs install it; without it, the programs don't start ("VCRUNTIME140.dll was not found"). It's free from Microsoft.
 - For each build: its deploy folder, the folder that holds the `.module` files.
 - Lord Zedd's [H5Tags](https://github.com/Lord-Zedd/H5Tags) definitions: its `tags` folder (and `tag_resources`). They name and type every field; without them tags can be listed but not read field by field.
 
@@ -77,14 +78,14 @@ Every measurement, with its date and method, is in [docs/progress.md](docs/progr
 
 Say:
 
-> Set up h5tags for me, following docs/SETUP.md in the h5tags folder.
+> Set up Ausar Tag Tools for me, following SETUP.md in the zip I downloaded.
 
-It builds or finds the programs, installs them, asks you where your game files and definitions are, writes the config, checks it, and connects h5tags to your AI client. The steps below are the same, done by hand.
+(With the source repository instead of a release zip: "…following docs/SETUP.md in the repository.") It installs the programs, asks you where your game files and definitions are, identifies each game folder, writes the config, checks it, and connects the tools to your AI client. The steps below are the same, done by hand.
 
 ## Install
 
 - Download a release binary when one is published, or
-- build it: `cargo build --release` (Rust 1.88 or later). This makes two programs in `target/release`: `ausar-tag-cli` (the command line, 4.5 MB) and `ausar-tag-mcp` (the MCP server, 6.9 MB). Nothing else needs installing.
+- build it: `cargo build --release` (Rust 1.88 or later). This makes two programs in `target/release`: `ausar-tag-cli` (the command line, 4.5 MB) and `ausar-tag-mcp` (the MCP server, 6.9 MB). Nothing else needs installing besides the requirements above.
 - Copy both to a folder of their own, for example `%LOCALAPPDATA%\Programs\h5tags` on Windows (no administrator rights needed), and put the config next to them. An AI client keeps `ausar-tag-mcp` open while it runs, so a program in `target\release` can't be replaced by a rebuild until the client lets it go.
 
 ## Configure
