@@ -9,6 +9,7 @@ use std::fmt;
 use h5_defs::definition::{Definition, Field, FieldKind};
 use h5_defs::field_type::FieldType;
 use h5_module::FourCc;
+use h5_module::murmur3::murmur3_x86_32;
 use h5_module::tag::{StringIdNames, StructKind, TagHeader, TagReference};
 use h5_module::text::decode_cp1252;
 
@@ -212,6 +213,9 @@ impl<'h> Walker<'h> {
             T::Struct | T::Array => {
                 let mut inner = self.body(&f.children, here, path);
                 inner.guid_mismatch = self.mark_struct(block, at, f);
+                if f.is_mapping_function() {
+                    self.fingerprint_curve(&mut inner);
+                }
                 if t == T::Struct { Content::Struct(inner) } else { Content::Array(inner) }
             }
             T::Block64 => Content::Block(self.block(f, block, at, b, path)),
@@ -236,13 +240,18 @@ impl<'h> Walker<'h> {
                 }))
             }
             T::Data64 => {
-                match self.data_refs.get(&(block, at)) {
-                    Some(&i) => self.seen_data_refs[i] = true,
+                let listed = self.data_refs.get(&(block, at)).copied();
+                match listed {
+                    Some(i) => self.seen_data_refs[i] = true,
                     None => {
                         self.not_in_list.push(Divergence::NotInList { what: "data reference", path: path.to_string() })
                     }
                 }
-                Content::Value(Value::Data(DataRef { size: u32::from_le_bytes(le(b, 0x18)) }))
+                Content::Value(Value::Data(DataRef {
+                    size: u32::from_le_bytes(le(b, 0x18)),
+                    target: listed.and_then(|i| self.header.data_references[i].target),
+                    fingerprint: None,
+                }))
             }
             T::PageableResource64 => {
                 self.mark_struct(block, at, f);
@@ -293,6 +302,17 @@ impl<'h> Walker<'h> {
     }
 
     /// A tag block field at (`block`, `at`): its entries, if they fit.
+    /// A mapping function holds one data reference, its curve: fingerprint
+    /// its bytes (D46). Only curves are hashed; other data can be large.
+    fn fingerprint_curve(&self, body: &mut Body<'_>) {
+        for n in &mut body.children {
+            if let Content::Value(Value::Data(d)) = &mut n.content {
+                d.fingerprint =
+                    d.target.and_then(|t| self.header.block_data(self.tag_data, t)).map(|b| murmur3_x86_32(b, 0));
+            }
+        }
+    }
+
     fn block<'d>(&mut self, f: &'d Field, block: u32, at: u32, b: &[u8], path: &Path<'_>) -> Block<'d> {
         let count = i32::from_le_bytes(le(b, 0x10)).max(0) as u32;
         let guid_mismatch = self.mark_struct(block, at, f);

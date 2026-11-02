@@ -59,9 +59,40 @@ fn reads_the_main_struct_and_its_tag_block() {
     assert_eq!(p.place, (0, 0x20));
     assert_eq!(second.place, (1, 0x20));
     assert_eq!(p.listed_name.as_deref(), Some(r"objects\weapons\rifle\ar\bullet"));
-    assert_eq!(child(&r.root, "data").content, Content::Value(Value::Data(DataRef { size: 0x10 })));
+    let data = DataRef { size: 0x10, target: Some(2), fingerprint: None };
+    assert_eq!(child(&r.root, "data").content, Content::Value(Value::Data(data)));
     assert_eq!(child(&r.root, "count").content, Content::Value(Value::Int(7)));
     assert_eq!(child(&r.root, "pad").content, Content::Value(Value::Padding));
+}
+
+/// Decisions D46: a mapping function's curve carries a fingerprint of its
+/// bytes, so equal curves can be told apart from different ones without
+/// decoding them; other data references aren't hashed.
+#[test]
+fn a_mapping_functions_curve_has_a_fingerprint_of_its_bytes() {
+    use h5_defs::definition::MAPPING_FUNCTION_GUID;
+    use h5_module::murmur3::murmur3_x86_32;
+
+    let xml = DEFINITION.replace(
+        r#"<_field_data_64 name="data" />"#,
+        &format!(r#"<_field_struct name="curve" srcguid="{MAPPING_FUNCTION_GUID}"><_field_data_64 name="data" /></_field_struct>"#),
+    );
+    let guid =
+        Definition::parse(&xml).unwrap().fields.iter().find(|f| f.step.as_deref() == Some("curve")).unwrap().guid();
+    let mut t = tag();
+    t.structs.push((3, -1, 0, 0x40, guid.unwrap(), 0));
+    let (def, header, data) = read(&t, &xml);
+    let r = read_tag(&def, &header, &data);
+    assert_eq!(r.divergences, []);
+    let Content::Struct(curve) = &child(&r.root, "curve").content else { panic!("not a struct") };
+    let Content::Value(Value::Data(d)) = &child(curve, "data").content else { panic!("not data") };
+    // Block 2 holds the curve: 16 bytes of 0xAB.
+    assert_eq!((d.size, d.fingerprint), (0x10, Some(murmur3_x86_32(&[0xAB; 0x10], 0))));
+
+    let (def, header, data) = read(&tag(), DEFINITION);
+    let r = read_tag(&def, &header, &data);
+    let Content::Value(Value::Data(d)) = &child(&r.root, "data").content else { panic!("not data") };
+    assert_eq!(d.fingerprint, None);
 }
 
 /// PRD §9 check 1: the definition reaches every header list entry, and every

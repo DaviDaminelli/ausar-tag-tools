@@ -133,6 +133,13 @@ pub struct ResourceRef {
 pub struct DataRef {
     /// Bytes of data (0 = empty).
     pub size: u32,
+    /// The data block holding the bytes (the header's data reference list);
+    /// `None` for a null reference or one the list doesn't have.
+    pub target: Option<u32>,
+    /// For a mapping function's curve only: MurmurHash3 x86 32 (seed 0) of
+    /// its bytes, so equal curves can be told from different ones without
+    /// decoding them (decisions D46).
+    pub fingerprint: Option<u32>,
 }
 
 /// PRD §9 check 1: where the definition and the tag header's lists disagree.
