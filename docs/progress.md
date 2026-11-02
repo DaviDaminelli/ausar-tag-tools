@@ -518,3 +518,13 @@ Token budget test: the session's 4 calls added (browse 289, read_tag 253, find_r
 | `query-field weap "barrels[*].firing.rounds per second"` | 128 rows with field paths; 253 ms |
 | same with `--sort desc` | refused: the value is bounds (several numbers) |
 | `query-field weap "magazines[0].rounds loaded maximum" --filter ">= 40" --sort desc` | 8 rows, largest first |
+
+### Step 2: `diff_tags` (2026-11-02, Forge sample, debug CLI)
+
+| Call | Result |
+| --- | --- |
+| `diff-tags 0x00008595 0x0000AE34` (assault rifle vs SMG) | 276 differing fields, first 100 shown (104 lines, 12,444 characters ≈ 3,111 tokens); 5.5 s on the first run after a build (files not yet in the OS cache), 0.71 s on the next |
+| same with `--path barrels` | 38 rows (41 lines, 6,948 characters ≈ 1,737 tokens); 0.72 s. Paths keep the entry index (`barrels[0].…`); the firing penalty curve is one row, `#9a7cc512` vs `#d7f84014`; a tag block with 1 vs 0 entries gives `block[1]`/`block[0]` and `present`/`(no entry)` |
+| spot check with `read-tag --path … --detail brief` on each tag | rounds per second 9.999999 / 14.999999, reload penalty 2.5 / 3.5, kickback impulse hip `block[1]` / `(empty)`: all match the diff rows |
+
+Before the fix found in this check, `path=barrels` compared only entry 0 and wrote paths without `[0]`, and a changed curve showed as `(68 bytes)` on both sides; both are covered by `diff_tests` now.
