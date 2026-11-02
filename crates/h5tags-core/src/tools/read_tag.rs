@@ -112,7 +112,7 @@ impl Tool for ReadTag {
         if self.path.is_some() && self.section.is_some() {
             return Err(ToolError::new("path= and section= can't be used together").hint("pass one of them"));
         }
-        let limit = s.large_read_tokens;
+        let (limit, guid_check) = (s.large_read_tokens, s.guid_check);
         let t = args::tag_copy(s, &self.tag, &self.build, self.module.as_deref())?;
         let (b, copy) = (t.build, t.copy);
         let identity = copy_identity(b, t.tag).map_err(present::read_error)?;
@@ -121,6 +121,7 @@ impl Tool for ReadTag {
             detail: self.detail,
             options: self.options,
             show_hidden: self.show_hidden,
+            guid_check,
         };
         let mut view = TagView { brief: self.detail == Detail::Brief, ..TagView::default() };
         title(b, t.tag, copy, identity, self.detail, &mut view);

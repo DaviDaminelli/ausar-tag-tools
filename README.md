@@ -23,7 +23,7 @@ Write an `h5tags.toml`; by default the programs look for it next to themselves (
 cache_dir = 'C:\h5tags\cache'          # where the index is kept; default: your OS cache folder
 tag_cache_mb = 256                     # decompressed tags kept in memory by the MCP server; default 256
 large_read_tokens = 3000               # a whole read_tag bigger than this returns the outline instead; default 3000
-# guid_check = "warn"                  # accepted; for now the check always warns (off/enforce are not implemented yet)
+guid_check = "warn"                    # a definition GUID mismatch: off, warn (default: shown, values kept) or enforce (values not shown)
 # notes_file = '...'                   # accepted and ignored for now
 
 [[build]]                              # the first build is the default one

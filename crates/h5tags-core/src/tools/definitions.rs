@@ -105,7 +105,7 @@ impl Tool for GetDefinition {
         if self.path.is_some() && self.section.is_some() {
             return Err(ToolError::new("path= and section= can't be used together").hint("pass one of them"));
         }
-        let limit = s.large_read_tokens;
+        let (limit, guid_check) = (s.large_read_tokens, s.guid_check);
         let b = args::build(s, &self.build)?;
         let (code, name, def) = class_definition(b, &self.class)?;
         let settings = ViewSettings {
@@ -113,6 +113,7 @@ impl Tool for GetDefinition {
             detail: self.detail,
             options: self.options,
             show_hidden: self.show_hidden,
+            guid_check,
         };
         let mut view = TagView { brief: self.detail == Detail::Brief, ..TagView::default() };
         definition_title(&code, &name, &mut view);

@@ -97,8 +97,11 @@ pub mod marker {
     pub const UNRESOLVED: &str = "(unresolved)";
     pub const NO_OPTIONS: &str = "(no options defined)";
     pub const NO_DEFINITION: &str = "(no definition for class";
+    /// A struct or tag block whose stored type GUID isn't the definition's (PRD §6.4.5).
+    pub const GUID_MISMATCH: &str = "definition GUID mismatch";
 
     pub const ALL: &[&str] = &[
+        GUID_MISMATCH,
         NOT_STORED,
         INCOMPLETE,
         DAMAGED,

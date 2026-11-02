@@ -197,3 +197,10 @@ Each change was measured on the battle rifle (`0x00008593`) and the HUD screens 
 - **Elicitation** (a client showing the user a confirmation dialog, D38): the server logs on connect whether the client declares it (`elicitation=true/false`); nothing depends on it. Claude Code's answer is recorded at the M4 acceptance session.
 - **Logs** go to stderr (`H5TAGS_LOG` sets the level, default `info`), never stdout.
 - `cargo run` now needs `--bin h5tags` (two binaries in the workspace); CLAUDE.md updated.
+
+## D43. `guid_check` modes wired up (2026-11-01, M4; PRD §6.4.5)
+The setting was accepted since M1 but never read: the check always behaved as `warn`. Now the config holds a typed `GuidCheck` (`off`, `warn` default, `enforce`; any other value fails when the config loads), the session passes it to the view, and one converter method applies it to structs and tag blocks alike:
+- `off`: no warning.
+- `warn`: `warning: definition GUID mismatch` on the struct or block (unchanged).
+- `enforce`: treated like a size mismatch: the struct or block shows `!! definition GUID mismatch at <path> (definition <srcguid>, tag <guid>; guid_check = enforce)` and no values (its children aren't converted at all). The tag's GUID is written like a definition's `srcguid` (`h5_defs::definition::guid_text`, the inverse of `Field::guid`; both use one byte-order rule), so the two can be compared at a glance.
+- The warning text is now `output::marker::GUID_MISMATCH`, covered by the guide test.

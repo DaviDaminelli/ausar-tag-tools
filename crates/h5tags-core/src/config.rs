@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+pub use crate::tag_view::GuidCheck;
+
 /// `tag_cache_mb` when the config doesn't set it (PRD §6.1).
 pub const DEFAULT_TAG_CACHE_MB: u64 = 256;
 
@@ -22,8 +24,8 @@ pub struct Config {
     pub cache_dir: Option<PathBuf>,
     /// Used from the backlog (PRD §10); accepted and ignored for now.
     pub notes_file: Option<PathBuf>,
-    /// Definition GUID check mode (PRD §6.4.5); used from M3.
-    pub guid_check: Option<String>,
+    /// What a definition GUID mismatch does (PRD §6.4.5): off, warn (default), enforce.
+    pub guid_check: Option<GuidCheck>,
     /// Decompressed tags kept in memory, in MB (PRD §13). Default 256.
     pub tag_cache_mb: Option<u64>,
     /// The size guard on whole reads, in tokens (PRD §6.4.1). Default 3000.
@@ -176,6 +178,11 @@ impl Config {
         Ok(())
     }
 
+    /// `guid_check`, or its default (`warn`).
+    pub fn guid_check(&self) -> GuidCheck {
+        self.guid_check.unwrap_or_default()
+    }
+
     /// `tag_cache_mb` in bytes.
     pub fn tag_cache_bytes(&self) -> usize {
         megabytes(self.tag_cache_mb.unwrap_or(DEFAULT_TAG_CACHE_MB))
@@ -243,6 +250,16 @@ defs = 'C:\H5Tags\tags'
         assert_eq!(default.tag_cache_bytes(), 256 << 20);
         assert_eq!(c.large_read_tokens, Some(5000));
         assert_eq!(default.large_read_tokens, None);
+    }
+
+    /// PRD §6.4.5: off, warn (default) or enforce; anything else is refused.
+    #[test]
+    fn guid_check_is_off_warn_or_enforce() {
+        let with = |line: &str| parse(&format!("{line}\n[[build]]\nname = \"a\"\ndeploy = 'x'\ndefs = 'y'\n"));
+        assert_eq!(with("").unwrap().guid_check(), GuidCheck::Warn);
+        assert_eq!(with("guid_check = \"off\"").unwrap().guid_check(), GuidCheck::Off);
+        assert_eq!(with("guid_check = \"enforce\"").unwrap().guid_check(), GuidCheck::Enforce);
+        assert!(with("guid_check = \"strict\"").is_err());
     }
 
     /// The CLI's and the MCP server's config arguments (PRD §6.1).

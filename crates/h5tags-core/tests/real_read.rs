@@ -19,7 +19,7 @@ use h5_module::tag::TagHeader;
 use h5_module::{EntryKind, FourCc, Module, Section, map_file};
 use h5tags_core::catalog::Copy;
 use h5tags_core::stored::load_definition;
-use h5tags_core::tag_view::{BuildLookup, Detail, Options, ViewSettings, view_body};
+use h5tags_core::tag_view::{BuildLookup, Detail, GuidCheck, Options, ViewSettings, view_body};
 use h5tags_core::view::TagView;
 
 #[test]
@@ -27,7 +27,13 @@ use h5tags_core::view::TagView;
 fn every_tag_renders() {
     let (s, _cache) = common::real_session("core-real-read");
     let b = &s.builds()[0];
-    let settings = ViewSettings { depth: 2, detail: Detail::Normal, options: Options::Auto, show_hidden: false };
+    let settings = ViewSettings {
+        depth: 2,
+        detail: Detail::Normal,
+        options: Options::Auto,
+        show_hidden: false,
+        guid_check: GuidCheck::Warn,
+    };
     let mut parsed: HashMap<FourCc, Option<Arc<Definition>>> = HashMap::new();
     let start = Instant::now();
     let (mut tags, mut lines, mut text_bytes, mut json_bytes) = (0usize, 0usize, 0usize, 0usize);
@@ -88,7 +94,13 @@ fn every_definition_renders() {
     use h5tags_core::stored::load_definition_file;
 
     let defs = common::defs_dir();
-    let settings = ViewSettings { depth: 99, detail: Detail::Full, options: Options::All, show_hidden: true };
+    let settings = ViewSettings {
+        depth: 99,
+        detail: Detail::Full,
+        options: Options::All,
+        show_hidden: true,
+        guid_check: GuidCheck::Warn,
+    };
     let start = Instant::now();
     let (mut files, mut lines, mut outline_lines) = (0usize, 0usize, 0usize);
     let mut paths: Vec<PathBuf> = std::fs::read_dir(&defs).unwrap().map(|e| e.unwrap().path()).collect();

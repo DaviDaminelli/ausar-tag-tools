@@ -72,8 +72,13 @@ impl Lookup for Stub {
     }
 }
 
-const NORMAL: ViewSettings =
-    ViewSettings { depth: 2, detail: Detail::Normal, options: Options::Auto, show_hidden: false };
+const NORMAL: ViewSettings = ViewSettings {
+    depth: 2,
+    detail: Detail::Normal,
+    options: Options::Auto,
+    show_hidden: false,
+    guid_check: GuidCheck::Warn,
+};
 
 fn render(t: &TestTag, xml: &str, settings: ViewSettings) -> (String, serde_json::Value) {
     let def = Definition::parse(xml).unwrap();
@@ -106,6 +111,33 @@ fn values_as_the_guide_shows_them() {
     assert!(l.contains(&"mesh  resource  (mesh resource, 6.1 MB, not loaded)"), "{text}");
     // Padding is hidden by default.
     assert!(!text.contains("\np  "), "{text}");
+}
+
+/// PRD §6.4.5: `guid_check` off, warn (default) or enforce, on a tag block
+/// whose stored struct GUID isn't the definition's `srcguid`.
+#[test]
+fn guid_check_off_warn_and_enforce() {
+    let xml = VALUES.replace(
+        r#"<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">"#,
+        r#"<_field_block_64 name="entries" srcguid="03030303-0303-0303-0303-030303030303">"#,
+    );
+    let with = |guid_check| render(&values_tag(), &xml, ViewSettings { guid_check, ..NORMAL }).0;
+    let warn = with(GuidCheck::Warn);
+    assert!(
+        warn.contains(
+            "\n### entries  block[2]  {first, second}  showing [0] first  warning: definition GUID mismatch\n"
+        ),
+        "{warn}"
+    );
+    assert!(warn.contains("\n  value  int32  7  rounds\n"), "{warn}");
+    let off = with(GuidCheck::Off);
+    assert!(off.contains("\n### entries  block[2]  {first, second}  showing [0] first\n"), "{off}");
+    let enforce = with(GuidCheck::Enforce);
+    assert!(
+        enforce.contains("\n### entries  block[2]  !! definition GUID mismatch at entries (definition 03030303-0303-0303-0303-030303030303, tag 02020202-0202-0202-0202-020202020202; guid_check = enforce)\n"),
+        "{enforce}"
+    );
+    assert!(!enforce.contains("value  int32"), "no values: {enforce}");
 }
 
 /// Labels that only repeat entry indices say nothing (decisions D40); JSON

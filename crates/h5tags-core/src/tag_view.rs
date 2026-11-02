@@ -3,7 +3,7 @@
 //! formats values, it doesn't read data. What only the build knows (tag
 //! names, class names, resources) comes through [`Lookup`].
 
-use h5_defs::definition::{Custom, Field, FieldKind, custom_role};
+use h5_defs::definition::{Custom, Field, FieldKind, custom_role, guid_text};
 use h5_defs::field_type::FieldType;
 use h5_defs::name::Name;
 use h5_meta::{Block, Body, Content, EnumOption, Problem, Selected, Value, target_block};
@@ -37,6 +37,20 @@ pub enum Options {
     None,
 }
 
+/// What a definition GUID mismatch does (PRD §6.4.5, config `guid_check`;
+/// decisions D32).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GuidCheck {
+    /// Not shown.
+    Off,
+    /// A warning on the struct or tag block; its values are shown.
+    #[default]
+    Warn,
+    /// An error, like a size mismatch: the values are not shown.
+    Enforce,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct ViewSettings {
     /// Nested levels expanded below the requested node (PRD §6.4.1).
@@ -44,6 +58,7 @@ pub struct ViewSettings {
     pub detail: Detail,
     pub options: Options,
     pub show_hidden: bool,
+    pub guid_check: GuidCheck,
 }
 
 /// A tag resource as the index describes it.
@@ -320,6 +335,10 @@ impl<'s> Converter<'s, '_> {
                 v.value = Some(plain(format!("(curve, {} bytes)", size.unwrap_or(0)), json!(size.unwrap_or(0))));
             }
             Content::Struct(b) | Content::Array(b) => {
+                if self.guid_check(f, b.guid_mismatch, path, &mut v) {
+                    v.container = Some(Container::default());
+                    return v;
+                }
                 let mut c = if level < self.settings.depth {
                     self.body(b, &f.children, path, level + 1)
                 } else {
@@ -328,11 +347,8 @@ impl<'s> Converter<'s, '_> {
                 if let Some(p) = &b.problem {
                     v.state = error(problem_text(p, path));
                 }
-                if b.guid_mismatch.is_some() {
-                    v.warning = Some("definition GUID mismatch".into());
-                }
                 if !c.stub && c.children.is_empty() && c.summary.is_none() && v.state.is_none() {
-                    c.summary = Some("(empty)".into());
+                    c.summary = Some(marker::EMPTY.into());
                 }
                 v.container = Some(c);
             }
@@ -342,13 +358,37 @@ impl<'s> Converter<'s, '_> {
         v
     }
 
+    /// Applies `guid_check` to a struct or tag block whose stored type GUID
+    /// (`stored`) isn't `field`'s `srcguid`; `true` when its values must not be
+    /// shown (`enforce`, like a size mismatch).
+    fn guid_check(&self, field: &Field, stored: Option<[u8; 16]>, path: &str, v: &mut FieldView) -> bool {
+        let Some(stored) = stored else { return false };
+        match self.settings.guid_check {
+            GuidCheck::Off => false,
+            GuidCheck::Warn => {
+                v.warning = Some(marker::GUID_MISMATCH.into());
+                false
+            }
+            GuidCheck::Enforce => {
+                let definition = field.attr("srcguid").unwrap_or("none");
+                v.state = error(format!(
+                    "!! {} at {path} (definition {definition}, tag {}; guid_check = enforce)",
+                    marker::GUID_MISMATCH,
+                    guid_text(&stored)
+                ));
+                true
+            }
+        }
+    }
+
     fn block(&mut self, n: &'s h5_meta::Node<'s>, b: &'s Block<'s>, v: &mut FieldView, path: &str, level: u32) {
         v.short_type = short_type(FieldType::Block64, Some(b.count));
         let labels = entry_labels(&b.entries);
         let json_labels = labels.iter().enumerate().map(|(i, l)| or_index(l, i)).collect();
         let mut c = Container { count: Some(b.count), labels: json_labels, ..Container::default() };
-        if b.guid_mismatch.is_some() {
-            v.warning = Some("definition GUID mismatch".into());
+        if self.guid_check(n.field, b.guid_mismatch, path, v) {
+            v.container = Some(c);
+            return;
         }
         if let Some(p) = &b.problem {
             v.state = error(problem_text(p, path));

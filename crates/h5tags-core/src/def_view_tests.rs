@@ -4,6 +4,7 @@ use h5_module::tag::TagHeader;
 use h5_module::testutil::{build_tag, sample_tag};
 
 use super::*;
+use crate::tag_view::GuidCheck;
 use crate::view::TagView;
 
 const DEFINITION: &str = r#"<plugin>
@@ -24,8 +25,13 @@ More.</_field_explanation>
 	<_field_short_block_index name="primary barrel" targetGuid="02020202-0202-0202-0202-020202020202" />
 </plugin>"#;
 
-const NORMAL: ViewSettings =
-    ViewSettings { depth: 2, detail: Detail::Normal, options: Options::Auto, show_hidden: false };
+const NORMAL: ViewSettings = ViewSettings {
+    depth: 2,
+    detail: Detail::Normal,
+    options: Options::Auto,
+    show_hidden: false,
+    guid_check: GuidCheck::Warn,
+};
 
 fn text(nodes: Vec<ViewNode>) -> String {
     TagView { title: "# weap weapon (definition)".into(), nodes, ..TagView::default() }.render_lines(false)

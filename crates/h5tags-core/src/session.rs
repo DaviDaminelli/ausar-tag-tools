@@ -10,6 +10,7 @@ use h5_module::index::{Index, UpdateReport};
 use crate::catalog::Build;
 use crate::config::{BuildConfig, Config, DEFAULT_LARGE_READ_TOKENS};
 use crate::stored::TagCache;
+use crate::tag_view::GuidCheck;
 
 /// Receives progress of long steps: the build's name and how far it is.
 /// Called from worker threads. The CLI draws it; the MCP server ignores it.
@@ -22,6 +23,8 @@ pub struct Session {
     tag_cache: Arc<TagCache>,
     /// The size guard on whole reads (PRD §6.4.1), in tokens.
     pub(crate) large_read_tokens: usize,
+    /// What a definition GUID mismatch does (PRD §6.4.5).
+    pub(crate) guid_check: GuidCheck,
     progress: ProgressSink,
 }
 
@@ -91,7 +94,7 @@ impl Session {
             .map(|cfg| load_build(cfg, &cache_dir, None, &tag_cache, &never, &progress).map(|(b, _)| b))
             .collect::<Result<_, _>>()?;
         let large_read_tokens = config.large_read_tokens.unwrap_or(DEFAULT_LARGE_READ_TOKENS);
-        Ok(Session { cache_dir, builds, tag_cache, large_read_tokens, progress })
+        Ok(Session { cache_dir, builds, tag_cache, large_read_tokens, guid_check: config.guid_check(), progress })
     }
 
     /// A session over builds already in memory (tests, embedding).
@@ -102,6 +105,7 @@ impl Session {
             builds,
             tag_cache: Arc::default(),
             large_read_tokens: DEFAULT_LARGE_READ_TOKENS,
+            guid_check: GuidCheck::default(),
             progress: no_progress(),
         }
     }
