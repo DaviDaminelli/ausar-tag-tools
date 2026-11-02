@@ -73,7 +73,9 @@ fn load_build(
     {
         tracing::warn!(cache = %cache.display(), error = %e, "couldn't save the index cache");
     }
-    Ok((Build::new_sharing(cfg.name.clone(), cfg.clone(), index, defs, tag_cache.clone()), report))
+    let build = Build::new_sharing(cfg.name.clone(), cfg.clone(), index, defs, tag_cache.clone())
+        .with_scan_cache(cache_dir.join(format!("{}.scan", cfg.name)));
+    Ok((build, report))
 }
 
 impl Session {
@@ -126,6 +128,13 @@ impl Session {
             load_build(&cfg, &self.cache_dir, Some(previous), &self.tag_cache, force, &self.progress)?;
         self.builds[b] = build;
         Ok(report)
+    }
+
+    /// Drops build `b`'s header scan, and the cached scans of the modules
+    /// whose path matches `force`; the next call needing it scans them again.
+    /// Returns how many modules were dropped from the cache.
+    pub fn forget_header_scan(&mut self, b: usize, force: &dyn Fn(&str) -> bool) -> usize {
+        crate::references::forget_header_scan(&mut self.builds[b], force)
     }
 
     /// The build to label results with: its name when more than one is configured.

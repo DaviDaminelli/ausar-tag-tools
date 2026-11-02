@@ -12,6 +12,7 @@ use h5_module::names::split_tag_name;
 use h5_module::{FourCc, GlobalId};
 
 use crate::config::BuildConfig;
+use crate::references::ScanSlot;
 use crate::stored::{Store, TagCache};
 
 /// One copy of a tag: a module and the file entry in it.
@@ -88,6 +89,8 @@ pub struct Build {
     pub classes: BTreeMap<FourCc, ClassInfo>,
     /// What is kept between calls (PRD §13).
     pub store: Store,
+    /// The header scan (PRD §6.2), loaded or built on first need.
+    pub(crate) scan: ScanSlot,
 }
 
 impl std::fmt::Debug for Build {
@@ -172,7 +175,28 @@ impl Build {
         for (i, t) in tags.iter().enumerate() {
             by_path.entry(t.path_lower.clone()).or_default().push(i);
         }
-        Build { name, config, index, defs, tags, by_id, by_path, classes, store: Store::new(tag_cache) }
+        Build {
+            name,
+            config,
+            index,
+            defs,
+            tags,
+            by_id,
+            by_path,
+            classes,
+            store: Store::new(tag_cache),
+            scan: ScanSlot::default(),
+        }
+    }
+
+    /// Where the header scan is cached (next to the index).
+    pub fn with_scan_cache(mut self, path: PathBuf) -> Build {
+        self.scan.cache = Some(path);
+        self
+    }
+
+    pub fn scan_cache(&self) -> Option<&std::path::Path> {
+        self.scan.cache.as_deref()
     }
 
     /// Borrowed from the class list; the code itself if the class is unknown.

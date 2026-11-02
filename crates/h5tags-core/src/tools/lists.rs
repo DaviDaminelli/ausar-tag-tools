@@ -5,7 +5,7 @@ use serde::Deserialize;
 use super::args::{self, BuildArg, PageArgs};
 use super::{Tool, present};
 use crate::filters::{Filters, KindFilter, Mode, NameFilter, Size, SizeRange, entry_kind};
-use crate::output::{Cell, Output, Summary, Table, ToolError, col, marker};
+use crate::output::{Cell, Output, Summary, Table, ToolError, col};
 use crate::query::{self, EntryScope, EntrySort, ModuleStatus};
 use crate::session::Session;
 
@@ -184,7 +184,7 @@ impl Tool for ListEntries {
                     Cell::marked(e.name.clone(), marks),
                     entry_kind(e).into(),
                     Cell::Size(e.uncompressed_size),
-                    if e.stored { Cell::Size(e.compressed_size as u64) } else { marker::NOT_STORED.into() },
+                    present::compressed_size(e),
                     h.module.rel_path.clone().into(),
                 ]
             })

@@ -42,7 +42,7 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "Every bitmap this weapon uses" | `find_references(tag, recursive=true, class="bitm")` |
 | "What kinds of assets exist?" | `list_resource_kinds()` |
 | "Is this tag the same in every module?" | `tag_copies(tag)` |
-| "Which tags mention 'plasma'?" | `search_values("plasma")` |
+| "Which tags hold the name `battery_remaining`?" (string_id names: HUD logic, sound events, markers; and names of referenced tags) | `search_values("battery_remaining")` |
 | "What's in the Xbox build but not Forge?" | `compare_builds("xbox", "forge")` |
 | "What does this texture look like?" | `view_bitmap(tag)`: read the text summary first; the sheet shows each channel separately |
 | "What would it take to make X behave like Y, and what else would change?" | §2.1 below |
@@ -194,12 +194,14 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `outline(tag=)` `block[N] {labels}` | The tag's entry count and labels; nested blocks are shown as entry 0 has them | Other entries can have different counts |
 | `definition_status` `has definition` | Whether a definition XML exists for the class | No → that class's tags can't be read field by field, only listed and followed by references |
 | `definition_status` mismatches + `checked N of M tags` | Size or GUID mismatches found so far between the definition and real tags of that class, and how many of its tags have been checked (kept across sessions) | Mismatches → values from that class may be wrong where flagged. "None found" only covers the N tags checked, not the whole class |
-| `tag_copies` `identical` / `differ` | Whether every copy of the tag has the same stored data (checked on the data itself) | `differ` → values can depend on the module; say which copy you used |
+| `tag_copies` `versions: N` | How many different versions of the tag's data its copies hold: 1 = every copy is the same | N > 1 → values can depend on the copy; say which copy you used |
+| `hint: no tag's string table contains '…'; …` (`search_values`) | No string_id name or referenced tag name holds the term. Field values (numbers, enums) aren't in string tables | Try `search_definitions` for field names, or `read_tag` for values |
 | `compare_builds` `only in A` / `only in B` / `different` | By global ID: tags present in one build only, or in both with different stored data | `different` means the data differs, not necessarily a gameplay change; diff the tags to see what |
-| `find_references` `(see above)` | That tag was already expanded earlier in the tree | Not a new reference |
-| `find_references` with `class`: `depth`, `via` | How many references deep the tag was found, and which tag points to it | The chain is real; what it does in-game needs reading the tags |
+| `find_references` `(see above)` (recursive) | That tag was already listed earlier in this walk; it isn't expanded again | Not a new reference; look it up above |
+| `find_references` rows | `out`: each non-null reference of the tag: its field path (empty without a definition), the target's class, ID and name, grouped by class. `in`: each tag whose copies reference it; `copies` = in how many of its copies (`1 of 2`: the other copy doesn't), `count` = how many of its fields do. `recursive`: depth first, in the order the tags list their references; with `class=` only that class is listed, though the walk follows every class. References come from the fields in the tag data, so they include references the tag header has no dependency entry for | The links are real; what they do in game needs reading the tags. A target marked `(not in indexed modules)` exists as a reference, not as a tag you can read here |
 | `query_field` / batch `skipped` | Tags that failed to read, with the reason | They are missing from the results; say so if it matters |
-| `(header scan built: N tags, T s)` | This call first had to scan all tag headers; later calls are fast | — |
+| `header scan built: N tags, T s` (summary line) | This call first had to scan every tag copy's header and tag data (only when modules changed, or the first time); later calls are fast | — |
+| `hint: N tag copies couldn't be scanned; references from them are missing here (…)` | Some copies couldn't be read; their references aren't in `in` or `recursive` results | Say the list may be incomplete |
 | `reindex` result | What was rebuilt or dropped, and how long it took | — |
 
 ### 4.7 List columns
@@ -225,7 +227,11 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `total size` | Sum of the uncompressed sizes |
 | `field path` | Where a field is in its class (`barrels[*].trigger mode`; `[*]` = in every entry of that tag block). Use it as `path=` |
 | `field type` | The field's definition type (`_field_short_enum`); `explanation`/`heading` for a matched heading |
-| `matched` | What matched the query: `name`, `old name '…'` (an earlier name of the field), `label '…'`, `option …`, `help`, `units`, `explanation '…'`, `heading '…'` |
+| `matched` | `search_values`: the strings of the tag's string table that contain the term (up to 4, then `(+N more)`). `search_definitions`: what matched the query: `name`, `old name '…'` (an earlier name of the field), `label '…'`, `option …`, `help`, `units`, `explanation '…'`, `heading '…'` |
+| `depth` | `find_references(recursive=true)`: how many references from the start tag (1 = it references this directly) |
+| `via` | `find_references(recursive=true)`: the tag holding the reference |
+| `data` | `tag_copies`: copies with the same letter (`A`, `B`, …) hold the same data (compared by their compression blocks' checksums of the uncompressed data, or by the data itself); `versions: N` above the table counts the letters. `read_tag` reads the first copy unless `module=` picks another |
+| `asset checksum` | `tag_copies`: a 64-bit value stored with the copy, for the file it was built from; not a check of the stored data (copies are compared by their data) |
 
 Results may come from the tool's cache (kept across sessions). A cached result is always identical to a fresh one, so you never need to "refresh" it. Only `reindex` forces a rebuild, and the tool keeps itself up to date when game files change.
 

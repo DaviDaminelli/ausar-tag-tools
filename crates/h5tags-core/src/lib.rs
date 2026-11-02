@@ -7,6 +7,7 @@ pub mod def_view;
 pub mod filters;
 pub mod output;
 pub mod query;
+pub mod references;
 pub mod session;
 pub mod stored;
 pub mod tag_view;

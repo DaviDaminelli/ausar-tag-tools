@@ -292,6 +292,13 @@ impl Filters {
     }
 }
 
+/// Where `q` occurs in `text`, ignoring ASCII case, compared in place (no
+/// lowercase copy per text, D26). Other bytes compare as they are. An empty
+/// `q` matches nothing.
+pub fn ascii_matches<'t>(text: &'t [u8], q: &'t [u8]) -> impl Iterator<Item = usize> + 't {
+    let n = if q.is_empty() { text.len() + 1 } else { q.len() };
+    text.windows(n).enumerate().filter(move |(_, w)| w.eq_ignore_ascii_case(q)).map(|(at, _)| at)
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -353,5 +360,14 @@ mod tests {
         assert_eq!(find(&display, Mode::Exact), Vec::from_iter(std::iter::once(0..display.len())));
         assert!(find("", Mode::Default).is_empty());
         assert!(find("x*", Mode::Regex).iter().all(|r| !r.is_empty()));
+    }
+
+    /// One case-insensitive ASCII comparison for every search over raw text
+    /// (definitions, string tables), in place: no lowercase copies (D26).
+    #[test]
+    fn ascii_matches_ignore_case_and_report_every_position() {
+        assert_eq!(ascii_matches(b"Age, damage, AGE", b"age").collect::<Vec<_>>(), [0, 8, 13]);
+        assert_eq!(ascii_matches(b"ag", b"age").count(), 0);
+        assert_eq!(ascii_matches(b"abc", b"").count(), 0, "an empty query matches nothing");
     }
 }

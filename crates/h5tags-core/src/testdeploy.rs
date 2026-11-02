@@ -94,7 +94,8 @@ impl TestDeploy {
         let definitions = Definitions::load(&defs).unwrap();
         let cfg = BuildConfig { name: "forge".into(), deploy, defs, resource_defs: None };
         let build =
-            Build::new_sharing("forge".into(), cfg, index, definitions, Arc::new(TagCache::new(tag_cache_bytes)));
+            Build::new_sharing("forge".into(), cfg, index, definitions, Arc::new(TagCache::new(tag_cache_bytes)))
+                .with_scan_cache(dir.0.join("cache").join("forge.scan"));
         TestDeploy { session: Session::from_builds(dir.0.join("cache"), vec![build]), dir }
     }
 

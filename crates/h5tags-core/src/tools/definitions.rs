@@ -14,6 +14,7 @@ use super::read_tag::title;
 use super::{Tool, present};
 use crate::catalog::{Build, ClassLookup};
 use crate::def_view::{definition_section, definition_view, outline_definition, outline_tag};
+use crate::filters::ascii_matches;
 use crate::output::{Cell, Output, Table, ToolError, col};
 use crate::session::Session;
 use crate::stored::{copy_identity, load_definition, read_stored_tag};
@@ -261,10 +262,7 @@ fn fit(text: &str, q: &str) -> Option<Fit> {
     let (t, q) = (text.as_bytes(), q.as_bytes());
     let edge = |b: Option<&u8>| !b.is_some_and(u8::is_ascii_alphanumeric);
     let mut found = None;
-    for (at, w) in t.windows(q.len().max(1)).enumerate() {
-        if !w.eq_ignore_ascii_case(q) {
-            continue;
-        }
+    for at in ascii_matches(t, q) {
         if edge(at.checked_sub(1).and_then(|i| t.get(i))) && edge(t.get(at + q.len())) {
             return Some(Fit::Word);
         }

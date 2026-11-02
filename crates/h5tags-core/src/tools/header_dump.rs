@@ -10,11 +10,11 @@ use h5_module::{FourCc, GlobalId, Section};
 
 use super::args::{self, BuildArg};
 use super::present;
-use crate::catalog::{Build, Copy, Tag};
+use crate::catalog::{Build, Copy};
 use crate::output::{Cell, Column, Output, Part, Table, ToolError, col};
+use crate::references::{Places, reference_paths};
 use crate::session::Session;
-use crate::stored::{StoredTag, load_definition, read_stored_tag};
-use crate::tag_view::join;
+use crate::stored::{StoredTag, read_stored_tag};
 
 /// All sections of a tag's header, as stored (developer command; not a tool).
 #[derive(Clone, Debug, clap::Args)]
@@ -34,7 +34,7 @@ impl HeaderDump {
         let stored = read_stored_tag(t.build, t.copy).map_err(present::read_error)?;
         let h = &stored.header;
         let names = h.string_id_names();
-        let paths = reference_paths(t.build, t.tag, &stored)?;
+        let paths = reference_paths(t.build, t.tag, &stored).map_err(present::definition_error)?;
         let mut header = header_part(h, &t.build.module(t.copy).rel_path);
         header.table.hints.extend(t.other_copies_hint);
         Ok(Output::Parts {
@@ -275,37 +275,6 @@ fn data_references(h: &TagHeader) -> Part {
 
 /// Each reference with what its field holds: a reference without a
 /// dependency may still name a tag (format-notes "Tags").
-/// (data block, offset) → field path.
-type Places = HashMap<(u32, u32), String>;
-
-/// Where each tag reference is, by field path (decisions D29): (data block,
-/// offset) → path, from reading the tag with its class's definition. `None`
-/// without a definition.
-fn reference_paths(b: &Build, tag: &Tag, t: &StoredTag) -> Result<Option<Places>, ToolError> {
-    fn collect(body: &h5_meta::Body<'_>, path: &str, out: &mut Places) {
-        for n in &body.children {
-            let p = join(path, n.name.unwrap_or_default());
-            match &n.content {
-                h5_meta::Content::Value(h5_meta::Value::TagRef(r)) => {
-                    out.insert(r.place, p);
-                }
-                h5_meta::Content::Struct(b) | h5_meta::Content::Array(b) => collect(b, &p, out),
-                h5_meta::Content::Block(b) => {
-                    for (i, e) in b.entries.iter().enumerate() {
-                        collect(e, &format!("{p}[{i}]"), out);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    let Some(def) = load_definition(b, tag).map_err(present::definition_error)? else { return Ok(None) };
-    let read = h5_meta::read_tag(&def, &t.header, &t.tag_data);
-    let mut out = HashMap::new();
-    collect(&read.root, "", &mut out);
-    Ok(Some(out))
-}
-
 fn tag_references(b: &Build, t: &StoredTag, paths: Option<&Places>) -> Part {
     let h = &t.header;
     let rows = h

@@ -57,6 +57,10 @@ pub mod col {
     pub const FIELD_PATH: Column = Column { header: "field path", key: "path" };
     pub const FIELD_TYPE: Column = Column { header: "field type", key: "field_type" };
     pub const MATCHED: Column = Column { header: "matched", key: "matched" };
+    pub const DEPTH: Column = Column { header: "depth", key: "depth" };
+    pub const VIA: Column = Column { header: "via", key: "via" };
+    pub const DATA: Column = Column { header: "data", key: "data" };
+    pub const ASSET_CHECKSUM: Column = Column { header: "asset checksum", key: "asset_checksum" };
 
     pub const ALL: &[Column] = &[
         GLOBAL_ID,
@@ -80,6 +84,10 @@ pub mod col {
         FIELD_PATH,
         FIELD_TYPE,
         MATCHED,
+        DEPTH,
+        VIA,
+        DATA,
+        ASSET_CHECKSUM,
     ];
 }
 
@@ -97,6 +105,8 @@ pub mod marker {
     pub const UNRESOLVED: &str = "(unresolved)";
     pub const NO_OPTIONS: &str = "(no options defined)";
     pub const NO_DEFINITION: &str = "(no definition for class";
+    /// `find_references(recursive=true)`: a tag already listed above, not expanded again.
+    pub const SEE_ABOVE: &str = "(see above)";
     /// A struct or tag block whose stored type GUID isn't the definition's (PRD §6.4.5).
     pub const GUID_MISMATCH: &str = "definition GUID mismatch";
 
@@ -113,6 +123,7 @@ pub mod marker {
         UNRESOLVED,
         NO_OPTIONS,
         NO_DEFINITION,
+        SEE_ABOVE,
     ];
 }
 

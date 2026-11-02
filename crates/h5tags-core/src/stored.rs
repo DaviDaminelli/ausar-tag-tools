@@ -223,12 +223,23 @@ pub enum Identity {
     Differ,
 }
 
-/// Compares every copy with the first by stored data: the compression block
-/// checksums when every block has one (v27, no decompression), else the
-/// decompressed header and tag data (v23 and blockless entries).
+/// Whether all of a tag's copies hold the same data (from [`copy_versions`]).
 pub fn copy_identity(build: &Build, tag: &Tag) -> Result<Identity, ReadError> {
     if tag.copies.len() < 2 {
         return Ok(Identity::Single);
+    }
+    let versions = copy_versions(build, tag)?;
+    Ok(if versions.iter().all(|&v| v == 0) { Identity::Identical } else { Identity::Differ })
+}
+
+/// Which copies of `tag` hold the same data: a version per copy, in the
+/// copies' order, numbered by first appearance (the first copy is 0). Compared
+/// by stored data (PRD §6.4.6): the compression block checksums when every
+/// block has one (v27, no decompression), else the decompressed header and
+/// tag data (v23 and blockless entries).
+pub fn copy_versions(build: &Build, tag: &Tag) -> Result<Vec<usize>, ReadError> {
+    if tag.copies.len() < 2 {
+        return Ok(vec![0; tag.copies.len()]);
     }
     let checksums = |copy: Copy| {
         with_module(build, copy, |m| {
@@ -237,14 +248,28 @@ pub fn copy_identity(build: &Build, tag: &Tag) -> Result<Identity, ReadError> {
         })
     };
     let sums: Vec<Option<Vec<(u64, u32)>>> = tag.copies.iter().map(|&c| checksums(c)).collect::<Result<_, _>>()?;
-    let same = if sums.iter().all(Option::is_some) {
-        sums.windows(2).all(|w| w[0] == w[1])
-    } else {
-        let data: Vec<(Vec<u8>, Vec<u8>)> =
-            tag.copies.iter().map(|&c| read_sections(build, c)).collect::<Result<_, _>>()?;
-        data.windows(2).all(|w| w[0] == w[1])
-    };
-    Ok(if same { Identity::Identical } else { Identity::Differ })
+    if sums.iter().all(Option::is_some) {
+        return Ok(versions_of(&sums));
+    }
+    let data: Vec<(Vec<u8>, Vec<u8>)> =
+        tag.copies.iter().map(|&c| read_sections(build, c)).collect::<Result<_, _>>()?;
+    Ok(versions_of(&data))
+}
+
+/// Each item's version: the position of the first equal item among the
+/// distinct ones seen so far. A tag has a handful of copies.
+fn versions_of<T: PartialEq>(items: &[T]) -> Vec<usize> {
+    let mut firsts: Vec<&T> = Vec::new();
+    items
+        .iter()
+        .map(|x| match firsts.iter().position(|f| *f == x) {
+            Some(v) => v,
+            None => {
+                firsts.push(x);
+                firsts.len() - 1
+            }
+        })
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -377,6 +402,18 @@ mod tests {
         std::fs::write(&file, edited).unwrap();
         let again = load_definition(b, weapon(&d)).unwrap().unwrap();
         assert_eq!(again.fields.last().unwrap().name.display, "rounds");
+    }
+
+    /// `tag_copies` (PRD §6.6): which copies hold the same data, as versions
+    /// in the copies' order (the first copy is version 0).
+    #[test]
+    fn copies_with_the_same_data_share_a_version() {
+        let d = TestDeploy::new("stored-versions-one");
+        assert_eq!(copy_versions(&d.session.builds()[0], weapon(&d)).unwrap(), [0]);
+        let d = TestDeploy::with("stored-versions-same", SecondCopy::Identical);
+        assert_eq!(copy_versions(&d.session.builds()[0], weapon(&d)).unwrap(), [0, 0]);
+        let d = TestDeploy::with("stored-versions-differ", SecondCopy::Changed);
+        assert_eq!(copy_versions(&d.session.builds()[0], weapon(&d)).unwrap(), [0, 1]);
     }
 
     /// PRD §6.4.6: copies are compared by their stored data (v27: block checksums).

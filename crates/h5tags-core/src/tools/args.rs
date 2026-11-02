@@ -6,7 +6,9 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use super::present;
-use crate::catalog::{Build, Copy, Tag, TagLookupError, TagSpec};
+use h5_module::FourCc;
+
+use crate::catalog::{Build, ClassLookup, Copy, Tag, TagLookupError, TagSpec};
 use crate::filters::{Mode, ModuleFilter, NameMatcher};
 use crate::output::ToolError;
 use crate::query;
@@ -109,6 +111,18 @@ pub fn name_matcher(query: &str, mode: Mode) -> Result<NameMatcher, ToolError> {
     NameMatcher::new(query, mode).map_err(|e| ToolError::new(e).hint("mode=regex uses Rust regex syntax"))
 }
 
+/// A class code from `class=` (code or name), also for classes with no
+/// indexed tags but a definition: references often point to those.
+pub fn class_code(build: &Build, query: &str) -> Result<FourCc, ToolError> {
+    match build.lookup_class(query) {
+        ClassLookup::Found(info) => Ok(info.code),
+        ClassLookup::DefinitionOnly(d) => FourCc::from_code(&d.file_code)
+            .ok_or_else(|| ToolError::new(format!("class '{query}' has no usable code ({})", d.file_code))),
+        ClassLookup::Unknown => {
+            Err(ToolError::new(format!("no class '{query}'")).hint("list_classes lists the classes and their codes"))
+        }
+    }
+}
 pub fn module_filter(text: Option<&str>) -> Option<ModuleFilter> {
     text.map(ModuleFilter::new)
 }

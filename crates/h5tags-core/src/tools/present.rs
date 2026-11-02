@@ -227,3 +227,32 @@ pub fn size_guard(mut view: TagView, limit: usize, confirm: bool, outline: impl 
     view.hints.push(format!("whole read {size}; read a path= or section=, or repeat with confirm_large=true"));
     view
 }
+
+/// Classes listed in a `by class` summary; the rest are counted as `+N more`.
+const CLASS_BREAKDOWN_MAX: usize = 8;
+
+/// `by class: weap 3, proj 2, …` over a list's rows (most first), when they
+/// span more than one class: narrow with `class=` in one step.
+pub fn by_class(counts: Vec<(h5_module::FourCc, usize)>) -> Option<crate::output::Summary> {
+    if counts.len() < 2 {
+        return None;
+    }
+    let counts = counts.into_iter().map(|(code, n)| (code.to_string(), n)).collect();
+    Some(crate::output::Summary {
+        label: "by class",
+        key: "by_class",
+        value: crate::output::Cell::counts(counts, CLASS_BREAKDOWN_MAX),
+    })
+}
+
+/// An entry's compressed size, or that its data isn't in this module.
+pub fn compressed_size(e: &h5_module::index::EntryRecord) -> crate::output::Cell {
+    if e.stored { crate::output::Cell::Size(e.compressed_size as u64) } else { marker::NOT_STORED.into() }
+}
+
+/// `header scan built: N tags, T s`, on the call that had to scan (PRD §6.2).
+pub fn scan_built(built: Option<crate::references::ScanBuilt>) -> Option<crate::output::Summary> {
+    let b = built?;
+    let value = format!("{} tags, {:.2} s", b.tags, b.elapsed.as_secs_f64());
+    Some(crate::output::Summary { label: "header scan built", key: "header_scan_built", value: value.into() })
+}

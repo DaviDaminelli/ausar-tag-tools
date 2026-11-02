@@ -8,21 +8,27 @@
 
 pub mod args;
 mod definitions;
+mod find_references;
 mod header_dump;
 mod lists;
 pub mod present;
 mod read_tag;
 mod reindex;
 mod search;
+mod search_values;
+mod tag_copies;
 #[cfg(test)]
 mod tests;
 
 pub use definitions::{GetDefinition, Outline, Scope, SearchDefinitions};
+pub use find_references::{Direction, FindReferences};
 pub use header_dump::HeaderDump;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
 pub use read_tag::ReadTag;
 pub use reindex::{Reindex, What};
 pub use search::{Browse, SearchTags};
+pub use search_values::SearchValues;
+pub use tag_copies::TagCopies;
 
 use serde_json::Value;
 
@@ -85,6 +91,9 @@ tools!(
     GetDefinition,
     Outline,
     SearchDefinitions,
+    FindReferences,
+    TagCopies,
+    SearchValues,
     Reindex
 );
 

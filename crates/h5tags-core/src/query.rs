@@ -15,11 +15,11 @@ pub fn search_tags<'b>(build: &'b Build, filters: &Filters) -> Vec<&'b Tag> {
     build.tags.iter().filter(|t| filters.matches_tag(build, t)).collect()
 }
 
-/// How many of `tags` each class has, most first (ties by class code).
-pub fn count_by_class(tags: &[&Tag]) -> Vec<(FourCc, usize)> {
+/// How often each class occurs in `classes`, most first (ties by class code).
+pub fn count_by_class(classes: impl IntoIterator<Item = FourCc>) -> Vec<(FourCc, usize)> {
     let mut counts: BTreeMap<FourCc, usize> = BTreeMap::new();
-    for t in tags {
-        *counts.entry(t.class).or_default() += 1;
+    for c in classes {
+        *counts.entry(c).or_default() += 1;
     }
     let mut counts: Vec<(FourCc, usize)> = counts.into_iter().collect();
     counts.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));

@@ -41,7 +41,7 @@ pub struct Reindex {
 }
 
 /// Parts that don't exist in this version yet (decisions D20).
-const NOT_AVAILABLE: [(What, &str); 2] = [(What::HeaderScan, "header_scan"), (What::Results, "results")];
+const NOT_AVAILABLE: [(What, &str); 1] = [(What::Results, "results")];
 
 impl Tool for Reindex {
     const NAME: &'static str = "reindex";
@@ -64,6 +64,17 @@ impl Tool for Reindex {
                 ],
             });
         }
+        if matches!(self.what, What::All | What::HeaderScan) {
+            let filter = args::module_filter(self.module.as_deref());
+            let force = move |path: &str| filter.as_ref().is_none_or(|f| f.matches(path));
+            let dropped = s.forget_header_scan(b, &force);
+            let mut values =
+                vec![("dropped modules", Cell::Int(dropped as i64)), ("rebuilt", Cell::Text("on next use".into()))];
+            if self.class.is_some() {
+                values.push(("note", "class= doesn't narrow the header scan (it works per module)".into()));
+            }
+            items.push(ReportItem { key: "header_scan", values });
+        }
         for (what, key) in NOT_AVAILABLE {
             if self.what == What::All || self.what == what {
                 items.push(ReportItem {
@@ -73,5 +84,24 @@ impl Tool for Reindex {
             }
         }
         Ok(Output::Report { build: s.label(&s.builds()[b]), items })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::Format;
+    use crate::testdeploy::TestDeploy;
+
+    #[test]
+    fn reindex_drops_the_header_scan_for_the_next_call() {
+        let mut d = TestDeploy::new("reindex-scan");
+        crate::references::header_scan(&d.session.builds()[0]);
+        let t = Reindex { what: What::HeaderScan, module: None, class: None, build: BuildArg::default() };
+        let text = t.run(&mut d.session).unwrap().render(Format::Text);
+        assert_eq!(text, "header_scan: dropped modules 1, rebuilt on next use\n");
+        let t = Reindex { class: Some("weap".into()), ..t };
+        let text = t.run(&mut d.session).unwrap().render(Format::Text);
+        assert!(text.contains("note class= doesn't narrow the header scan (it works per module)"), "{text}");
     }
 }
