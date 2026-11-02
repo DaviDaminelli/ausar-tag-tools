@@ -23,6 +23,11 @@ pub const MORE_WEAPON_ID: i32 = 0x30;
 /// Its first dependency, indexed (listed in the tag as `objects\weapons\rifle\ar\bullet`).
 /// The second (`fx\impact\bullet_hit`, an effect) is not indexed.
 pub const BULLET: &str = r"objects\weapons\rifle\ar\bullet.projectile";
+pub const BULLET_ID: i32 = 0x0040_1000;
+/// The map [`TestDeploy::with_map`] adds (its stack).
+pub const MAP: &str = r"any\levels\menu\menu";
+/// Listed in the map's manifests, but no indexed tag.
+pub const NOT_INDEXED_ID: i32 = 0x0077_0000;
 
 /// The weapon's definition: the sample tag's layout (a block of tag references,
 /// padding, a tag reference, a data reference and an int).
@@ -64,17 +69,42 @@ impl TestDeploy {
 
     /// With a tag cache of `tag_cache_bytes`.
     pub fn with_tag_cache(name: &str, second: SecondCopy, tag_cache_bytes: usize) -> TestDeploy {
-        TestDeploy::build(name, second, tag_cache_bytes, &[])
+        TestDeploy::build(name, second, tag_cache_bytes, &[], None)
     }
 
     /// With more weapons after the first, in the same module: `more_<i>.weapon`
     /// (global ID `MORE_WEAPON_ID + i`), each the sample weapon with `count` = `counts[i]`;
     /// `None` = a weapon whose data is no tag (it can't be read).
     pub fn with_weapons(name: &str, counts: &[Option<i32>]) -> TestDeploy {
-        TestDeploy::build(name, SecondCopy::None, megabytes(DEFAULT_TAG_CACHE_MB), counts)
+        TestDeploy::build(name, SecondCopy::None, megabytes(DEFAULT_TAG_CACHE_MB), counts, None)
     }
 
-    fn build(name: &str, second: SecondCopy, tag_cache_bytes: usize, counts: &[Option<i32>]) -> TestDeploy {
+    /// With a map, [`MAP`]: a base module whose load manifest lists the weapon,
+    /// the bullet and [`NOT_INDEXED_ID`], and an update layer whose manifest
+    /// drops the weapon.
+    pub fn with_map(name: &str) -> TestDeploy {
+        TestDeploy::build(
+            name,
+            SecondCopy::None,
+            megabytes(DEFAULT_TAG_CACHE_MB),
+            &[],
+            Some(&["any", "levels", "menu"]),
+        )
+    }
+
+    /// The same map, its modules at the top of the deploy folder.
+    pub fn with_flat_map(name: &str) -> TestDeploy {
+        TestDeploy::build(name, SecondCopy::None, megabytes(DEFAULT_TAG_CACHE_MB), &[], Some(&[]))
+    }
+
+    /// `map`: the folders the map's modules go in, if it is added.
+    fn build(
+        name: &str,
+        second: SecondCopy,
+        tag_cache_bytes: usize,
+        counts: &[Option<i32>],
+        map: Option<&[&str]>,
+    ) -> TestDeploy {
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -85,7 +115,7 @@ impl TestDeploy {
         let mut weapon = TestEntry::tag(WEAPON, WEAPON_ID, "weap", &tag_data);
         weapon.sections.0 = header;
         weapon.resources = vec![2];
-        let bullet = TestEntry::tag(BULLET, 0x0040_1000, "proj", b"bullet data");
+        let bullet = TestEntry::tag(BULLET, BULLET_ID, "proj", b"bullet data");
         let mesh = TestEntry::resource(&format!("{WEAPON}[0:mesh resource]"), 0, b"mesh data");
         let mut entries = vec![weapon, bullet, mesh];
         for (i, count) in counts.iter().enumerate() {
@@ -113,6 +143,17 @@ impl TestDeploy {
             copy.sections.0 = header;
             let module = build_module(Version::V27, &[copy], &[]);
             fs::write(deploy.join("any").join("levels").join("test-rtx-11587-1.module"), module).unwrap();
+        }
+        if let Some(folders) = map {
+            let folder = folders.iter().fold(deploy.clone(), |path, f| path.join(f));
+            fs::create_dir_all(&folder).unwrap();
+            for (layer, ids) in
+                [("1", &[WEAPON_ID, BULLET_ID, NOT_INDEXED_ID][..]), ("11587-1", &[BULLET_ID, NOT_INDEXED_ID])]
+            {
+                let manifest: Vec<u8> = ids.iter().flat_map(|id| id.to_le_bytes()).collect();
+                let module = build_module(Version::V27, &[TestEntry::raw("loadmanifest", &manifest)], ids);
+                fs::write(folder.join(format!("menu-rtx-{layer}.module")), module).unwrap();
+            }
         }
         let defs = dir.0.join("defs");
         fs::create_dir_all(&defs).unwrap();

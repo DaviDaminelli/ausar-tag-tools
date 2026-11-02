@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use h5_meta::Body;
 use h5_module::index::ModuleRecord;
-use h5_module::names::{LOAD_MANIFEST, module_layer};
+use h5_module::names::{module_layer, module_stack};
 use h5_module::{EntryKind, GlobalId, Module, map_file};
 use h5tags_core::catalog::{Build, Copy};
 use h5tags_core::references::header_scan;
@@ -22,18 +22,13 @@ use h5tags_core::stored::{load_definition, read_stored_tag};
 /// (stack, layer) of a module path: `any\levels\globals-rtx-11587-1.module` →
 /// (`any\levels\globals`, 11587); the base `…-rtx-1` is layer 0.
 fn stack_and_layer(rel_path: &str) -> (String, u32) {
-    let stem = rel_path.strip_suffix(".module").unwrap_or(rel_path);
-    let stack = stem.rsplit_once("-rtx-").map_or(stem, |(s, _)| s);
-    (stack.to_owned(), module_layer(rel_path).version)
+    (module_stack(rel_path).to_owned(), module_layer(rel_path).version)
 }
 
 /// The global IDs in the module's load manifest, in file order.
 fn manifest(b: &Build, m: &ModuleRecord) -> Option<Vec<GlobalId>> {
-    let index = m.entries.iter().position(|e| e.name == LOAD_MANIFEST)?;
     let map = map_file(&m.path_in(&b.config.deploy)).unwrap();
-    let module = Module::parse(&map).unwrap();
-    let bytes = module.read_entry(index as u32).unwrap();
-    Some(bytes.as_chunks::<4>().0.iter().map(|c| GlobalId(i32::from_le_bytes(*c))).collect())
+    Module::parse(&map).unwrap().read_load_manifest().unwrap()
 }
 
 fn has_problem(body: &Body<'_>) -> bool {

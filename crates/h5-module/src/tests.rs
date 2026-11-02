@@ -2,7 +2,7 @@ use std::fs;
 
 use crate::index::Index;
 use crate::testutil::{SAMPLE_LOADED_TAGS, TempDir, TestEntry, build_module, sample_entries};
-use crate::{EntryKind, FourCc, Module, ModuleError, ModuleLists, Section, Version, checks};
+use crate::{EntryKind, FourCc, GlobalId, Module, ModuleError, ModuleLists, Section, Version, checks};
 
 fn sample(version: Version) -> Vec<u8> {
     build_module(version, &sample_entries(), SAMPLE_LOADED_TAGS)
@@ -37,6 +37,18 @@ fn parses_both_versions() {
             + 2 * 4
             + m.header.block_count as usize * version.block_entry_size();
         assert_eq!(m.data_start, expected_start as u64);
+    }
+}
+
+/// AusarDocs `Module.md` "Load Manifest": an array of global IDs (format-notes).
+#[test]
+fn reads_the_load_manifest() {
+    for version in [Version::V23, Version::V27] {
+        let bytes = sample(version);
+        let m = Module::parse(&bytes).unwrap();
+        assert_eq!(m.read_load_manifest().unwrap(), Some(vec![GlobalId(0x0040_1140), GlobalId(0x0040_2000)]));
+        let without = build_module(version, &sample_entries()[1..], &[]);
+        assert_eq!(Module::parse(&without).unwrap().read_load_manifest().unwrap(), None);
     }
 }
 

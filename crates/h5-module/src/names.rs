@@ -55,6 +55,13 @@ pub struct Layer {
     pub revision: u32,
 }
 
+/// The stack a module belongs to: its path without `-rtx-…` and `.module`
+/// (`any\levels\ui\mainmenu\mainmenu`), the same for the base and its updates.
+pub fn module_stack(name: &str) -> &str {
+    let stem = name.strip_suffix(".module").unwrap_or(name);
+    stem.rsplit_once("-rtx-").map_or(stem, |(stack, _)| stack)
+}
+
 pub fn module_layer(name: &str) -> Layer {
     let stem = name.strip_suffix(".module").unwrap_or(name);
     let numbers = stem.rsplit_once("-rtx-").map_or("", |(_, n)| n);
@@ -115,6 +122,15 @@ mod tests {
         assert!(module_layer("g-rtx-76333-5.module") < module_layer("g-rtx-77316-3.module"));
         assert_eq!(module_layer("m7.module"), Layer { version: 0, revision: 0 });
         assert_eq!(module_layer("odd-rtx-x.module"), Layer { version: 0, revision: 0 });
+    }
+
+    /// A stack is the module path without its layer: the base and its updates.
+    #[test]
+    fn module_stacks() {
+        let s = r"any\levels\ui\mainmenu\mainmenu";
+        assert_eq!(module_stack(r"any\levels\ui\mainmenu\mainmenu-rtx-1.module"), s);
+        assert_eq!(module_stack(r"any\levels\ui\mainmenu\mainmenu-rtx-11587-1.module"), s);
+        assert_eq!(module_stack("m7.module"), "m7");
     }
 
     #[test]

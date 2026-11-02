@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use h5_defs::definition::Definition;
 use h5_module::index::FileStamp;
 use h5_module::tag::{TagError, TagHeader};
-use h5_module::{Module, ModuleError, ModuleLists, Section, map_file};
+use h5_module::{GlobalId, Module, ModuleError, ModuleLists, Section, map_file};
 use lru::LruCache;
 
 use crate::catalog::{Build, Copy, Tag};
@@ -107,6 +107,8 @@ pub struct Store {
     /// the build it replaced (`reindex`).
     generation: u64,
     lists: Mutex<HashMap<u32, Arc<ModuleLists>>>,
+    /// Load manifests by module (`None`: the module has none).
+    manifests: Mutex<HashMap<u32, Option<Arc<Vec<GlobalId>>>>>,
     definitions: Mutex<HashMap<PathBuf, (FileStamp, Arc<Definition>)>>,
     tags: Arc<TagCache>,
 }
@@ -118,6 +120,7 @@ impl Store {
         Store {
             generation: GENERATIONS.fetch_add(1, Ordering::Relaxed),
             lists: Mutex::default(),
+            manifests: Mutex::default(),
             definitions: Mutex::default(),
             tags,
         }
@@ -152,14 +155,15 @@ impl Store {
 
     #[cfg(test)]
     pub(crate) fn module_lists(&self, build: &Build, copy: Copy) -> Result<Arc<ModuleLists>, ReadError> {
-        let map = map_unchanged(build, copy)?;
-        self.lists_of(copy.module, &map).map_err(in_module(build, copy))
+        let map = map_unchanged(build, copy.module)?;
+        self.lists_of(copy.module, &map).map_err(in_module(build, copy.module))
     }
 }
 
-/// The path of `copy`'s module file, refusing one changed since it was indexed (D28).
-fn unchanged_file(build: &Build, copy: Copy) -> Result<PathBuf, ReadError> {
-    let record = build.module(copy);
+/// The path of module `module`'s file (index position), refusing one changed
+/// since it was indexed (D28).
+fn unchanged_file(build: &Build, module: u32) -> Result<PathBuf, ReadError> {
+    let record = &build.index.modules[module as usize];
     let path = build.module_file(record);
     let meta = std::fs::metadata(&path).map_err(|error| ReadError::Open { module: record.rel_path.clone(), error })?;
     if FileStamp::of(&meta) != record.stamp {
@@ -168,34 +172,46 @@ fn unchanged_file(build: &Build, copy: Copy) -> Result<PathBuf, ReadError> {
     Ok(path)
 }
 
-fn map_unchanged(build: &Build, copy: Copy) -> Result<impl std::ops::Deref<Target = [u8]>, ReadError> {
-    let path = unchanged_file(build, copy)?;
-    map_file(&path).map_err(in_module(build, copy))
+fn map_unchanged(build: &Build, module: u32) -> Result<impl std::ops::Deref<Target = [u8]>, ReadError> {
+    let path = unchanged_file(build, module)?;
+    map_file(&path).map_err(in_module(build, module))
 }
 
-fn in_module(build: &Build, copy: Copy) -> impl Fn(ModuleError) -> ReadError + '_ {
-    move |error| ReadError::Module { module: build.module(copy).rel_path.clone(), error }
+fn in_module(build: &Build, module: u32) -> impl Fn(ModuleError) -> ReadError + '_ {
+    move |error| ReadError::Module { module: build.index.modules[module as usize].rel_path.clone(), error }
 }
 
-/// Runs `f` on `copy`'s module, mapped for this call, with its kept lists.
+/// Runs `f` on module `module`, mapped for this call, with its kept lists.
 fn with_module<R>(
     build: &Build,
-    copy: Copy,
+    module: u32,
     f: impl FnOnce(&Module<'_>) -> Result<R, ModuleError>,
 ) -> Result<R, ReadError> {
-    let map = map_unchanged(build, copy)?;
+    let map = map_unchanged(build, module)?;
     let run = || -> Result<R, ModuleError> {
-        let lists = build.store.lists_of(copy.module, &map)?;
+        let lists = build.store.lists_of(module, &map)?;
         f(&Module::with_lists(&map, &lists)?)
     };
-    run().map_err(in_module(build, copy))
+    run().map_err(in_module(build, module))
 }
 
 /// The decompressed header and tag data sections of `copy`.
 fn read_sections(build: &Build, copy: Copy) -> Result<(Vec<u8>, Vec<u8>), ReadError> {
-    with_module(build, copy, |m| {
+    with_module(build, copy.module, |m| {
         Ok((m.read_section(copy.entry, Section::Header)?, m.read_section(copy.entry, Section::TagData)?))
     })
+}
+
+/// The global IDs in module `module`'s load manifest (`None` without one),
+/// kept after the first read; refused, like tags, once the file has changed.
+pub fn read_manifest(build: &Build, module: u32) -> Result<Option<Arc<Vec<GlobalId>>>, ReadError> {
+    unchanged_file(build, module)?;
+    if let Some(ids) = lock(&build.store.manifests).get(&module) {
+        return Ok(ids.clone());
+    }
+    let ids = with_module(build, module, |m| m.read_load_manifest())?.map(Arc::new);
+    lock(&build.store.manifests).insert(module, ids.clone());
+    Ok(ids)
 }
 
 /// Reads the header and tag data of `copy`, from its module file as indexed;
@@ -203,7 +219,7 @@ fn read_sections(build: &Build, copy: Copy) -> Result<(Vec<u8>, Vec<u8>), ReadEr
 pub fn read_stored_tag(build: &Build, copy: Copy) -> Result<Arc<StoredTag>, ReadError> {
     let key = (build.store.generation, copy);
     // Checked first, so a kept tag of a changed module is refused too.
-    unchanged_file(build, copy)?;
+    unchanged_file(build, copy.module)?;
     if let Some(tag) = build.store.tags.get(key) {
         return Ok(tag);
     }
@@ -242,7 +258,7 @@ pub fn copy_versions(build: &Build, tag: &Tag) -> Result<Vec<usize>, ReadError> 
         return Ok(vec![0; tag.copies.len()]);
     }
     let checksums = |copy: Copy| {
-        with_module(build, copy, |m| {
+        with_module(build, copy.module, |m| {
             let blocks = m.entry_blocks(copy.entry)?;
             Ok(blocks.iter().map(|b| Some((b.checksum?, b.uncompressed_size))).collect::<Option<Vec<_>>>())
         })

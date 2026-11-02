@@ -12,6 +12,7 @@ mod diff_tags;
 mod find_references;
 mod header_dump;
 mod lists;
+mod maps;
 pub mod present;
 mod query_field;
 mod read_tag;
@@ -27,6 +28,7 @@ pub use diff_tags::DiffTags;
 pub use find_references::{Direction, FindReferences};
 pub use header_dump::HeaderDump;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
+pub use maps::{MapTags, WhichMaps};
 pub use query_field::QueryField;
 pub use read_tag::ReadTag;
 pub use reindex::{Reindex, What};
@@ -100,6 +102,8 @@ tools!(
     SearchValues,
     QueryField,
     DiffTags,
+    MapTags,
+    WhichMaps,
     Reindex
 );
 

@@ -7,6 +7,7 @@ pub mod def_view;
 pub mod diff;
 pub mod field_query;
 pub mod filters;
+pub mod maps;
 pub mod output;
 pub mod query;
 pub mod references;

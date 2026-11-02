@@ -38,6 +38,8 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "One field's value in one tag" | `read_tag(tag, path=…, depth=0)` (there is no separate field tool) |
 | "Assault rifle vs SMG" | `diff_tags(a, b)`; `path="barrels"` for one part |
 | "Which maps load this?" | `which_maps(tag)` |
+| "Which weapons does this map load?" | `map_tags(module="mainmenu", class="weap")` |
+| "Older versions of this tag (before the latest update)" | `tag_copies(tag)`, then `read_tag(tag, module=…)` with an earlier layer's module |
 | "What assets does this tag have, and how big are they?" | `list_entries(tag=...)` |
 | "Biggest meshes / all assets of a kind" | `list_entries(kind="mesh resource", sort=size)` |
 | "Bitmaps with 'magnum' in the name" | `search_tags("magnum", class="bitm")` |
@@ -198,6 +200,10 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `definition_status` `has definition` | Whether a definition XML exists for the class | No → that class's tags can't be read field by field, only listed and followed by references |
 | `definition_status` mismatches + `checked N of M tags` | Size or GUID mismatches found so far between the definition and real tags of that class, and how many of its tags have been checked (kept across sessions) | Mismatches → values from that class may be wrong where flagged. "None found" only covers the N tags checked, not the whole class |
 | `tag_copies` `versions: N`, `read by default: <module>` | How many different versions of the tag's data its copies hold (1 = every copy is the same), and the copy every tool reads without `module=`: the one in the latest layer (§1) | N > 1 → values depend on the copy; the default is the latest update. Compare with an earlier one through `read_tag(module=…)` |
+| `map_tags` `manifest: <module>`, `not in indexed modules: N` | The load manifest read: for a map with update layers, its latest layer's (each layer's manifest is a full list, §4.8). N = IDs it lists that are no tag in the indexed modules; they are counted, not listed | The rows are the indexed tags only. The N others exist in the game but can't be named or read here; don't call the list complete without mentioning them |
+| `map_tags` rows | The map's tags by class code, then path | Being listed means the map loads the tag; how it's used needs `find_references(direction=in)` |
+| `which_maps` rows | Each map whose load manifest in effect (its latest layer) lists the tag: the manifest's module, its layer, and how many tags it lists | Only maps in the indexed modules are checked |
+| `hint: the load manifest(s) in effect of N map(s) don't list this tag; …` (`which_maps`) | None of the indexed maps loads it through its manifest | Don't say no map uses it: maps that aren't indexed weren't checked, and an earlier layer's manifest may have listed it |
 | `hint: no tag's string table contains '…'; …` (`search_values`) | No string_id name or referenced tag name holds the term. Field values (numbers, enums) aren't in string tables | Try `search_definitions` for field names, or `read_tag` for values |
 | `compare_builds` `only in A` / `only in B` / `different` | By global ID: tags present in one build only, or in both with different stored data | `different` means the data differs, not necessarily a gameplay change; diff the tags to see what |
 | `find_references` `(see above)` (recursive) | That tag was already listed earlier in this walk; it isn't expanded again | Not a new reference; look it up above |
@@ -253,6 +259,7 @@ Every tag stores, besides its field values, a few lists that say what its fields
 - **Resource** (`resource`): an asset stored next to the tag, not inside it: a mesh, a texture, sound data. The kind and size come from the module's list of the tag's resources; the data itself is not loaded.
 - **Size check:** before showing a struct, `read_tag` checks that the definition's size equals the size the tag stores. If not, it shows `!! definition size mismatch` instead of values: the definition doesn't fit this tag (usually a different game version).
 - **Copies:** the same tag can be stored in several modules (update layers, §1). `copies:` on the tag line says whether their data is identical and which copy you are reading.
+- **Load manifest:** a file in a map's module (not a tag) listing the global IDs of the tags the map loads. Each update layer of a map carries the whole list again, with tags added or dropped, so the latest layer's list is the one in effect. It lists many tags stored in modules that aren't indexed here. `map_tags` and `which_maps` read it.
 
 ## 5. Being accurate with the user
 

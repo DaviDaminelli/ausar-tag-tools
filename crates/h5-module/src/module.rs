@@ -12,6 +12,7 @@ use memmap2::Mmap;
 use crate::fourcc::FourCc;
 use crate::global_id::GlobalId;
 use crate::le::{i32_at, i64_at, u16_at, u32_at, u64_at};
+use crate::names::LOAD_MANIFEST;
 
 /// `'dhom'` as a little-endian `u32` (bytes on disk: `mohd`).
 pub const MAGIC: u32 = 0x6468_6F6D;
@@ -511,6 +512,24 @@ impl<'a> Module<'a> {
     pub fn read_entry(&self, index: u32) -> Result<Vec<u8>, ModuleError> {
         let size = self.entry(index)?.total_uncompressed_size as u64;
         self.read_range(index, 0..size)
+    }
+
+    /// The global IDs in the module's `loadmanifest` file, in file order
+    /// (AusarDocs `Module.md`: an array of global IDs); `None` without one.
+    pub fn read_load_manifest(&self) -> Result<Option<Vec<GlobalId>>, ModuleError> {
+        let Some(index) = (0..self.entries.len() as u32).find(|&i| self.name(i).is_ok_and(|n| n == LOAD_MANIFEST))
+        else {
+            return Ok(None);
+        };
+        let bytes = self.read_entry(index)?;
+        let (ids, rest) = bytes.as_chunks::<4>();
+        if !rest.is_empty() {
+            return Err(ModuleError::BadEntry {
+                index,
+                reason: format!("loadmanifest is {} bytes, not a whole number of global IDs", bytes.len()),
+            });
+        }
+        Ok(Some(ids.iter().map(|id| GlobalId(i32::from_le_bytes(*id))).collect()))
     }
 
     /// Decompresses bytes `range` of entry `index`'s data, touching only the

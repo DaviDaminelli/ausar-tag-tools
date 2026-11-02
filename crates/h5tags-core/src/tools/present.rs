@@ -130,6 +130,40 @@ pub fn read_error(e: ReadError) -> ToolError {
     ToolError::new(e.to_string()).hint(hint)
 }
 
+/// `which_maps` found the tag in no manifest; only indexed maps were looked at.
+pub fn no_map_hint(checked: usize) -> String {
+    match checked {
+        0 => "no module in this build's indexed modules has a load manifest; maps that aren't indexed can't be checked"
+            .into(),
+        1 => "the load manifest in effect of 1 map doesn't list this tag; maps that aren't indexed weren't checked"
+            .into(),
+        n => format!(
+            "the load manifests in effect of {n} maps don't list this tag; maps that aren't indexed weren't checked"
+        ),
+    }
+}
+
+/// Manifests `which_maps` couldn't read: the tag may be listed in them.
+pub fn unread_manifests_hint(b: &Build, failed: &[(u32, ReadError)]) -> String {
+    let named: Vec<String> =
+        failed.iter().take(3).map(|(m, e)| format!("{} ({e})", b.index.modules[*m as usize].rel_path)).collect();
+    format!("{} load manifest(s) couldn't be read; the tag may be in them too: {}", failed.len(), named.join("; "))
+}
+
+/// `map_tags`' module= found no load manifest, or one in several maps (D59).
+pub fn pick_manifest_error(module: &str, e: crate::maps::PickError<'_>) -> ToolError {
+    match e {
+        crate::maps::PickError::NoManifest => {
+            ToolError::new(format!("no module matching '{module}' has a load manifest"))
+                .hint("list_modules shows which modules have one (column load manifest)")
+        }
+        crate::maps::PickError::SeveralMaps(stacks) => {
+            ToolError::new(format!("'{module}' matches the manifests of several maps: {}", stacks.join(", ")))
+                .hint("module= with one of these names reads that map's latest layer")
+        }
+    }
+}
+
 pub fn definition_error(e: DefinitionLoadError) -> ToolError {
     ToolError::new(e.to_string()).hint("the build's definitions folder (defs) may be damaged; check it in the config")
 }
