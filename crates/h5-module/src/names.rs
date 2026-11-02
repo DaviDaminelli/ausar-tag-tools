@@ -45,6 +45,28 @@ pub fn parse_resource_name(name: &str) -> Option<ResourceName<'_>> {
     })
 }
 
+/// A module's update layer, from its name `…-rtx-<version>-<revision>.module`:
+/// the game version it belongs to. The base `…-rtx-1.module` is version 0.
+/// Ordered by version (format-notes "Map info files": a stack lists its
+/// layers in this order, base first); a name without the pattern is 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Layer {
+    pub version: u32,
+    pub revision: u32,
+}
+
+pub fn module_layer(name: &str) -> Layer {
+    let stem = name.strip_suffix(".module").unwrap_or(name);
+    let numbers = stem.rsplit_once("-rtx-").map_or("", |(_, n)| n);
+    match numbers.split_once('-') {
+        Some((version, revision)) => match (version.parse(), revision.parse()) {
+            (Ok(version), Ok(revision)) => Layer { version, revision },
+            _ => Layer { version: 0, revision: 0 },
+        },
+        None => Layer { version: 0, revision: numbers.parse().unwrap_or(0) },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +102,19 @@ mod tests {
 
         let r = parse_resource_name(r"a\b.scenario_structure_bsp[1:tag_resources]").unwrap();
         assert_eq!((r.index, r.kind), (1, "tag_resources"));
+    }
+
+    /// format-notes "Map info files": a stack lists its layers by version, base
+    /// first; the revision after the version isn't part of the order.
+    #[test]
+    fn module_layers() {
+        assert_eq!(module_layer(r"any\levels\globals-rtx-1.module"), Layer { version: 0, revision: 1 });
+        assert_eq!(module_layer(r"any\levels\globals-rtx-11587-1.module"), Layer { version: 11587, revision: 1 });
+        assert_eq!(module_layer("globals-rtx-75160-3.module"), Layer { version: 75160, revision: 3 });
+        assert!(module_layer("g-rtx-1.module") < module_layer("g-rtx-75160-3.module"));
+        assert!(module_layer("g-rtx-76333-5.module") < module_layer("g-rtx-77316-3.module"));
+        assert_eq!(module_layer("m7.module"), Layer { version: 0, revision: 0 });
+        assert_eq!(module_layer("odd-rtx-x.module"), Layer { version: 0, revision: 0 });
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::tag_view::{BuildLookup, Detail, Options, ViewSettings, view_selection
 use crate::view::{ViewNode, value_column};
 
 /// The same field in every tag of a class: one row per tag (path with [*]:
-/// one per entry), from each tag's first copy. filter: '<op> <value>' with
+/// one per entry), from each tag's copy in the latest layer. filter: '<op> <value>' with
 /// == != > >= < <= contains (enums by label, flags: contains <option>, tag
 /// references by name). sort: none, asc, desc. Tags that can't be read are
 /// listed as skipped. Next: read_tag on a row's tag.

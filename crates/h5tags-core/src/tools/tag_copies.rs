@@ -1,17 +1,20 @@
 //! `tag_copies` (PRD §6.6): every copy of a tag, and which hold the same data.
 
+use h5_module::names::module_layer;
 use serde::Deserialize;
 
 use super::args::{self, BuildArg};
 use super::{Tool, present};
 use crate::output::{Cell, Output, Summary, Table, ToolError, col};
+use crate::query::choose_copy;
 use crate::session::Session;
 use crate::stored::copy_versions;
 
 /// Every copy of a tag (the same global ID stored in several modules): its
-/// module, data version, asset checksum and sizes. Copies with the same `data`
-/// letter hold the same bytes; read_tag reads the first copy unless module=
-/// picks another.
+/// module, layer, data version, asset checksum and sizes. A layer is a game
+/// update (base, then e.g. 11587-1, 12719-1: later versions); copies with the
+/// same `data` letter hold the same bytes. Every tool reads the copy in the
+/// latest layer unless module= picks another: use it to see earlier versions.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct TagCopies {
     /// The tag: global ID, tag path or display name.
@@ -38,8 +41,10 @@ impl Tool for TagCopies {
             .zip(&versions)
             .map(|(&copy, &v)| {
                 let e = b.entry(copy);
+                let module = &b.module(copy).rel_path;
                 vec![
-                    b.module(copy).rel_path.clone().into(),
+                    module.clone().into(),
+                    present::layer_text(module_layer(module)).into(),
                     version_letter(v).into(),
                     format!("{:016X}", e.asset_checksum).into(),
                     Cell::Size(e.uncompressed_size),
@@ -48,11 +53,16 @@ impl Tool for TagCopies {
             })
             .collect();
         let count = versions.iter().max().map_or(0, |m| m + 1);
+        let mut summary = vec![Summary { label: "versions", key: "versions", value: Cell::Int(count as i64) }];
+        if let Some(copy) = choose_copy(b, tag, None) {
+            let value = b.module(copy).rel_path.clone().into();
+            summary.push(Summary { label: "read by default", key: "read_by_default", value });
+        }
         Ok(Output::Table(Table {
             build: s.label(b),
             total: rows.len(),
-            summary: vec![Summary { label: "versions", key: "versions", value: Cell::Int(count as i64) }],
-            columns: vec![col::MODULE, col::DATA, col::ASSET_CHECKSUM, col::SIZE, col::COMPRESSED],
+            summary,
+            columns: vec![col::MODULE, col::LAYER, col::DATA, col::ASSET_CHECKSUM, col::SIZE, col::COMPRESSED],
             rows,
             ..Table::default()
         }))

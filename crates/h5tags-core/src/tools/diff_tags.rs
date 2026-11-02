@@ -14,7 +14,8 @@ use crate::view::{ViewNode, value_column};
 
 /// Where two tags of the same class differ: only the fields whose values
 /// differ, as field path, a, b; tag blocks by entry count, then entry by
-/// entry. path= compares only that part. Each tag's first copy. The fields
+/// entry. path= compares only that part. Each tag's copy in the latest layer
+/// (tag_copies lists the others). The fields
 /// that differ are candidates, not causes: check one on a third tag or with
 /// query_field first. Next: read_tag on either tag for the rest.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]

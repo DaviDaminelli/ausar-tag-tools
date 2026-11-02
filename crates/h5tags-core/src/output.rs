@@ -60,6 +60,7 @@ pub mod col {
     pub const DEPTH: Column = Column { header: "depth", key: "depth" };
     pub const VIA: Column = Column { header: "via", key: "via" };
     pub const DATA: Column = Column { header: "data", key: "data" };
+    pub const LAYER: Column = Column { header: "layer", key: "layer" };
     pub const ASSET_CHECKSUM: Column = Column { header: "asset checksum", key: "asset_checksum" };
     pub const VALUE: Column = Column { header: "value", key: "value" };
     pub const A: Column = Column { header: "a", key: "a" };
@@ -91,6 +92,7 @@ pub mod col {
         VIA,
         DATA,
         ASSET_CHECKSUM,
+        LAYER,
         VALUE,
         A,
         B,

@@ -28,7 +28,7 @@ Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks
 (empty) (none) (none set) = real facts about the tag. (no definition…) (no option…) (unnamed…) = value is real, meaning unknown.
 (unresolved) = string_id not resolved; don't guess it. (not in indexed modules) = say so; don't assume it's missing from the game.
 '!!' or (not read) = the TOOL failed: never state those values, or their absence, as facts; tell the user. 'warning: definition GUID mismatch' = the values were read; use them and mention the warning.
-copies: N (differ) = the tag differs between modules; say which module's copy you used.
+copies: N (differ) = the tag differs between update layers (game versions); tools read the latest layer. tag_copies lists every version; module= reads another. Say which you used.
 Field names and help text are hints about behaviour, not proof; say where an explanation comes from.
 What a change affects (guide §2.1): diff_tags against a tag that already behaves as wanted; the fields that differ are candidates, not causes.
 Check a candidate on a third tag or across the class (query_field) before calling it the cause.

@@ -11,6 +11,7 @@ use super::present::{self, GUARD_OUTLINE_DEPTH};
 use crate::catalog::{Build, Copy, Tag};
 use crate::def_view::outline_tag;
 use crate::output::{Output, ToolError, format_size};
+use crate::query::choose_copy;
 use crate::session::Session;
 use crate::stored::{Identity, copy_identity, load_definition, read_stored_tag};
 use crate::tag_view::{
@@ -79,15 +80,20 @@ pub(super) fn title(b: &Build, tag: &Tag, copy: Copy, identity: Identity, detail
     json.insert("build".into(), json!(b.name));
     let module = &b.module(copy).rel_path;
     let n = tag.copies.len();
+    // The default copy (D58), unless module= chose another.
+    let latest = choose_copy(b, tag, None) == Some(copy);
+    let which = if latest { ", the latest layer" } else { "" };
     match identity {
         Identity::Single => {}
         Identity::Identical => line.push_str(&format!("  copies: {n} (identical)")),
-        Identity::Differ => line.push_str(&format!("  copies: {n} (differ; reading {module}; use module= to choose)")),
+        Identity::Differ => {
+            line.push_str(&format!("  copies: {n} (differ; reading {module}{which}; use module= to choose)"))
+        }
     }
     if identity != Identity::Single {
         json.insert(
             "copies".into(),
-            json!({ "count": n, "identical": identity == Identity::Identical, "reading": module }),
+            json!({ "count": n, "identical": identity == Identity::Identical, "reading": module, "latest_layer": latest }),
         );
     }
     let lookup = BuildLookup { build: b, copy };
@@ -238,13 +244,18 @@ mod tests {
         assert!(read(&mut d, |_| {}).unwrap().lines().next().unwrap().contains("  copies: 2 (identical)"));
         let mut d = TestDeploy::with("read-differ", SecondCopy::Changed);
         let first = read(&mut d, |_| {}).unwrap().lines().next().unwrap().to_owned();
+        // The copy in the latest layer is read by default (D58).
         assert!(
-            first.contains(r"copies: 2 (differ; reading any\levels\test-rtx-1.module; use module= to choose)"),
+            first.contains(
+                r"copies: 2 (differ; reading any\levels\test-rtx-11587-1.module, the latest layer; use module= to choose)"
+            ),
             "{first}"
         );
-        // module= reads the other copy.
-        let text = read(&mut d, |t| t.module = Some("11587".into())).unwrap();
+        let text = read(&mut d, |_| {}).unwrap();
         assert!(text.contains("\ncount  int32  9\n"), "{text}");
+        // module= reads the other copy.
+        let text = read(&mut d, |t| t.module = Some("test-rtx-1.module".into())).unwrap();
+        assert!(text.contains("\ncount  int32  0\n"), "{text}");
     }
 
     #[test]

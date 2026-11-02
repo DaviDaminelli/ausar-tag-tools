@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use h5_module::FourCc;
 use h5_module::index::{EntryKind, EntryRecord, ModuleRecord};
+use h5_module::names::module_layer;
 use serde::Deserialize;
 
 use crate::catalog::{Build, Copy, Tag};
@@ -94,10 +95,17 @@ pub fn browse<'b>(build: &'b Build, folder: &str) -> Option<Folder<'b>> {
     Some(Folder { prefix_len: prefix.len(), subfolders: subfolders.into_values().collect(), tags })
 }
 
-/// Which copy of a tag is used (PRD §6.4.6, provisional rule): the first one,
-/// in module path order, whose module matches `module`.
+/// Which copy of a tag is used (PRD §6.4.6, D58): of the copies whose module
+/// matches `module`, the one in the latest layer; between modules of the same
+/// layer, the first in module path order.
 pub fn choose_copy(build: &Build, tag: &Tag, module: Option<&ModuleFilter>) -> Option<Copy> {
-    tag.copies.iter().copied().find(|&c| module.is_none_or(|m| m.matches(&build.module(c).rel_path)))
+    // Reversed, so that `max_by_key` (the last of equal keys) keeps the first by path.
+    tag.copies
+        .iter()
+        .rev()
+        .copied()
+        .filter(|&c| module.is_none_or(|m| m.matches(&build.module(c).rel_path)))
+        .max_by_key(|&c| module_layer(&build.module(c).rel_path))
 }
 
 /// Which entries `entries` looks at.
