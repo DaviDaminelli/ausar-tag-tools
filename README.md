@@ -10,17 +10,26 @@ Supported builds: **Halo 5: Forge** (Windows PC, module version 27) and **Halo 5
 - For each build: its deploy folder, the folder that holds the `.module` files.
 - Lord Zedd's [H5Tags](https://github.com/Lord-Zedd/H5Tags) definitions: its `tags` folder (and `tag_resources`). They name and type every field; without them tags can be listed but not read field by field.
 
+## Let your AI assistant set it up
+
+With Claude Code (or another assistant that can run commands), say:
+
+> Set up h5tags for me, following docs/SETUP.md in the h5tags folder.
+
+It builds or finds the programs, installs them, asks you where your game files and definitions are, writes the config, checks it, and connects h5tags to your AI client. The steps below are the same, done by hand.
+
 ## Install
 
 - Download a release binary when one is published, or
 - build it: `cargo build --release` (Rust 1.88 or later). This makes two programs in `target/release`: `h5tags` (the command line, 4.5 MB) and `h5tags-mcp` (the MCP server, 6.9 MB). Nothing else needs installing.
+- Copy both to a folder of their own, for example `%LOCALAPPDATA%\Programs\h5tags` on Windows (no administrator rights needed), and put the config next to them. An AI client keeps `h5tags-mcp` open while it runs, so a program in `target\release` can't be replaced by a rebuild until the client lets it go.
 
 ## Configure
 
 Write an `h5tags.toml`; by default the programs look for it next to themselves (`--config <file>` points elsewhere). Relative paths are relative to the config file.
 
 ```toml
-cache_dir = 'C:\h5tags\cache'          # where the index is kept; default: your OS cache folder
+cache_dir = 'C:\h5tags\cache'          # where the index, header scan and definition check are kept; default: your OS cache folder (Windows: %LOCALAPPDATA%\h5tags)
 tag_cache_mb = 256                     # decompressed tags kept in memory by the MCP server; default 256
 large_read_tokens = 3000               # a whole read_tag bigger than this returns the outline instead; default 3000
 guid_check = "warn"                    # a definition GUID mismatch: off, warn (default: shown, values kept) or enforce (values not shown)
