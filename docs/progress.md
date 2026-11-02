@@ -566,3 +566,19 @@ Xbox `.mapinfo` check (2026-11-02, the 54 `.mapinfo` files of the Xbox deploy, b
 | `map-tags rtx --build xbox` | refused: matches 5 maps, named in the error |
 
 Counts match the layer survey's. Workspace tests (139 in `h5tags-core`) and clippy pass.
+
+### Step 4: `definition_status` and the results cache (2026-11-02, Forge and Xbox samples, release CLI)
+
+| Measure | Forge | Xbox |
+| --- | --- | --- |
+| tag copies checked / classes | 62,976 / 210 | 58,846 / 215 |
+| first call (check built), per module before chunking | 19.92 s | 11.32 s |
+| first call, chunks of 1,024 tags | **1.16 s** (1.45 s with process start) | **1.51 s** (1.78 s) |
+| later calls (from the cache) | 0.29 s | 0.26 s |
+| size mismatches | 0 | 19 copies in 5 classes (`cnmp` 10, `wgtz` 4, `sngl` 2, `wigl` 2, `rasg` 1): the M3 survey's 19 |
+| other read problems | 0 | 0 |
+| classes with GUID mismatches / GUIDs in no definition | 36 / 20 | 36 / 17 |
+| classes with more than one layout | 0 | 0 |
+| overview page (100 classes) | ≈ 1,175 tokens | ≈ 1,165 tokens |
+
+Results identical before and after chunking. Copy identity not cached: `tag_copies` on the Xbox DMR 186–203 ms vs 182–197 ms for `search_tags` (D60). Workspace tests (147 in `h5tags-core`) and clippy pass.
