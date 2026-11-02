@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+# A test deploy folder (synthetic modules) for other crates' tests.
+testutil = ["h5-module/testutil"]
+
 [dependencies]
 h5-defs.workspace = true
 h5-meta.workspace = true

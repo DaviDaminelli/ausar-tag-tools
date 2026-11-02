@@ -11,7 +11,7 @@ use crate::session::Session;
 
 /// Every class in the build: code, name, tag count, and whether a definition
 /// exists (without one, tags can be listed but not read field by field).
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct ListClasses {
     #[command(flatten)]
     #[serde(flatten)]
@@ -47,7 +47,7 @@ impl Tool for ListClasses {
 
 /// Every module of the build: path, version, tag count, whether it has a load
 /// manifest, and its status (`ok`, or `!!` if it is damaged or incomplete).
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct ListModules {
     #[command(flatten)]
     #[serde(flatten)]
@@ -100,7 +100,7 @@ impl Tool for ListModules {
 /// File entries (tags, resources, other files) with kind and size, from the
 /// index only: nothing is decompressed. Filters combine. Use it to see which
 /// assets a tag has, or to find assets by kind and size.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct ListEntries {
     /// Only this tag and its resources: global ID, tag path or display name.
     #[arg(long)]
@@ -209,7 +209,7 @@ impl Tool for ListEntries {
 
 /// Every resource (asset) kind in the build, with its entry count and total
 /// uncompressed size. Next: list_entries(kind=...) to see the entries.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct ListResourceKinds {
     #[command(flatten)]
     #[serde(flatten)]

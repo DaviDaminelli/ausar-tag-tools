@@ -7,7 +7,7 @@ use super::args::{self, BuildArg};
 use crate::output::{Cell, Output, ReportItem, ToolError};
 use crate::session::Session;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum What {
     /// Everything.
@@ -23,7 +23,7 @@ pub enum What {
 
 /// Forces a rebuild. Rarely needed: the index updates itself when module files
 /// change (size or time). Use it if a file was replaced with the same size and time.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct Reindex {
     /// What to rebuild: all, index, header_scan or results.
     #[arg(long, value_enum, default_value_t)]

@@ -3,6 +3,7 @@
 //! a hint; the domain (`catalog`, `filters`, `query`) never sees raw text.
 
 use serde::Deserialize;
+use serde_json::{Map, Value};
 
 use super::present;
 use crate::catalog::{Build, Copy, Tag, TagLookupError, TagSpec};
@@ -11,7 +12,7 @@ use crate::output::ToolError;
 use crate::query;
 use crate::session::Session;
 
-#[derive(Clone, Debug, Default, clap::Args, Deserialize)]
+#[derive(Clone, Debug, Default, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct BuildArg {
     /// Build name (default: the first build).
     #[arg(long)]
@@ -19,7 +20,7 @@ pub struct BuildArg {
     pub build: Option<String>,
 }
 
-#[derive(Clone, Debug, Default, clap::Args, Deserialize)]
+#[derive(Clone, Debug, Default, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct PageArgs {
     /// Rows to skip (paging; the result says the next offset).
     #[arg(long, default_value_t = 0)]
@@ -111,6 +112,49 @@ pub fn module_filter(text: Option<&str>) -> Option<ModuleFilter> {
     text.map(ModuleFilter::new)
 }
 
+/// A tool as MCP lists it (PRD §9a): its name, its description (the
+/// parameter struct's doc comment, also the CLI help) and its input schema.
+pub struct ToolSpec {
+    pub name: &'static str,
+    pub description: String,
+    pub input_schema: Map<String, Value>,
+}
+
+fn schema<T: schemars::JsonSchema>() -> Map<String, Value> {
+    let Value::Object(o) = schemars::schema_for!(T).to_value() else { unreachable!("a struct's schema is an object") };
+    o
+}
+
+pub(super) fn spec<T: super::Tool + schemars::JsonSchema>() -> ToolSpec {
+    let mut input_schema = schema::<T>();
+    // The description goes to the tool; the rest is the arguments' schema.
+    let description = input_schema.remove("description").and_then(|d| d.as_str().map(str::to_owned));
+    for key in ["$schema", "title"] {
+        input_schema.remove(key);
+    }
+    ToolSpec { name: T::NAME, description: description.unwrap_or_default(), input_schema }
+}
+
+/// Parses `args` into tool `name`'s parameters. Unknown keys are refused
+/// (serde would drop them, and a misspelt `path=` would read the whole tag).
+pub(super) fn from_json<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
+    name: &str,
+    args: Value,
+) -> Result<T, ToolError> {
+    let schema = schema::<T>();
+    let known: Vec<&str> = schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|p| p.keys().map(String::as_str).collect())
+        .unwrap_or_default();
+    let params = || format!("parameters: {}", known.join(", "));
+    if let Value::Object(o) = &args
+        && let Some(k) = o.keys().find(|k| !known.contains(&k.as_str()))
+    {
+        return Err(ToolError::new(format!("{name} has no parameter '{k}'")).hint(params()));
+    }
+    serde_json::from_value(args).map_err(|e| ToolError::new(format!("{name}: {e}")).hint(params()))
+}
 #[cfg(test)]
 mod tests {
     use super::*;

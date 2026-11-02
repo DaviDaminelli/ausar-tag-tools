@@ -14,7 +14,7 @@ use crate::output::{format_size, marker};
 use crate::view::{Container, FieldView, HeadingKind, PATH_TARGET, Shown, State, ViewNode};
 
 /// How much to show (PRD §7.6).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Detail {
     /// Field paths and values only.
@@ -27,7 +27,7 @@ pub enum Detail {
 }
 
 /// Which enum and flag options to list (PRD §7.5).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Options {
     /// Enums with ≤ 12 visible options list them all; else the label + `(+N options)`.

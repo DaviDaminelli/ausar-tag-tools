@@ -10,8 +10,9 @@ pub mod query;
 pub mod session;
 pub mod stored;
 pub mod tag_view;
-#[cfg(test)]
-mod testdeploy;
+/// A real deploy folder for tests (feature `testutil`; no game files).
+#[cfg(any(test, feature = "testutil"))]
+pub mod testdeploy;
 pub mod tools;
 pub mod view;
 

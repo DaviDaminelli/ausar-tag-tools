@@ -24,8 +24,12 @@ pub use read_tag::ReadTag;
 pub use reindex::{Reindex, What};
 pub use search::{Browse, SearchTags};
 
+use serde_json::Value;
+
 use crate::output::{Output, ToolError};
 use crate::session::Session;
+pub use args::ToolSpec;
+use args::{from_json, spec};
 
 pub trait Tool {
     /// The MCP tool name. The CLI command is the same with `-` for `_`.
@@ -49,10 +53,24 @@ macro_rules! tools {
             pub fn run(&self, session: &mut Session) -> Result<Output, ToolError> {
                 match self { $( Command::$variant(t) => t.run(session), )* }
             }
+
+            /// The call of tool `name` with MCP arguments `args` (a JSON object).
+            pub fn from_json(name: &str, args: Value) -> Result<Command, ToolError> {
+                match name {
+                    $( <$variant as Tool>::NAME => Ok(Command::$variant(from_json(name, args)?)), )*
+                    _ => Err(ToolError::new(format!("no tool '{name}'"))
+                        .hint(format!("tools: {}", TOOL_NAMES.join(", ")))),
+                }
+            }
         }
 
         /// Every tool name, in order.
         pub const TOOL_NAMES: &[&str] = &[$( <$variant as Tool>::NAME, )*];
+
+        /// Every tool as MCP lists it, in order.
+        pub fn tool_specs() -> Vec<ToolSpec> {
+            vec![$( spec::<$variant>(), )*]
+        }
     };
 }
 
@@ -73,8 +91,10 @@ tools!(
 #[cfg(test)]
 mod registry_tests {
     use clap::CommandFactory;
+    use serde_json::json;
 
     use super::*;
+    use crate::tag_view::Detail;
 
     #[derive(clap::Parser)]
     struct Cli {
@@ -89,6 +109,42 @@ mod registry_tests {
         let cli_names: Vec<&str> = cli.get_subcommands().map(|c| c.get_name()).collect();
         let expected: Vec<String> = TOOL_NAMES.iter().map(|n| n.replace('_', "-")).collect();
         assert_eq!(cli_names, expected);
+    }
+
+    /// D7: every CLI argument of a tool is a property of its MCP schema, and
+    /// back; every tool has a description.
+    #[test]
+    fn mcp_schemas_match_the_cli() {
+        let cli = Cli::command();
+        let specs = tool_specs();
+        assert_eq!(specs.iter().map(|s| s.name).collect::<Vec<_>>(), TOOL_NAMES);
+        for spec in &specs {
+            assert!(spec.description.len() > 20, "{}: {:?}", spec.name, spec.description);
+            let sub = cli.find_subcommand(spec.name.replace('_', "-")).unwrap();
+            let mut args: Vec<String> =
+                sub.get_arguments().filter(|a| a.get_id() != "help").map(|a| a.get_id().to_string()).collect();
+            let mut props: Vec<String> = spec.input_schema["properties"].as_object().unwrap().keys().cloned().collect();
+            args.sort();
+            props.sort();
+            assert_eq!(args, props, "{}", spec.name);
+        }
+    }
+
+    #[test]
+    fn mcp_arguments_become_the_cli_command() {
+        let c =
+            Command::from_json("read_tag", json!({ "tag": "0x00008593", "path": "barrels[0]", "depth": 0 })).unwrap();
+        let Command::ReadTag(t) = c else { panic!("{c:?}") };
+        assert_eq!(
+            (t.tag.as_str(), t.path.as_deref(), t.depth, t.detail),
+            ("0x00008593", Some("barrels[0]"), 0, Detail::Normal)
+        );
+        let err = Command::from_json("read_tag", json!({ "tag": "x", "paths": "a" })).unwrap_err();
+        assert_eq!(err.message, "read_tag has no parameter 'paths'");
+        assert!(err.hint.unwrap().contains("path"));
+        let err = Command::from_json("read_tag", json!({ "path": "a" })).unwrap_err();
+        assert!(err.message.contains("tag"), "{}", err.message);
+        assert!(Command::from_json("read_tags", json!({})).unwrap_err().message.contains("no tool 'read_tags'"));
     }
 
     /// Shared parameters keep their flag names in every tool.

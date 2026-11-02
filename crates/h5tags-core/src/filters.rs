@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::catalog::{Build, Tag};
 
 /// How `query` matches a name.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Mode {
     /// Case-insensitive substring of the tag path.
@@ -152,6 +152,20 @@ impl<'de> Deserialize<'de> for Size {
             Raw::Bytes(n) => Ok(Size(n)),
             Raw::Text(s) => s.parse().map_err(serde::de::Error::custom),
         }
+    }
+}
+
+/// What [`Size`]'s `Deserialize` accepts: a byte count or a text size.
+impl schemars::JsonSchema for Size {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "Size".into()
+    }
+
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({
+            "type": ["integer", "string"],
+            "description": "bytes, or a size with a decimal unit: 500KB, 10MB, 1.5GB"
+        })
     }
 }
 

@@ -41,6 +41,62 @@ pub struct BuildConfig {
     pub resource_defs: Option<PathBuf>,
 }
 
+/// Where the config comes from, as both programs take it on their command
+/// line (`h5tags` and `h5tags-mcp`): a config file, or one build given by its
+/// folders.
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct ConfigArgs {
+    /// Config file (default: h5tags.toml next to the executable).
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
+    /// One build without a config file: its deploy folder (needs --defs).
+    #[arg(long, global = true)]
+    pub deploy: Option<PathBuf>,
+    /// With --deploy: Lord Zedd's H5Tags `tags` folder.
+    #[arg(long, global = true)]
+    pub defs: Option<PathBuf>,
+    /// With --deploy: Lord Zedd's H5Tags `tag_resources` folder.
+    #[arg(long, global = true)]
+    pub resource_defs: Option<PathBuf>,
+    /// Where the index cache is kept (overrides the config).
+    #[arg(long, global = true)]
+    pub cache_dir: Option<PathBuf>,
+}
+
+impl ConfigArgs {
+    /// The config these arguments name; the message (with a `hint:` line
+    /// where one helps) when they don't name a usable one.
+    pub fn load(&self) -> Result<Config, String> {
+        let mut config = match (&self.deploy, &self.config) {
+            (Some(_), Some(_)) => return Err("use either --config or --deploy, not both".into()),
+            (Some(deploy), None) => {
+                let defs = self.defs.clone().ok_or("--deploy needs --defs <Lord Zedd's H5Tags tags folder>")?;
+                Config::single(deploy.clone(), defs, self.resource_defs.clone(), None)
+            }
+            (None, path) => {
+                let path = match path {
+                    Some(p) => p.clone(),
+                    None => std::env::current_exe()
+                        .ok()
+                        .and_then(|exe| exe.parent().map(|d| d.join("h5tags.toml")))
+                        .ok_or("can't find the executable's folder; pass --config")?,
+                };
+                if !path.exists() {
+                    return Err(format!(
+                        "no config file at {}\nhint: pass --config <file>, or --deploy <folder> --defs <folder>",
+                        path.display()
+                    ));
+                }
+                Config::load(&path).map_err(|e| e.to_string())?
+            }
+        };
+        if let Some(dir) = &self.cache_dir {
+            config.cache_dir = Some(dir.clone());
+        }
+        Ok(config)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("can't read config file {path}: {source}")]
@@ -187,6 +243,28 @@ defs = 'C:\H5Tags\tags'
         assert_eq!(default.tag_cache_bytes(), 256 << 20);
         assert_eq!(c.large_read_tokens, Some(5000));
         assert_eq!(default.large_read_tokens, None);
+    }
+
+    /// The CLI's and the MCP server's config arguments (PRD §6.1).
+    #[test]
+    fn config_arguments_choose_a_file_or_one_build() {
+        let args = |deploy: Option<&str>, defs: Option<&str>, config: Option<&str>| ConfigArgs {
+            config: config.map(PathBuf::from),
+            deploy: deploy.map(PathBuf::from),
+            defs: defs.map(PathBuf::from),
+            resource_defs: None,
+            cache_dir: Some("c".into()),
+        };
+        let c = args(Some("d"), Some("t"), None).load().unwrap();
+        assert_eq!((c.builds[0].name.as_str(), c.cache_dir()), ("default", PathBuf::from("c")));
+        assert_eq!(
+            args(Some("d"), None, None).load().unwrap_err(),
+            "--deploy needs --defs <Lord Zedd's H5Tags tags folder>"
+        );
+        assert!(args(Some("d"), Some("t"), Some("x.toml")).load().unwrap_err().contains("not both"));
+        assert!(
+            args(None, None, Some("no-such.toml")).load().unwrap_err().starts_with("no config file at no-such.toml")
+        );
     }
 
     #[test]

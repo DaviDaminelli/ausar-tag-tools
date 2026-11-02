@@ -5,7 +5,7 @@ use std::ops::Range;
 
 use serde_json::{Map, Value, json};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Format {
     /// Aligned columns for people (CLI default in a terminal; decisions D23).

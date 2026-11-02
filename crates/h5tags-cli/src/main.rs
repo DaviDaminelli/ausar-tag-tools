@@ -10,9 +10,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{ArgAction, Parser};
+use h5tags_core::config::ConfigArgs;
 use h5tags_core::session::ProgressSink;
 use h5tags_core::tools::HeaderDump;
-use h5tags_core::{Command, Config, Format, Output, Session, ToolError};
+use h5tags_core::{Command, Format, Output, Session, ToolError};
 use preferences::{Key, Preferences};
 use progress::SpinnerHandle;
 use tracing_subscriber::EnvFilter;
@@ -21,21 +22,8 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser)]
 #[command(name = "h5tags", version)]
 struct Cli {
-    /// Config file (default: h5tags.toml next to the executable).
-    #[arg(long, global = true)]
-    config: Option<PathBuf>,
-    /// One build without a config file: its deploy folder (needs --defs).
-    #[arg(long, global = true)]
-    deploy: Option<PathBuf>,
-    /// With --deploy: Lord Zedd's H5Tags `tags` folder.
-    #[arg(long, global = true)]
-    defs: Option<PathBuf>,
-    /// With --deploy: Lord Zedd's H5Tags `tag_resources` folder.
-    #[arg(long, global = true)]
-    resource_defs: Option<PathBuf>,
-    /// Where the index cache is kept (overrides the config).
-    #[arg(long, global = true)]
-    cache_dir: Option<PathBuf>,
+    #[command(flatten)]
+    config: ConfigArgs,
     /// Output format (default: table in a terminal, json when piped or redirected).
     #[arg(long, global = true, value_enum)]
     format: Option<Format>,
@@ -140,36 +128,6 @@ fn run_preferences(action: Option<&PreferenceAction>, file: Option<PathBuf>) -> 
     }
 }
 
-fn load_config(cli: &Cli) -> Result<Config, String> {
-    let mut config = match (&cli.deploy, &cli.config) {
-        (Some(_), Some(_)) => return Err("use either --config or --deploy, not both".into()),
-        (Some(deploy), None) => {
-            let defs = cli.defs.clone().ok_or("--deploy needs --defs <Lord Zedd's H5Tags tags folder>")?;
-            Config::single(deploy.clone(), defs, cli.resource_defs.clone(), None)
-        }
-        (None, path) => {
-            let path = match path {
-                Some(p) => p.clone(),
-                None => std::env::current_exe()
-                    .ok()
-                    .and_then(|exe| exe.parent().map(|d| d.join("h5tags.toml")))
-                    .ok_or("can't find the executable's folder; pass --config")?,
-            };
-            if !path.exists() {
-                return Err(format!(
-                    "no config file at {}\nhint: pass --config <file>, or --deploy <folder> --defs <folder>",
-                    path.display()
-                ));
-            }
-            Config::load(&path).map_err(|e| e.to_string())?
-        }
-    };
-    if let Some(dir) = &cli.cache_dir {
-        config.cache_dir = Some(dir.clone());
-    }
-    Ok(config)
-}
-
 /// Colors only for `table` output to a terminal (D24). Precedence: `--no-color`,
 /// then the preferences file, then the `NO_COLOR` convention, then on. The
 /// preferences are only read (`preference()`) when colors are possible (D25).
@@ -224,7 +182,7 @@ fn run_tool(
     run: impl FnOnce(&mut Session) -> Result<Output, ToolError>,
     spinner: Option<SpinnerHandle>,
 ) -> Outcome {
-    let config = match load_config(cli) {
+    let config = match cli.config.load() {
         Ok(c) => c,
         Err(e) => return Outcome::Failed(e),
     };

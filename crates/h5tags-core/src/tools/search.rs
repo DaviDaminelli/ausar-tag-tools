@@ -12,7 +12,7 @@ use crate::session::Session;
 
 /// Find tags by part of their path, by class, or by module. One row per tag.
 /// Next: list_entries(tag=...) for its assets, or browse its folder.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct SearchTags {
     /// Text to find. mode=default: part of the tag path, or a class code/name.
     pub query: String,
@@ -117,7 +117,7 @@ const CLASS_BREAKDOWN_MAX: usize = 8;
 /// Explore tag paths like folders: the subfolders of a folder (with how many
 /// tags each holds) and the tags directly in it. Next: browse a subfolder, or
 /// list_entries(tag=...) for a tag's assets.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct Browse {
     /// Folder, `\`-separated, case-insensitive (empty = the top level).
     #[arg(default_value = "")]

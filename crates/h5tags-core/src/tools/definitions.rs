@@ -62,7 +62,7 @@ fn definition_title(code: &str, name: &str, view: &mut TagView) {
 /// The schema of a class from its definition alone: fields, types, units,
 /// ranges, help, options, nesting, offsets (`detail=full`). No tag data. The
 /// field dictionary: read it once instead of repeating it in every read_tag.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct GetDefinition {
     /// Class code or name (weap or weapon).
     pub class: String,
@@ -139,7 +139,7 @@ impl Tool for GetDefinition {
 /// arrays and tag blocks, each with its field path and number of direct fields;
 /// for a tag, also entry counts and labels. No values. The first call for any
 /// large tag. Pass exactly one of tag or class.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct Outline {
     /// The tag: global ID, tag path or display name.
     #[arg(long)]
@@ -197,7 +197,7 @@ impl Tool for Outline {
 }
 
 /// Where search_definitions looks (PRD §6.5).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Scope {
     #[default]
@@ -215,7 +215,7 @@ pub enum Scope {
 /// explanations, whole-word hits first. Each hit: class, field path (tag
 /// blocks as name[*]), field type, what matched. Next:
 /// get_definition(class, path=...) or read_tag.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct SearchDefinitions {
     /// Text to find (part of a name, an option, or help text).
     pub query: String,
@@ -251,7 +251,28 @@ enum Fit {
     Word,
 }
 
+/// How `text` holds `q` (lowercase). ASCII text, nearly all of the
+/// definitions, is compared in place: no lowercase copy per text (D26).
 fn fit(text: &str, q: &str) -> Option<Fit> {
+    if !text.is_ascii() {
+        return fit_unicode(text, q);
+    }
+    let (t, q) = (text.as_bytes(), q.as_bytes());
+    let edge = |b: Option<&u8>| !b.is_some_and(u8::is_ascii_alphanumeric);
+    let mut found = None;
+    for (at, w) in t.windows(q.len().max(1)).enumerate() {
+        if !w.eq_ignore_ascii_case(q) {
+            continue;
+        }
+        if edge(at.checked_sub(1).and_then(|i| t.get(i))) && edge(t.get(at + q.len())) {
+            return Some(Fit::Word);
+        }
+        found = Some(Fit::Part);
+    }
+    found
+}
+
+fn fit_unicode(text: &str, q: &str) -> Option<Fit> {
     let text = text.to_lowercase();
     let edge = |c: Option<char>| !c.is_some_and(char::is_alphanumeric);
     let mut found = None;
@@ -485,6 +506,18 @@ mod tests {
         assert_eq!(v["rows"][0]["matched"], "name");
         let none = SearchDefinitions { query: "zzz".into(), ..search };
         assert!(text(&mut d, &none).unwrap().contains("hint: nothing matched"));
+    }
+
+    #[test]
+    fn a_fit_is_a_whole_word_or_part_of_one() {
+        assert_eq!(fit("Age misfire start", "age"), Some(Fit::Word));
+        assert_eq!(fit("cannot fire at maximum age", "age"), Some(Fit::Word));
+        assert_eq!(fit("damage (age)", "age"), Some(Fit::Word));
+        assert_eq!(fit("damage", "age"), Some(Fit::Part));
+        assert_eq!(fit("heat", "age"), None);
+        assert_eq!(fit("ag", "age"), None);
+        assert_eq!(fit("Énergie totale", "énergie"), Some(Fit::Word));
+        assert_eq!(fit("bénergie", "énergie"), Some(Fit::Part));
     }
 
     /// `age` must not bury "age misfire start" under every "damage" and "percentage".

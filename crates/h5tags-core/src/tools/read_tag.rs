@@ -26,7 +26,7 @@ fn default_depth() -> u32 {
 /// Read a tag's fields with its class's definition: values, options, units
 /// and states. Large tags (scnr, effe, vehi, bipd, char, gint, unit, weap):
 /// call outline first, then read path= or section=.
-#[derive(Clone, Debug, clap::Args, Deserialize)]
+#[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct ReadTag {
     /// The tag: global ID, tag path or display name.
     pub tag: String,
