@@ -359,3 +359,12 @@ The first call of a session parses the module's lists once (the 12 ms); later ca
 | `read-tag 0x00008593 --detail brief` (whole tag)                       | ≈ 6,914 tokens            | ≈ 6,092 tokens            |
 
 "Before" for the brief reads is the new output with each group's prefix put back on its lines and the `in` lines removed (the same text the old renderer printed); it reproduces the simulation's measured 1,138 and 267 exactly.
+
+### Step 3: the size guard (2026-11-01, Forge sample, default limit 3,000 tokens)
+
+| Call                                       | Before                          | After                                          |
+| ------------------------------------------ | ------------------------------- | ---------------------------------------------- |
+| `read-tag 0x00008593` (battle rifle, whole) | 721 lines, ≈ 8,744 tokens       | 71 lines, ≈ 1,044 tokens (depth-1 outline + hint) |
+| `read-tag 0x00008593 --confirm-large`       | —                               | 722 lines, ≈ 8,758 tokens (warning line first)  |
+| `get-definition weap` (whole)               | 815 lines, ≈ 8,494 tokens       | 71 lines, ≈ 874 tokens (class outline + hint)   |
+| `read-tag 0x000041B7 --path barrels[0]`     | unchanged (path reads are not guarded) | unchanged                               |
