@@ -650,6 +650,14 @@ fn header_scan_timings() {
         report.failed,
         report.elapsed
     );
+    // Dependencies no reference field points to: `find_references(out)` lists fields only.
+    let unreferenced: usize = scan
+        .modules
+        .iter()
+        .flat_map(|m| &m.tags)
+        .map(|t| t.dependencies.iter().filter(|d| !t.references.iter().any(|r| r.target == **d)).count())
+        .sum();
+    println!("dependencies with no reference field pointing to them: {unreferenced}");
     for m in scan.modules.iter().filter(|m| !m.problems.is_empty()) {
         println!("  {}: {} not readable, e.g. {}", m.rel_path, m.problems.len(), m.problems[0].1);
     }

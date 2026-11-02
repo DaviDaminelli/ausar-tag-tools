@@ -65,6 +65,9 @@ fn a_scan_keeps_every_reference_field_with_its_target() {
         ]
     );
     assert_eq!(weapon(&s).dependencies, [GlobalId(0x0040_1000), GlobalId(0x0040_2000)]);
+    let names: Vec<String> =
+        weapon(&s).references.iter().map(|r| weapon(&s).listed_name(r).unwrap_or_default().into_owned()).collect();
+    assert_eq!(names, [r"objects\weapons\rifle\ar\bullet", "", r"fx\impact\bullet_hit"]);
     assert!(String::from_utf8_lossy(&weapon(&s).strings).contains(r"objects\weapons\rifle\ar\bullet"));
     // A tag whose header doesn't parse is recorded, not dropped silently.
     let problems: Vec<GlobalId> = s.modules[0].problems.iter().map(|p| p.0).collect();

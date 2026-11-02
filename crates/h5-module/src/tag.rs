@@ -432,8 +432,7 @@ impl TagHeader {
     /// The bytes of the null-terminated string at `offset` in the string table
     /// (what a string_id's hash is computed over).
     pub fn string_bytes(&self, offset: u32) -> Option<&[u8]> {
-        let rest = self.string_table.get(offset as usize..)?;
-        Some(&rest[..rest.iter().position(|&b| b == 0)?])
+        string_at(&self.string_table, offset)
     }
 
     /// The string at `offset`, decoded (Windows-1252).
@@ -711,6 +710,13 @@ impl fmt::Display for StructKind {
             StructKind::Unknown(n) => write!(f, "unknown ({n})"),
         }
     }
+}
+
+/// The null-terminated string at `offset` in a tag's string table, without
+/// its terminator; `None` past the end or without one.
+pub fn string_at(table: &[u8], offset: u32) -> Option<&[u8]> {
+    let rest = table.get(offset as usize..)?;
+    Some(&rest[..rest.iter().position(|&b| b == 0)?])
 }
 
 #[cfg(test)]

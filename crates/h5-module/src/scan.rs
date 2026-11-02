@@ -16,7 +16,8 @@ use crate::fourcc::FourCc;
 use crate::global_id::GlobalId;
 use crate::index::{FailedModule, FileStamp, Index, ModuleRecord, Progress, UpdateReport};
 use crate::module::{EntryKind, Module, ModuleError, Section, map_file};
-use crate::tag::TagHeader;
+use crate::tag::{TagHeader, string_at};
+use crate::text::decode_cp1252;
 
 /// A non-null tag reference field, as the tag data holds it.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -25,6 +26,8 @@ pub struct OutReference {
     pub class: FourCc,
     /// Its position in the tag's reference list (for its field path).
     pub reference: u32,
+    /// Where its listed name is in the tag's string table ([`TagScan::listed_name`]).
+    pub name_offset: u32,
     /// Whether the header lists it as a dependency (Q12: not always).
     pub has_dependency: bool,
 }
@@ -60,7 +63,14 @@ pub struct HeaderScan {
 }
 
 /// Bump `format` when the scan's types change shape.
-const CACHE: CacheFile = CacheFile { magic: b"H5TAGSCN", format: 1, what: "header scan" };
+impl TagScan {
+    /// `r`'s listed name (the referenced tag's path as this tag stores it).
+    pub fn listed_name(&self, r: &OutReference) -> Option<std::borrow::Cow<'_, str>> {
+        string_at(&self.strings, r.name_offset).map(decode_cp1252)
+    }
+}
+
+const CACHE: CacheFile = CacheFile { magic: b"H5TAGSCN", format: 2, what: "header scan" };
 
 impl Progress {
     pub const SCANNING_HEADERS: &'static str = "scanning tag headers";
@@ -81,6 +91,7 @@ fn scan_tag(module: &Module<'_>, entry: u32, global_id: GlobalId) -> Result<TagS
                 target: field.global_id,
                 class: field.class_code,
                 reference: i as u32,
+                name_offset: r.name_offset,
                 has_dependency: r.dependency.is_some(),
             })
         })
