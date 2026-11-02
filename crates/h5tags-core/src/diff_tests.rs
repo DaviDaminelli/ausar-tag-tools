@@ -100,6 +100,29 @@ fn a_path_compares_that_part() {
     assert_eq!(at("count"), [("count".into(), Kind::Changed)]);
 }
 
+/// section= compares only the fields under that heading (PRD §6.4.3).
+#[test]
+fn a_section_compares_its_fields() {
+    let xml = DEFINITION.replace(
+        "\t<_field_long_integer name=\"count\" />",
+        "\t<_field_explanation name=\"AMMO\" />\n\t<_field_long_integer name=\"count\" />",
+    );
+    let def = Definition::parse(&xml).unwrap();
+    let a = tag(10.0, 7, &[1]);
+    let b = tag(15.0, 8, &[1]);
+    let [sec] = h5_meta::find_sections(&def.fields, "ammo").try_into().unwrap();
+    let (ha, da) = build_tag(&a);
+    let (hb, db) = build_tag(&b);
+    let (ha, hb) = (TagHeader::parse(&ha).unwrap(), TagHeader::parse(&hb).unwrap());
+    let (ra, rb) = (read_tag(&def, &ha, &da), read_tag(&def, &hb, &db));
+    let found: Vec<(String, Kind)> = diff_section(&ra.root, &rb.root, &sec.parent, sec.start + 1..sec.end)
+        .into_iter()
+        .map(|d| (d.path.display(&def.fields), d.kind))
+        .collect();
+    // speed differs too, but it isn't in the section.
+    assert_eq!(found, [("count".into(), Kind::Changed)]);
+}
+
 /// D46: a curve is one value, compared by its fingerprint: one row at the curve.
 #[test]
 fn a_curve_is_one_value() {

@@ -130,6 +130,11 @@ pub fn read_error(e: ReadError) -> ToolError {
     ToolError::new(e.to_string()).hint(hint)
 }
 
+/// `read_tag` and `diff_tags`: path= and section= both given.
+pub fn path_and_section() -> ToolError {
+    ToolError::new("path= and section= can't be used together").hint("pass one of them")
+}
+
 /// `which_maps` found the tag in no manifest; only indexed maps were looked at.
 pub fn no_map_hint(checked: usize) -> String {
     match checked {

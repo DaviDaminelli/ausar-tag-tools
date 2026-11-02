@@ -1,6 +1,8 @@
 //! `diff_tags` (PRD §6.6): where two read tags of one class differ. Domain
 //! only: typed differences with typed paths; the tool renders the values.
 
+use std::ops::Range;
+
 use h5_meta::{Body, Content, FieldPath, Node, Select, Step, Value};
 
 /// Which tag of the two.
@@ -56,7 +58,27 @@ pub fn diff_at(a: &Body<'_>, b: &Body<'_>, at: &FieldPath) -> Vec<Difference> {
     let mut out = Vec::new();
     // One path for the whole walk; copied only into the differences found (D26).
     let mut path = Vec::with_capacity(at.steps.len());
-    follow(a, b, &at.steps, &mut path, &mut out);
+    follow(a, b, &at.steps, &mut path, &mut out, &mut diff_into, false);
+    out
+}
+
+/// The differences in fields `fields` of the struct at `parent`: a section
+/// (PRD §6.4.3), as `find_sections` gives it (fields `start + 1 .. end`).
+/// Inside a tag block passed without an index, entry 0, like `read_tag`.
+pub fn diff_section(a: &Body<'_>, b: &Body<'_>, parent: &FieldPath, fields: Range<usize>) -> Vec<Difference> {
+    let mut out = Vec::new();
+    let mut path = Vec::with_capacity(parent.steps.len());
+    let mut compare = |a: &Body<'_>, b: &Body<'_>, path: &mut Vec<Step>, out: &mut Vec<Difference>| {
+        if a.problem.is_some() || b.problem.is_some() {
+            record(path, None, Kind::NotRead, out);
+        }
+        for i in fields.clone() {
+            if let (Some(x), Some(y)) = (a.children.get(i), b.children.get(i)) {
+                diff_node(x, y, i, path, out);
+            }
+        }
+    };
+    follow(a, b, &parent.steps, &mut path, &mut out, &mut compare, true);
     out
 }
 
@@ -66,14 +88,28 @@ fn record(path: &[Step], step: Option<Step>, kind: Kind, out: &mut Vec<Differenc
     out.push(Difference { path: FieldPath { steps }, kind });
 }
 
-/// Walks the rest of the requested path in both bodies, then compares there.
-fn follow(a: &Body<'_>, b: &Body<'_>, rest: &[Step], path: &mut Vec<Step>, out: &mut Vec<Difference>) {
-    let Some((step, rest)) = rest.split_first() else { return diff_into(a, b, path, out) };
+/// What is compared where a walk ends: the two bodies reached.
+type End<'e> = dyn FnMut(&Body<'_>, &Body<'_>, &mut Vec<Step>, &mut Vec<Difference>) + 'e;
+
+/// Walks the rest of the requested path in both bodies, then compares there
+/// with `end`. The last step's struct or tag block is compared as a node
+/// unless `into_last` (then `end` gets its body, or each picked entry).
+fn follow(
+    a: &Body<'_>,
+    b: &Body<'_>,
+    rest: &[Step],
+    path: &mut Vec<Step>,
+    out: &mut Vec<Difference>,
+    end: &mut End<'_>,
+    into_last: bool,
+) {
+    let Some((step, rest)) = rest.split_first() else { return end(a, b, path, out) };
     let (Some(x), Some(y)) = (a.children.get(step.field), b.children.get(step.field)) else {
         return record(path, Some(*step), Kind::NotRead, out);
     };
+    let descend = !rest.is_empty() || into_last;
     match (&x.content, &y.content) {
-        (Content::Block(p), Content::Block(q)) if !rest.is_empty() || step.select.is_some() => {
+        (Content::Block(p), Content::Block(q)) if descend || step.select.is_some() => {
             let picked = match step.select {
                 None => 0..1,
                 Some(Select::Entry(e)) => e..e + 1,
@@ -87,7 +123,7 @@ fn follow(a: &Body<'_>, b: &Body<'_>, rest: &[Step], path: &mut Vec<Step>, out: 
                 ) {
                     (Some(Some(pe)), Some(Some(qe))) => {
                         path.push(here);
-                        follow(pe, qe, rest, path, out);
+                        follow(pe, qe, rest, path, out, end, into_last);
                         path.pop();
                     }
                     (Some(_), None) => record(path, Some(here), Kind::OnlyIn(Side::A), out),
@@ -97,9 +133,9 @@ fn follow(a: &Body<'_>, b: &Body<'_>, rest: &[Step], path: &mut Vec<Step>, out: 
                 }
             }
         }
-        (Content::Struct(p), Content::Struct(q)) | (Content::Array(p), Content::Array(q)) if !rest.is_empty() => {
+        (Content::Struct(p), Content::Struct(q)) | (Content::Array(p), Content::Array(q)) if descend => {
             path.push(*step);
-            follow(p, q, rest, path, out);
+            follow(p, q, rest, path, out, end, into_last);
             path.pop();
         }
         _ => diff_node(x, y, step.field, path, out),
