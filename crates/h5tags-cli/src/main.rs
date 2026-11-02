@@ -296,12 +296,17 @@ mod tests {
     }
 
     /// The README's command list names every command, so it can't fall behind.
+    /// A row is `| `name` |`, with any padding (editors align table columns).
     #[test]
     fn readme_lists_every_command() {
         use clap::CommandFactory;
         let readme = include_str!("../../../README.md");
         for c in Cli::command().get_subcommands().filter(|c| c.get_name() != "help") {
-            assert!(readme.contains(&format!("| `{}` |", c.get_name())), "README doesn't list `{}`", c.get_name());
+            let cell = format!("| `{}`", c.get_name());
+            let listed = readme.lines().any(|l| {
+                l.trim_start().strip_prefix(cell.as_str()).is_some_and(|rest| rest.trim_start().starts_with('|'))
+            });
+            assert!(listed, "README doesn't list `{}`", c.get_name());
         }
     }
 
