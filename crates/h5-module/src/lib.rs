@@ -26,5 +26,6 @@ pub use check::{CheckFailure, Item, checks};
 pub use fourcc::FourCc;
 pub use global_id::GlobalId;
 pub use module::{
-    BlockEntry, EntryKind, FileEntry, FileFlags, Header, MAGIC, Module, ModuleError, Section, Version, map_file,
+    BlockEntry, EntryKind, FileEntry, FileFlags, Header, MAGIC, Module, ModuleError, ModuleLists, Section, Version,
+    map_file,
 };

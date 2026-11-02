@@ -2,7 +2,7 @@ use std::fs;
 
 use crate::index::Index;
 use crate::testutil::{SAMPLE_LOADED_TAGS, TempDir, TestEntry, build_module, sample_entries};
-use crate::{EntryKind, FourCc, Module, ModuleError, Section, Version, checks};
+use crate::{EntryKind, FourCc, Module, ModuleError, ModuleLists, Section, Version, checks};
 
 fn sample(version: Version) -> Vec<u8> {
     build_module(version, &sample_entries(), SAMPLE_LOADED_TAGS)
@@ -284,6 +284,32 @@ fn reads_each_section_alone() {
             }
         }
     }
+}
+
+/// PRD §13: a long-running process keeps a module's parsed lists (most of the
+/// cost of opening it) and maps the file again for each read.
+#[test]
+fn lists_kept_from_one_parse_read_like_a_fresh_parse() {
+    let entries = sample_entries();
+    for version in [Version::V23, Version::V27] {
+        let bytes = sample(version);
+        let lists = ModuleLists::parse(&bytes).unwrap();
+        let m = Module::with_lists(&bytes, &lists).unwrap();
+        assert_eq!(m.name(2).unwrap(), r"objects\weapons\rifle\assault_rifle\assault_rifle.weapon");
+        for (i, e) in entries.iter().enumerate().filter(|(_, e)| !e.raw_file) {
+            for (section, expected) in SECTIONS.iter().zip(sections_of(e)) {
+                assert_eq!(m.read_section(i as u32, *section).unwrap(), expected, "{version:?} entry {i} {section:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn kept_lists_are_refused_for_another_file() {
+    let lists = ModuleLists::parse(&sample(Version::V27)).unwrap();
+    let mut other = sample(Version::V27);
+    other.extend([0; 16]);
+    assert!(matches!(Module::with_lists(&other, &lists), Err(ModuleError::OtherFile { .. })));
 }
 
 #[test]

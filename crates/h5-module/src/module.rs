@@ -281,21 +281,43 @@ pub enum ModuleError {
     BadBlock { index: u32, block: u32, reason: String },
     #[error("file entry {index}: its data ({size} bytes) is not stored in this module")]
     NotStored { index: u32, size: u64 },
+    #[error("the module's lists were parsed from another file ({listed} bytes; this one has {len})")]
+    OtherFile { listed: u64, len: u64 },
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }
 
-/// A parsed module: header and every list, borrowing the file's bytes.
-/// Entry data is only read by [`Module::read_entry`].
-pub struct Module<'a> {
-    bytes: &'a [u8],
+/// A module's header and every list, parsed and owned. Parsing them is most
+/// of the cost of opening a module (6.7 ms for one with 86,930 entries, against
+/// 0.2 ms to map it; `docs/progress.md`), so a long-running process keeps
+/// them and maps the file again for each read ([`Module::with_lists`]).
+#[derive(Clone, Debug)]
+pub struct ModuleLists {
     pub header: Header,
     pub entries: Vec<FileEntry>,
-    names: &'a [u8],
+    /// Where the file name table lies in the file.
+    names: Range<usize>,
     pub resources: Vec<u32>,
     pub blocks: Vec<BlockEntry>,
     /// Absolute offset of the data area (right after the block list).
     pub data_start: u64,
+    /// The length of the file the lists were parsed from.
+    file_len: u64,
+}
+
+/// A parsed module: its bytes and its lists (see [`ModuleLists`] for every
+/// list field, reached through `Deref`). Entry data is only read by
+/// [`Module::read_entry`] and [`Module::read_section`].
+pub struct Module<'a> {
+    bytes: &'a [u8],
+    lists: Cow<'a, ModuleLists>,
+}
+
+impl std::ops::Deref for Module<'_> {
+    type Target = ModuleLists;
+    fn deref(&self) -> &ModuleLists {
+        &self.lists
+    }
 }
 
 /// Memory-maps a module file. Only the pages actually read are loaded.
@@ -321,9 +343,9 @@ fn section(bytes: &[u8], start: u64, len: u64, what: &'static str) -> Result<std
     Ok(start as usize..end as usize)
 }
 
-impl<'a> Module<'a> {
-    /// Parses the header and all lists. Reads no entry data.
-    pub fn parse(bytes: &'a [u8]) -> Result<Module<'a>, ModuleError> {
+impl ModuleLists {
+    /// Parses the header and all lists of a module file's bytes. Reads no entry data.
+    pub fn parse(bytes: &[u8]) -> Result<ModuleLists, ModuleError> {
         let len = bytes.len() as u64;
         if bytes.len() < 8 {
             return Err(ModuleError::Truncated { what: "header", needed: 8, len });
@@ -364,7 +386,29 @@ impl<'a> Module<'a> {
         let resources = bytes[res].as_chunks::<4>().0.iter().map(|r| u32::from_le_bytes(*r)).collect();
         let blocks = bytes[blocks].chunks_exact(bes).map(|r| BlockEntry::parse(r, version)).collect();
 
-        Ok(Module { bytes, header, entries, names: &bytes[names], resources, blocks, data_start })
+        Ok(ModuleLists { header, entries, names, resources, blocks, data_start, file_len: len })
+    }
+}
+
+impl<'a> Module<'a> {
+    /// Parses the header and all lists. Reads no entry data.
+    pub fn parse(bytes: &'a [u8]) -> Result<Module<'a>, ModuleError> {
+        Ok(Module { bytes, lists: Cow::Owned(ModuleLists::parse(bytes)?) })
+    }
+
+    /// The module in `bytes`, with lists parsed from it earlier. Lists of
+    /// another file (another length) are refused; callers also compare the
+    /// file's modification time with the index (decisions D28).
+    pub fn with_lists(bytes: &'a [u8], lists: &'a ModuleLists) -> Result<Module<'a>, ModuleError> {
+        if bytes.len() as u64 != lists.file_len {
+            return Err(ModuleError::OtherFile { listed: lists.file_len, len: bytes.len() as u64 });
+        }
+        Ok(Module { bytes, lists: Cow::Borrowed(lists) })
+    }
+
+    /// The lists, owned: to keep them once the bytes are unmapped.
+    pub fn into_lists(self) -> ModuleLists {
+        self.lists.into_owned()
     }
 
     pub fn file_len(&self) -> u64 {
@@ -392,10 +436,9 @@ impl<'a> Module<'a> {
         let bad = |reason: String| ModuleError::BadEntry { index, reason };
         let entry = self.entry(index)?;
         let start = entry.name_offset as usize;
-        let rest = self
-            .names
-            .get(start..)
-            .ok_or_else(|| bad(format!("name offset {start} is outside the file name table")))?;
+        let names: &'a [u8] = &self.bytes[self.lists.names.clone()];
+        let rest =
+            names.get(start..).ok_or_else(|| bad(format!("name offset {start} is outside the file name table")))?;
         let end = rest.iter().position(|&b| b == 0).ok_or_else(|| bad("file name is not null-terminated".into()))?;
         std::str::from_utf8(&rest[..end]).map_err(|_| bad("file name is not valid text".into()))
     }
