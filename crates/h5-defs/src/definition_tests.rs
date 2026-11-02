@@ -208,6 +208,13 @@ fn srcguid_bytes_are_in_windows_order() {
     assert_eq!(bad.fields[0].guid(), None);
 }
 
+/// The way back, to show a tag's GUID as a definition writes it.
+#[test]
+fn guid_bytes_read_back_as_the_srcguid_text() {
+    let d = sample();
+    assert_eq!(guid_text(&d.fields[1].guid().unwrap()), "151d0146-479c-181f-3970-ec869043bc33");
+}
+
 #[test]
 fn each_field_knows_its_path_step() {
     // The unique names are computed once, when the definition is parsed.

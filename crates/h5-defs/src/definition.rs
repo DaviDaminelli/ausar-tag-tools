@@ -74,12 +74,11 @@ impl Field {
         for (i, b) in g.iter_mut().enumerate() {
             *b = u8::from_str_radix(std::str::from_utf8(&hex[i * 2..i * 2 + 2]).ok()?, 16).ok()?;
         }
-        g[0..4].reverse();
-        g[4..6].reverse();
-        g[6..8].reverse();
+        swap_windows_groups(&mut g);
         Some(g)
     }
 
+    /// Whether this field's `srcguid` is `guid` (text, any case).
     fn has_srcguid(&self, guid: &str) -> bool {
         self.attr("srcguid").is_some_and(|g| g.eq_ignore_ascii_case(guid))
     }
@@ -101,6 +100,22 @@ impl Field {
 pub const INTERNAL_STRUCT_GUID: &str = "151d0146-479c-181f-3970-ec869043bc33";
 /// The mapping-function struct (529 uses), PRD §5.3.
 pub const MAPPING_FUNCTION_GUID: &str = "5a14a98f-4484-53fa-d468-10809e45f10a";
+
+/// A Windows GUID's first three groups are little-endian (format-notes
+/// "GUIDs"): swapping them turns text order into stored order and back.
+fn swap_windows_groups(g: &mut [u8; 16]) {
+    g[0..4].reverse();
+    g[4..6].reverse();
+    g[6..8].reverse();
+}
+
+/// A tag's struct type GUID (as stored) written as a definition's `srcguid`.
+pub fn guid_text(stored: &[u8; 16]) -> String {
+    let mut g = *stored;
+    swap_windows_groups(&mut g);
+    let hex: String = g.iter().map(|b| format!("{b:02x}")).collect();
+    format!("{}-{}-{}-{}-{}", &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
+}
 
 /// What a `_field_custom` is (docs/format-notes.md "Names").
 #[derive(Clone, Debug, PartialEq, Eq)]
