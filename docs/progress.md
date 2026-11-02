@@ -599,3 +599,16 @@ Values checked with the CLI: BR latest copy 15 rounds per second (base copy 29.9
 Seen: the agent read `h5tags://guide` for the battery question (D56's pointer; the M4 agent never did), at ≈ 10.4k tokens. The guide's §2.1 example is this same question, so the agent knew which fields to check (it re-read every value). `diff_tags(path="WEAPON")` failed: `path=` takes fields, not class sections (the hint listed field names; the agent recovered). The largest results: whole-tag `diff_tags` (200 rows ≈ 4.1k, then 70 more ≈ 1.7k) and the recursive bitmap list (≈ 10k).
 
 Fixes after the session (D61): guide §2.1 example replaced (SMG vs DMR bullets, values checked with the CLI: velocities 1500/3000, air gravity scale 1/0, maximum range 100/250); `diff_tags section=` (BR vs plasma pistol `section=WEAPON`: 141 rows, first page 9,126 characters ≈ 2,282 tokens). 149 `h5tags-core` tests and clippy pass. Next: the battery question again in a fresh session.
+
+### M5b acceptance rerun (2026-11-02; fresh session after `/clear`, release MCP build with the D61 fixes)
+
+| Question | Calls | Tool results | Context after the answer (the user's `/context`) | Result |
+| --- | --- | --- | --- | --- |
+| Battery BR | 36 (6 `diff_tags`, read_tag with `section=`, 0 `query_field`) | ≈ 21.3k tokens | ≈ 58.5k | Same core change list as the first session, found without the guide's example: barrel `magazine` 0 → -1 and the magazine removed, `rounds per shot` 1 → 0, `age generated per round` (and its CAMPAIGN twin), `flags#3 cannot fire at maximum age`, the ammo ticker bitmap, `low ammo threshold`; ammo crates, refill type and Ammopack live in the removed magazine; the extended-magazine attachment, spawn loadouts and referrers. New: the BR's HUD is built on `switch_weapons.cui_screen`, which switches on `prop_is_battery_weapon` (checked with `search_values`: that template holds it) and shows `prop_battery_percent`. Said which copy it read (latest layer) and that an edit must go in the copy that loads |
+| Dropped-weapon battery | 2 | ≈ 0.3k | ≈ 61.3k | "Yes", qualified: the engine controls it and the tags can't confirm it; no recharge or reset-on-pickup setting found (the age settings are penalties, all 0; `rounds recharged` lives in the magazine); abandoned weapons disappear after 12 s and new spawns start full; a test to confirm in game |
+
+Seen: the agent didn't read `h5tags://guide` this time and didn't check a candidate across the class with `query_field` (method step 2 in the instructions); the answer was still correct. Largest results: `switch_weapons` `system.property bindings[*]` (≈ 4.6k tokens) and two whole-tag `diff_tags` pages (≈ 2k each).
+
+M5b done-when: `query_field` over all `weap` tags in 2.7 s (< 5 s); a fresh session answered the battery and dropped-weapon questions correctly, labelling engine behaviour as inference; the magazine question was answered correctly in the first session (8 calls, ≈ 6.2k tokens of tool results).
+
+After the rerun (D64): `diff_tags` results with differences end with the candidates hint; 149 `h5tags-core` tests and clippy pass.
