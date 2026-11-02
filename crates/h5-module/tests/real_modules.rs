@@ -625,3 +625,45 @@ fn copy_identity() {
         }
     }
 }
+
+/// PRD §6.2 header scan: cold build, cache size, warm start (everything reused).
+#[test]
+#[ignore]
+fn header_scan_timings() {
+    use h5_module::scan::HeaderScan;
+    let deploy = deploy();
+    let cache = std::env::temp_dir().join(format!("h5tags-scan-timing-{}.scan", std::process::id()));
+    let never = |_: &str| false;
+    let (index, _) = Index::update(&deploy, None, &never).unwrap();
+
+    let (scan, report) = HeaderScan::update(&deploy, &index, None, &never, &|_| {});
+    let tags: usize = scan.modules.iter().map(|m| m.tags.len()).sum();
+    let refs: usize = scan.modules.iter().flat_map(|m| &m.tags).map(|t| t.references.len()).sum();
+    let undeclared: usize =
+        scan.modules.iter().flat_map(|m| &m.tags).flat_map(|t| &t.references).filter(|r| !r.has_dependency).count();
+    let strings: usize = scan.modules.iter().flat_map(|m| &m.tags).map(|t| t.strings.len()).sum();
+    let problems: usize = scan.modules.iter().map(|m| m.problems.len()).sum();
+    println!(
+        "cold scan: {} modules, {tags} tag copies, {refs} non-null references ({undeclared} without a dependency), {:.1} MB of string tables, {problems} tags not readable, {} modules failed, {:.2?}",
+        scan.modules.len(),
+        strings as f64 / 1e6,
+        report.failed,
+        report.elapsed
+    );
+    for m in scan.modules.iter().filter(|m| !m.problems.is_empty()) {
+        println!("  {}: {} not readable, e.g. {}", m.rel_path, m.problems.len(), m.problems[0].1);
+    }
+
+    let start = Instant::now();
+    scan.save(&cache).unwrap();
+    let size = std::fs::metadata(&cache).unwrap().len();
+    println!("save: {:.2?}, cache file {:.1} MB", start.elapsed(), size as f64 / 1e6);
+
+    let start = Instant::now();
+    let loaded = HeaderScan::load(&cache).unwrap();
+    let (warm, report) = HeaderScan::update(&deploy, &index, Some(loaded), &never, &|_| {});
+    println!("warm start (load cache + check stamps): {:.2?} ({report:?})", start.elapsed());
+    assert_eq!(warm, scan);
+    assert_eq!(report.read, 0);
+    std::fs::remove_file(&cache).unwrap();
+}
