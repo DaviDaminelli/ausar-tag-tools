@@ -26,7 +26,7 @@ Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks
 '→ path=...' = not expanded; call again with that path. '… N more (offset=X)' = next page.
 (empty) (none) (none set) = real facts about the tag. (no definition…) (no option…) (unnamed…) = value is real, meaning unknown.
 (unresolved) = string_id not resolved; don't guess it. (not in indexed modules) = say so; don't assume it's missing from the game.
-'!!', (not read) or a mismatch warning = the TOOL failed: never state those values, or their absence, as facts; tell the user.
+'!!' or (not read) = the TOOL failed: never state those values, or their absence, as facts; tell the user. 'warning: definition GUID mismatch' = the values were read; use them and mention the warning.
 copies: N (differ) = the tag differs between modules; say which module's copy you used.
 Field names and help text are hints about behaviour, not proof; say where an explanation comes from.
 Full guide: resource h5tags://guide.";

@@ -47,6 +47,51 @@ fn values_tag() -> TestTag {
     t
 }
 
+/// Angle-typed fields: stored in radians, labelled in degrees (format-notes "Angle units").
+const ANGLES: &str = r#"<plugin>
+	<_field_angle name="steering maximum" />
+	<_field_angle_bounds name="error angle:degrees (max_error_angle)" />
+	<_field_real_euler_angles_2d name="angle offset" />
+	<_field_angle name="kick deceleration:degrees/s/s" />
+</plugin>"#;
+
+fn angles_tag() -> TestTag {
+    let mut main = Vec::new();
+    for rad in [10f32, 0.15, 2.3, -60.0, 90.0, 1350.0] {
+        main.extend((rad.to_radians()).to_le_bytes());
+    }
+    let mut t = sample_tag();
+    t.deps.clear();
+    t.tag_refs.clear();
+    t.data_refs.clear();
+    t.blocks = vec![main];
+    t.structs = vec![(0, 0, -1, 0, [1; 16], 0)];
+    t.string_ids = vec!["__default__".into()];
+    t
+}
+
+/// D44: the stored value stays exact, marked `rad`; the definition's unit
+/// follows with the value converted to degrees (3 decimals). JSON adds `degrees`.
+#[test]
+fn angles_show_radians_and_degrees() {
+    let (text, json) = render(&angles_tag(), ANGLES, NORMAL);
+    let l = lines(&text);
+    assert!(l.contains(&"steering maximum  real  0.17453292 rad  10 degrees"), "{text}");
+    assert!(
+        l.contains(&"error angle  bounds  0.0026179939..0.040142573 rad  0.15..2.3 degrees (max_error_angle)"),
+        "{text}"
+    );
+    assert!(l.contains(&"angle offset  euler2  (-1.0471976, 1.5707964) rad  (-60, 90) degrees"), "{text}");
+    assert!(l.contains(&"kick deceleration  real  23.561945 rad  1350 degrees/s/s"), "{text}");
+    let field = |n: &str| json["fields"].as_array().unwrap().iter().find(|f| f["name"] == n).unwrap().clone();
+    assert_eq!(field("steering maximum")["degrees"], 10.0);
+    assert_eq!(field("error angle")["degrees"], serde_json::json!({ "min": 0.15, "max": 2.3 }));
+    assert_eq!(field("angle offset")["degrees"], serde_json::json!([-60.0, 90.0]));
+    // Brief keeps the stored value and its unit mark.
+    let (text, _) = render(&angles_tag(), ANGLES, ViewSettings { detail: Detail::Brief, ..NORMAL });
+    assert!(text.contains("\nsteering maximum  0.17453292 rad\n"), "{text}");
+}
+
 /// The sample tag's layout: a block of tag references, padding, a tag reference, data, an int.
 const REFS: &str = r#"<plugin>
 	<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">

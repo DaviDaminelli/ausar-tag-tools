@@ -166,6 +166,12 @@ fn error(text: impl Into<String>) -> Option<State> {
     Some(State { text: text.into(), key: "error", error: true })
 }
 
+/// Radians in degrees, to 3 decimals (`-0` as `0`): only for reading; the stored
+/// value is shown exactly next to it.
+fn degrees(rad: f32) -> f64 {
+    (f64::from(rad).to_degrees() * 1000.0).round() / 1000.0 + 0.0
+}
+
 fn plain(text: String, json: serde_json::Value) -> Shown {
     Shown { text, json: Map::from_iter([("value".into(), json)]) }
 }
@@ -494,6 +500,32 @@ impl<'s> Converter<'s, '_> {
             },
             Value::Padding => plain(format!("({} bytes)", f.size().unwrap_or(0)), json!(f.size().unwrap_or(0))),
         });
+        if t.is_angle() {
+            self.angle(value, t, f, v);
+        }
+    }
+
+    /// Angle types store radians, labelled in degrees by the definition
+    /// (format-notes "Angle units", decisions D44): the exact stored value is
+    /// marked `rad`, and the units give it in the definition's own unit.
+    fn angle(&self, value: &Value, t: FieldType, f: &Field, v: &mut FieldView) {
+        let xs: &[f32] = match value {
+            Value::Real(x) => std::slice::from_ref(x),
+            Value::Reals(xs) => xs,
+            _ => return,
+        };
+        let Some(shown) = v.value.as_mut() else { return };
+        shown.text.push_str(" rad");
+        let deg: Vec<f64> = xs.iter().map(|&x| degrees(x)).collect();
+        let (text, json) = match (t, deg.as_slice()) {
+            (FieldType::Angle, [a]) => (a.to_string(), json!(a)),
+            (FieldType::AngleBounds, [a, b]) => (format!("{a}..{b}"), json!({ "min": a, "max": b })),
+            _ => (format!("({})", deg.iter().map(f64::to_string).collect::<Vec<_>>().join(", ")), json!(deg)),
+        };
+        shown.json.insert("degrees".into(), json);
+        if self.settings.detail != Detail::Brief {
+            v.units = Some(format!("{text} {}", f.name.units.as_deref().unwrap_or("degrees")));
+        }
     }
 
     fn enum_value(&self, n: &h5_meta::Node<'_>, v: &mut FieldView) {

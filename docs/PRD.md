@@ -379,6 +379,7 @@ One field per line. In `text` (what the AI reads), columns are separated by exac
 - Indent: 2 spaces per nesting level: the main struct's fields have none, each struct, array or tag block entry adds 2 (headings too) (D36).
 - Short type names are defined in `docs/AGENT_GUIDE.md` §4 (normative). Examples: `real`, `int16`, `enum16`, `flags32`, `bounds`, `tagref`, `stringid`, `blkidx`, `block[N]`, `struct`, `data`, `function`, `resource`.
 - Units and range (`[min-max]`) follow the value.
+- **Angle types** (`_field_angle`, `_field_angle_bounds`, `_field_real_euler_angles_2d`, `_field_real_euler_angles_3d`) store radians, though definitions label them in degrees (`docs/format-notes.md` "Angle units"): the exact stored value is marked `rad`, and the units show the value converted to degrees (3 decimals) before the definition's unit text; JSON adds `degrees` (since M4, decisions D44).
 - Extras: options (§7.5), markers (`detail=full`), states (§8).
 - Mapping-function structs render as one line: `<name>  function  (curve, N bytes)`.
 - The internal struct and `vtable space` are never shown, even with `show_hidden`.
@@ -575,7 +576,7 @@ Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks
 '→ path=...' = not expanded; call again with that path. '… N more (offset=X)' = next page.
 (empty) (none) (none set) = real facts about the tag. (no definition…) (no option…) (unnamed…) = value is real, meaning unknown.
 (unresolved) = string_id not resolved; don't guess it. (not in indexed modules) = say so; don't assume it's missing from the game.
-'!!', (not read) or a mismatch warning = the TOOL failed: never state those values, or their absence, as facts; tell the user.
+'!!' or (not read) = the TOOL failed: never state those values, or their absence, as facts; tell the user. 'warning: definition GUID mismatch' = the values were read; use them and mention the warning.
 copies: N (differ) = the tag differs between modules; say which module's copy you used.
 Field names and help text are hints about behaviour, not proof; say where an explanation comes from.
 Full guide: resource h5tags://guide.

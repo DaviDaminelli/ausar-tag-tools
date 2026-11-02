@@ -27,6 +27,7 @@ pub struct PageArgs {
     #[serde(default)]
     pub offset: usize,
     /// Rows to return (default: 50 for search_tags, 100 for other lists).
+    /// Bigger pages cost context: keep an eye on your budget.
     #[arg(long)]
     #[serde(default)]
     pub limit: Option<usize>,
