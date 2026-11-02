@@ -8,6 +8,9 @@ use serde::Deserialize;
 /// `tag_cache_mb` when the config doesn't set it (PRD §6.1).
 pub const DEFAULT_TAG_CACHE_MB: u64 = 256;
 
+/// `large_read_tokens` when the config doesn't set it (PRD §6.1).
+pub const DEFAULT_LARGE_READ_TOKENS: usize = 3000;
+
 pub(crate) fn megabytes(mb: u64) -> usize {
     (mb as usize) << 20
 }
@@ -23,6 +26,8 @@ pub struct Config {
     pub guid_check: Option<String>,
     /// Decompressed tags kept in memory, in MB (PRD §13). Default 256.
     pub tag_cache_mb: Option<u64>,
+    /// The size guard on whole reads, in tokens (PRD §6.4.1). Default 3000.
+    pub large_read_tokens: Option<usize>,
     #[serde(rename = "build")]
     pub builds: Vec<BuildConfig>,
 }
@@ -71,6 +76,7 @@ impl Config {
             notes_file: None,
             guid_check: None,
             tag_cache_mb: None,
+            large_read_tokens: None,
             builds: vec![BuildConfig { name: "default".into(), deploy, defs, resource_defs }],
         }
     }
@@ -157,6 +163,7 @@ mod tests {
 cache_dir = 'C:\h5tags\cache'
 notes_file = 'C:\h5tags\h5tags-notes.toml'
 tag_cache_mb = 64
+large_read_tokens = 5000
 
 [[build]]
 name = "forge"
@@ -178,6 +185,8 @@ defs = 'C:\H5Tags\tags'
         assert_eq!(c.tag_cache_bytes(), 64 << 20);
         let default = parse("[[build]]\nname = \"a\"\ndeploy = 'x'\ndefs = 'y'\n").unwrap();
         assert_eq!(default.tag_cache_bytes(), 256 << 20);
+        assert_eq!(c.large_read_tokens, Some(5000));
+        assert_eq!(default.large_read_tokens, None);
     }
 
     #[test]

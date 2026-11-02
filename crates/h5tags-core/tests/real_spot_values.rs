@@ -37,6 +37,7 @@ fn values(tag: &str, path: &str) -> Vec<Value> {
         detail: Detail::Normal,
         options: Options::None,
         show_hidden: false,
+        confirm_large: false,
         module: None,
         build: BuildArg::default(),
     };

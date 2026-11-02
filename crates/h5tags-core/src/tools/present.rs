@@ -10,6 +10,7 @@ use crate::output::{ToolError, format_size, marker};
 use crate::query::ModuleStatus;
 use crate::session::UnknownBuild;
 use crate::stored::{DefinitionLoadError, ReadError};
+use crate::view::{TagView, ViewNode};
 use h5_meta::{Divergence, PathError, Problem, Section};
 
 pub fn unknown_build(e: UnknownBuild) -> ToolError {
@@ -199,4 +200,30 @@ pub fn section_error(heading: &str, found: &[Section], fields: &[h5_defs::defini
         .collect();
     ToolError::new(format!("'{heading}' heads {} sections, in: {}", found.len(), places.join("; ")))
         .hint("read one with path= (the struct it is in)")
+}
+
+/// The outline levels a guarded read returns (decisions D41): about 1,000
+/// tokens for a weapon, where depth 2 is close to the default limit itself.
+pub const GUARD_OUTLINE_DEPTH: u32 = 1;
+
+/// The size guard on whole reads (PRD §6.4.1, decisions D41): `view` as it is
+/// when its text is within `limit` tokens (characters ÷ 4), or with a warning
+/// first when `confirm`ed; otherwise `outline()` in its place, with a hint
+/// giving the whole read's size and how to go on.
+pub fn size_guard(mut view: TagView, limit: usize, confirm: bool, outline: impl FnOnce() -> Vec<ViewNode>) -> TagView {
+    let text = view.render_lines(false);
+    let tokens = text.len() / 4;
+    if tokens <= limit {
+        return view;
+    }
+    let size = format!("≈ {tokens} tokens ({} lines)", text.lines().count());
+    if confirm {
+        view.title_lines.insert(0, format!("warning: large result, {size}"));
+        return view;
+    }
+    view.nodes = outline();
+    view.legend.clear();
+    view.brief = false;
+    view.hints.push(format!("whole read {size}; read a path= or section=, or repeat with confirm_large=true"));
+    view
 }

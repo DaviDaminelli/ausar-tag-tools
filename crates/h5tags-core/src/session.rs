@@ -8,7 +8,7 @@ pub use h5_module::index::Progress;
 use h5_module::index::{Index, UpdateReport};
 
 use crate::catalog::Build;
-use crate::config::{BuildConfig, Config};
+use crate::config::{BuildConfig, Config, DEFAULT_LARGE_READ_TOKENS};
 use crate::stored::TagCache;
 
 /// Receives progress of long steps: the build's name and how far it is.
@@ -20,6 +20,8 @@ pub struct Session {
     builds: Vec<Build>,
     /// Shared by every build (PRD §13), and kept across `reindex`.
     tag_cache: Arc<TagCache>,
+    /// The size guard on whole reads (PRD §6.4.1), in tokens.
+    pub(crate) large_read_tokens: usize,
     progress: ProgressSink,
 }
 
@@ -88,13 +90,20 @@ impl Session {
             .iter()
             .map(|cfg| load_build(cfg, &cache_dir, None, &tag_cache, &never, &progress).map(|(b, _)| b))
             .collect::<Result<_, _>>()?;
-        Ok(Session { cache_dir, builds, tag_cache, progress })
+        let large_read_tokens = config.large_read_tokens.unwrap_or(DEFAULT_LARGE_READ_TOKENS);
+        Ok(Session { cache_dir, builds, tag_cache, large_read_tokens, progress })
     }
 
     /// A session over builds already in memory (tests, embedding).
     pub fn from_builds(cache_dir: PathBuf, builds: Vec<Build>) -> Session {
         assert!(!builds.is_empty(), "a session needs at least one build");
-        Session { cache_dir, builds, tag_cache: Arc::default(), progress: no_progress() }
+        Session {
+            cache_dir,
+            builds,
+            tag_cache: Arc::default(),
+            large_read_tokens: DEFAULT_LARGE_READ_TOKENS,
+            progress: no_progress(),
+        }
     }
 
     pub fn builds(&self) -> &[Build] {

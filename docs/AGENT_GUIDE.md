@@ -49,6 +49,7 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 ## 3. Budget rules
 
 - **Never read a whole large tag** (`scnr`, `effe`, `vehi`, `bipd`, `char`, `gint`, `unit`, `weap`). Call `outline` first, then read sections or paths.
+- **The size guard:** a whole `read_tag` (or `get_definition`) bigger than the limit (about 3,000 tokens by default) returns the outline instead, with `hint: whole read ≈ N tokens (L lines); …`. Read a `path=` or `section=` from that outline. Use `confirm_large=true` only when the answer truly needs every field of the tag (for example, the user asks for all of it): the result is then preceded by `warning: large result, ≈ N tokens`. Tell the user when you do.
 - `detail=normal` is the default. Use `brief` for anything covering many tags or many entries. Use `full` only for the few fields you're explaining or about to change.
 - Use `[*]` paths (`barrels[*].rounds per second`) instead of reading each entry separately.
 - Don't re-read what you already read in this conversation, unless something changed or you need a different detail level.
@@ -168,6 +169,8 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `list_resource_kinds` | Each asset kind with its count and total size | — |
 | `# <class> <name> (definition)` (`get_definition`, `outline(class=)`) | The class's schema from its definition alone: no tag data, no values | Field types, units, options and help apply to every tag of the class |
 | `get_definition` `block  (max N)` / `tagref  [proj]` / `blkidx  → barrels` / `(N options)` | A tag block and its maximum entry count; the classes a reference allows; the block an index points into; an enum or flags field with more options than shown (`options=all` lists them) | — |
+| `hint: whole read ≈ N tokens (L lines); read a path= or section=, or repeat with confirm_large=true` (`read_tag`, `get_definition`) | The whole read was over the size limit, so you got the depth-1 outline instead (no values). N and L are the size of the whole read (tokens ≈ characters ÷ 4) | Nothing about the tag's values; read the part you need. The outline's paths are real |
+| `warning: large result, ≈ N tokens (L lines)` (second line) | You asked for a whole read above the limit with `confirm_large=true`; the result is complete | The values are as normal; mind your context budget |
 | `search_definitions` row order | Hits where the query is a whole word (`age` in "age misfire start", "cannot fire at maximum age") come first; after them come hits that only contain it inside a word ("damage", "percentage", "ages"), each group in definition order | The first rows are usually the ones you want; the later ones rarely need paging through |
 | `outline` `(N fields)  path=…` | How many fields the struct or tag block holds directly, and the path to read it with | Read only the part you need: `read_tag(path=...)` |
 | `outline(tag=)` `block[N] {labels}` | The tag's entry count and labels; nested blocks are shown as entry 0 has them | Other entries can have different counts |
@@ -231,7 +234,8 @@ Every tag stores, besides its field values, a few lists that say what its fields
 - **Tag:** `[build:]<tag>`, where `<tag>` is a global ID (`0x00A1B2C3`), a tag path, or a display name. Examples: `0x00A1B2C3`, `xbox:objects\...\assault_rifle`, `...\assault_rifle.weapon`. If several tags match, the tool returns candidates: pick one, or ask the user.
 - **Field path:** names joined by `.`, case-insensitive, spaces kept. `[i]` = tag block entry `i` (from 0); `[*]` = every entry; structs and arrays have no index. A tag block passed through **without** an index means entry 0 only (`barrels.firing` = `barrels[0].firing`): use `[*]` to get every entry. Names can contain dots and brackets (`peg threshold [0,1]`); copy them as `outline` shows them. Example: `barrels[0].firing noise`. On a typo, the error lists close names.
 - **Section:** `section="EXPOSURE"` selects a section by heading. If the heading occurs more than once, you get the list of matches to choose from.
-- **depth:** how many nested struct/array/tag block levels to expand (default 2). Raise it only for small sections.
+- **depth:** how many nested struct/array/tag block levels to expand (default 2; `outline` too). Raise it only for small sections.
+- **confirm_large** (`read_tag`, `get_definition`): `true` = return a whole read even above the size limit (§3). Default `false`.
 - **Filters** mean the same on every list tool that has them, and all given filters must match:
   - `query` + `mode` (`default` = path contains; `regex`, e.g. `magnum|pistol`; `exact`)
   - `class` (class code or name)

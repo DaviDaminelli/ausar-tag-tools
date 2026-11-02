@@ -88,6 +88,11 @@ pub struct GetDefinition {
     #[arg(long)]
     #[serde(default)]
     pub show_hidden: bool,
+    /// A whole definition over the size limit returns the class outline
+    /// instead; true returns everything (with a size warning).
+    #[arg(long)]
+    #[serde(default)]
+    pub confirm_large: bool,
     #[command(flatten)]
     #[serde(flatten)]
     pub build: BuildArg,
@@ -100,6 +105,7 @@ impl Tool for GetDefinition {
         if self.path.is_some() && self.section.is_some() {
             return Err(ToolError::new("path= and section= can't be used together").hint("pass one of them"));
         }
+        let limit = s.large_read_tokens;
         let b = args::build(s, &self.build)?;
         let (code, name, def) = class_definition(b, &self.class)?;
         let settings = ViewSettings {
@@ -121,6 +127,10 @@ impl Tool for GetDefinition {
             None => definition_view(&def.fields, self.path.as_deref().unwrap_or(""), settings)
                 .map_err(present::path_error)?,
         };
+        if self.path.is_none() && self.section.is_none() {
+            let outline = || outline_definition(&def.fields, present::GUARD_OUTLINE_DEPTH);
+            view = present::size_guard(view, limit, self.confirm_large, outline);
+        }
         Ok(Output::Tag(view))
     }
 }
@@ -402,8 +412,24 @@ mod tests {
             detail: Detail::Normal,
             options: Options::Auto,
             show_hidden: false,
+            confirm_large: false,
             build: BuildArg::default(),
         }
+    }
+
+    /// PRD §6.5: whole definitions have read_tag's size guard.
+    #[test]
+    fn a_large_whole_definition_returns_the_class_outline() {
+        let mut d = TestDeploy::new("def-guard");
+        d.session.large_read_tokens = 10;
+        let t = text(&mut d, &get("weap")).unwrap();
+        assert!(t.contains("\n### entries  block  (1 field)  path=entries\n"), "{t}");
+        assert!(!t.contains("projectile  tagref"), "{t}");
+        assert!(t.contains("\nhint: whole read ≈ "), "{t}");
+        let t = text(&mut d, &GetDefinition { confirm_large: true, ..get("weap") }).unwrap();
+        assert!(t.contains("projectile  tagref  [proj]") && t.contains("\n  warning: large result, ≈ "), "{t}");
+        let t = text(&mut d, &GetDefinition { path: Some("entries".into()), ..get("weap") }).unwrap();
+        assert!(!t.contains("hint:"), "{t}");
     }
 
     #[test]

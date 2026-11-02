@@ -5,9 +5,11 @@ use h5_meta::{Content, find_sections, parse_path, read_tag, select};
 use serde::Deserialize;
 use serde_json::{Map, json};
 
+use super::Tool;
 use super::args::{self, BuildArg};
-use super::{Tool, present};
+use super::present::{self, GUARD_OUTLINE_DEPTH};
 use crate::catalog::{Build, Copy, Tag};
+use crate::def_view::outline_tag;
 use crate::output::{Output, ToolError, format_size};
 use crate::session::Session;
 use crate::stored::{Identity, copy_identity, load_definition, read_stored_tag};
@@ -50,6 +52,12 @@ pub struct ReadTag {
     #[arg(long)]
     #[serde(default)]
     pub show_hidden: bool,
+    /// A whole read over the size limit returns the outline instead; true
+    /// returns everything (with a size warning). Use only when the outline
+    /// and path=/section= reads can't answer.
+    #[arg(long)]
+    #[serde(default)]
+    pub confirm_large: bool,
     /// Read the copy in the module whose path contains this.
     #[arg(long)]
     pub module: Option<String>,
@@ -104,6 +112,7 @@ impl Tool for ReadTag {
         if self.path.is_some() && self.section.is_some() {
             return Err(ToolError::new("path= and section= can't be used together").hint("pass one of them"));
         }
+        let limit = s.large_read_tokens;
         let t = args::tag_copy(s, &self.tag, &self.build, self.module.as_deref())?;
         let (b, copy) = (t.build, t.copy);
         let identity = copy_identity(b, t.tag).map_err(present::read_error)?;
@@ -126,24 +135,25 @@ impl Tool for ReadTag {
             view.title_lines.push(line);
         }
         let lookup = BuildLookup { build: b, copy };
-        view.nodes = match (&self.path, &self.section) {
+        match (&self.path, &self.section) {
             (Some(path), _) => {
                 let p = parse_path(&def.fields, path).map_err(present::path_error)?;
                 let sels = select(&read.root, &p).map_err(present::path_error)?;
-                let mut nodes = view_selection(&sels, &p.display(&def.fields), settings, &lookup);
+                view.nodes = view_selection(&sels, &p.display(&def.fields), settings, &lookup);
                 if sels.len() > 1 {
-                    view.legend = into_legend(&mut nodes);
+                    view.legend = into_legend(&mut view.nodes);
                 }
-                nodes
             }
-            (None, Some(heading)) => section(&def, &read.root, heading, settings, &lookup)?,
+            (None, Some(heading)) => view.nodes = section(&def, &read.root, heading, settings, &lookup)?,
             (None, None) => {
                 if let Some(p) = &read.root.problem {
                     view.title_lines.push(present::main_struct_problem(p));
                 }
-                view_body(&read.root, &def.fields, "", settings, &lookup)
+                view.nodes = view_body(&read.root, &def.fields, "", settings, &lookup);
+                let outline = || outline_tag(&read.root, &def.fields, GUARD_OUTLINE_DEPTH);
+                view = present::size_guard(view, limit, self.confirm_large, outline);
             }
-        };
+        }
         Ok(Output::Tag(view))
     }
 }
@@ -198,6 +208,7 @@ mod tests {
             detail: Detail::Normal,
             options: Options::Auto,
             show_hidden: false,
+            confirm_large: false,
             module: None,
             build: BuildArg::default(),
         };
@@ -258,6 +269,42 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    // PRD §6.4.1, the size guard: the sample weapon's whole read is about 60
+    // tokens, so a limit of 10 makes it "large".
+
+    #[test]
+    fn a_large_whole_read_returns_the_outline_and_says_how_to_go_on() {
+        let mut d = TestDeploy::new("read-guard");
+        d.session.large_read_tokens = 10;
+        let text = read(&mut d, |_| {}).unwrap();
+        assert!(text.contains("\n### entries  block[2]  {0, bullet_hit}  (1 field)  path=entries\n"), "{text}");
+        assert!(!text.contains("count  int32"), "no values: {text}");
+        let hint = text.lines().find(|l| l.starts_with("hint: whole read ≈ ")).expect(&text);
+        assert!(hint.ends_with(" lines); read a path= or section=, or repeat with confirm_large=true"), "{hint}");
+    }
+
+    #[test]
+    fn confirm_large_returns_everything_with_a_warning_first() {
+        let mut d = TestDeploy::new("read-guard-confirm");
+        d.session.large_read_tokens = 10;
+        let text = read(&mut d, |t| t.confirm_large = true).unwrap();
+        let second = text.lines().nth(1).unwrap();
+        assert!(second.starts_with("  warning: large result, ≈ ") && second.ends_with(" lines)"), "{text}");
+        assert!(text.contains("\ncount  int32  0\n"), "{text}");
+    }
+
+    #[test]
+    fn small_reads_and_path_reads_are_not_guarded() {
+        let mut d = TestDeploy::new("read-guard-small");
+        let text = read(&mut d, |_| {}).unwrap();
+        assert!(!text.contains("warning:") && !text.contains("hint:"), "{text}");
+        d.session.large_read_tokens = 1;
+        let text = read(&mut d, |t| t.path = Some("entries".into())).unwrap();
+        assert!(text.contains("\n  target  tagref  (none) []\n"), "{text}");
+        let text = read(&mut d, |t| t.section = Some("weapon".into())).unwrap();
+        assert!(text.contains("\ncount  int32  0\n"), "{text}");
     }
 
     #[test]
