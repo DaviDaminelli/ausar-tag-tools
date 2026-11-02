@@ -553,3 +553,16 @@ Xbox `.mapinfo` check (2026-11-02, the 54 `.mapinfo` files of the Xbox deploy, b
 - `tag-copies` on the assault rifle: `read by default: any\levels\globals-rtx-11587-1.module`, layers `base` and `11587-1`. Xbox DMR: `read by default: globals-rtx-97230-1.module`.
 - `query-field weap "magazines[0].rounds loaded maximum" --limit 200`: identical output under the old and the new rule (no magazine size differs between copies), so the step 1 spot values stand.
 - Forge real-file suites (`real_spot_values`, `real_read`, `real_deploy`, `real_repeat_calls`, `real_token_budget`): all pass. Workspace tests and clippy pass.
+
+### Step 3b: `map_tags`, `which_maps` (2026-11-02, Forge and Xbox samples, debug CLI)
+
+| Call | Result |
+| --- | --- |
+| `map-tags mainmenu` (Forge) | `manifest: any\levels\ui\mainmenu\mainmenu-rtx-12719-1.module`, 32,010 tags, 10,177 not indexed (survey: 42,187 IDs); first page ≈ 2,766 tokens; 4.94 s on the first call after a build (cold), 0.6 s after |
+| same with `--class weap` | 84 weapons; 0.64 s; ≈ 1,733 tokens |
+| `which-maps 0x00008595` (assault rifle) | 1 map: `mainmenu-rtx-12719-1`, 42,187 tags; 0.63 s; ≈ 27 tokens |
+| `map-tags fo06_deepsea --build xbox` | 97230 layer, 41,518 tags, 29,077 not indexed (survey: 70,595 IDs); 0.71 s |
+| `which-maps …\dmr.weapon --build xbox` | 3 maps: `fo06_deepsea` (97230-1, 70,595 tags), `w1_meridian` (76333-5, 34,149), `w1_unconfirmed_reports` (81409-2, 36,221); 0.67 s |
+| `map-tags rtx --build xbox` | refused: matches 5 maps, named in the error |
+
+Counts match the layer survey's. Workspace tests (139 in `h5tags-core`) and clippy pass.
