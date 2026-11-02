@@ -45,6 +45,22 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "Which tags mention 'plasma'?" | `search_values("plasma")` |
 | "What's in the Xbox build but not Forge?" | `compare_builds("xbox", "forge")` |
 | "What does this texture look like?" | `view_bitmap(tag)`: read the text summary first; the sheet shows each channel separately |
+| "What would it take to make X behave like Y, and what else would change?" | §2.1 below |
+
+A tool named in this guide but missing from your tool list isn't available in this version of h5tags yet. Use the tools you have, and tell the user what the missing one would have answered; don't guess it.
+
+### 2.1 What a change affects
+
+When the user asks what it would take to change a tag, or what a change would also touch (the HUD, pickups, other modes…), work outward from the tag:
+
+1. **Compare with a tag that already does what the user wants.** Read the same paths in both, at `detail=brief` (`diff_tags(a, b)` does it in one call). The fields that differ are the candidates. Read one struct or tag block at a time, not whole tags.
+   - Example, from one session: to turn a magazine weapon into a battery weapon, the battle rifle was compared with the plasma pistol. The battery weapon's barrel points to no magazine (`magazine  -1 (none)`), uses `rounds per shot  0`, and adds `age generation.age generated per round` for each shot; the weapon sets `flags#3` `cannot fire at maximum age`. Read these yourself; don't reuse the example's values.
+2. **Check the pattern on a third tag.** Two tags can differ in many ways that have nothing to do with the question. Look at another tag with the same behaviour (another battery weapon), or at the field across the whole class (`query_field`), before calling a field the cause.
+3. **Follow what the tag points to.** The systems around a tag are its references: HUD screens (`player interface.hud screen reference`), projectiles, effects, sounds. Outline them, and read the parts that name the behaviour. Their string_ids often say what they switch on (`battery_remaining_expression`, `is_low_ammo_decision`); `search_values` finds such names across tags.
+4. **Find what points to the tag** (`find_references(direction=in)`): game types, Forge palettes, scenarios and other tags that use it. A change reaches every one of them.
+5. **Search the definitions for the behaviour's words** (`search_definitions("drop")`, `"pickup"`, `"ammo"`) to find fields elsewhere that take part, for example the settings a dropped or picked-up weapon keeps.
+6. **Separate what the tags say from what the engine does.** Tags hold settings; the game's code decides what happens with them at runtime. Whether a battery level is kept when a weapon is dropped, how a value syncs online, or how the AI uses it may not be stored in any tag. Show the related fields and what other tags set, say clearly that the conclusion is inference, and suggest testing it in game.
+7. **Answer with a change list:** for each tag, the field path, the current value → the proposed one, and why (which comparison shows it); then what else may be affected, and what stays unknown. h5tags only reads tags; say that the change itself is made with a tag editor.
 
 ## 3. Budget rules
 
