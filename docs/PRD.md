@@ -264,7 +264,7 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
 - Field names separated by `.`. Names are display names (§5.3, markers removed), matched case-insensitively; spaces are part of names. Real names can contain `.` and `[…]` (`Res. Area`, `peg threshold [0,1]`; `docs/format-notes.md` "Names"), so each step is matched against the names at its level: the longest name the text starts with, followed by the end, `.` or an index (decisions D35).
 - `[i]` selects entry `i` (0-based) of a tag block field; `[*]` selects every entry. Example: `barrels[0].firing noise`, `barrels[*].rounds per second`.
 - Struct fields and array fields are stepped into by name, without an index.
-- A tag block field reached **without** an index shows its entry count and labels, and expands **entry 0** if `depth` allows (output says `showing [0]`). A path that passes **through** a tag block without an index uses entry 0 too (`barrels.rounds per second` = `barrels[0].rounds per second`).
+- A tag block field reached **without** an index shows its entry count and labels, and expands **entry 0** if `depth` allows (output says `showing [0]`, and with more than one entry `→ path=<block>[*]` for the rest, decisions D48). A path that passes **through** a tag block without an index uses entry 0 too (`barrels.rounds per second` = `barrels[0].rounds per second`).
 - If a name doesn't match: return an error listing up to 5 closest names at that level (edit distance).
 - If several sibling fields have the same name: the first is `name`, later ones are `name#2`, `name#3` (in field order). Output always uses these unique names.
 

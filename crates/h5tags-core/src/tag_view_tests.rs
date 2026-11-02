@@ -173,7 +173,7 @@ fn values_as_the_guide_shows_them() {
     assert!(l.contains(&"primary name  stringid  primary"), "{text}");
     assert!(l.contains(&"unknown name  stringid  0x12345678 (unresolved)"), "{text}");
     assert!(l.contains(&"selected  blkidx  1 → entries[1] second"), "{text}");
-    assert!(l.contains(&"### entries  block[2]  {first, second}  showing [0] first"), "{text}");
+    assert!(l.contains(&"### entries  block[2]  {first, second}  showing [0] first  → path=entries[*]"), "{text}");
     assert!(l.contains(&"  value  int32  7  rounds"), "{text}");
     assert!(l.contains(&"mesh  resource  (mesh resource, 6.1 MB, not loaded)"), "{text}");
     // Padding is hidden by default.
@@ -192,13 +192,13 @@ fn guid_check_off_warn_and_enforce() {
     let warn = with(GuidCheck::Warn);
     assert!(
         warn.contains(
-            "\n### entries  block[2]  {first, second}  showing [0] first  warning: definition GUID mismatch (values read; only the struct type ID differs)\n"
+            "\n### entries  block[2]  {first, second}  showing [0] first  → path=entries[*]  warning: definition GUID mismatch (values read; only the struct type ID differs)\n"
         ),
         "{warn}"
     );
     assert!(warn.contains("\n  value  int32  7  rounds\n"), "{warn}");
     let off = with(GuidCheck::Off);
-    assert!(off.contains("\n### entries  block[2]  {first, second}  showing [0] first\n"), "{off}");
+    assert!(off.contains("\n### entries  block[2]  {first, second}  showing [0] first  → path=entries[*]\n"), "{off}");
     let enforce = with(GuidCheck::Enforce);
     assert!(
         enforce.contains("\n### entries  block[2]  !! definition GUID mismatch at entries (definition 03030303-0303-0303-0303-030303030303, tag 02020202-0202-0202-0202-020202020202; guid_check = enforce)\n"),
@@ -246,7 +246,7 @@ fn labels_that_are_only_indices_are_left_out() {
     let xml = VALUES.replace(r#"<_field_string_id name="name^" />"#, r#"<_field_long_integer name="name" />"#);
     let (text, json) = render(&values_tag(), &xml, NORMAL);
     let l = lines(&text);
-    assert!(l.contains(&"### entries  block[2]  showing [0]"), "{text}");
+    assert!(l.contains(&"### entries  block[2]  showing [0]  → path=entries[*]"), "{text}");
     assert!(l.contains(&"selected  blkidx  1 → entries[1]"), "{text}");
     let entries = json["fields"].as_array().unwrap().iter().find(|f| f["name"] == "entries").unwrap();
     assert_eq!(entries["labels"], serde_json::json!(["0", "1"]));

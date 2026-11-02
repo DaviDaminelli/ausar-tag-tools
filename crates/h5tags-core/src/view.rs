@@ -329,6 +329,10 @@ fn brief_value(f: &FieldView) -> String {
     if let Some(c) = &f.container {
         if let Some(i) = c.index.filter(|_| !c.children.is_empty()) {
             let _ = write!(s, "  showing [{i}]");
+            // Brief has no labels; the count and where the rest are (D48).
+            if let Some(n) = c.count.filter(|&n| n > 1) {
+                let _ = write!(s, " of {n}  → path={}[*]", f.path);
+            }
         }
         if c.stub {
             let _ = write!(s, "  → path={}", f.path);
@@ -591,7 +595,7 @@ mod tests {
         assert!(t.contains("\nin barrels[0]:\n  rounds per second  8.5..8.5\n  x  1\n"), "{t}");
         assert!(!t.contains("##"), "{t}");
         // The block's own row keeps its entry count (D45).
-        assert!(t.contains("\nbarrels  block[2]  showing [0]\nin barrels[0]:\n"), "{t}");
+        assert!(t.contains("\nbarrels  block[2]  showing [0] of 2  → path=barrels[*]\nin barrels[0]:\n"), "{t}");
     }
 
     /// D45: what a heading carries survives brief: a block's count, a

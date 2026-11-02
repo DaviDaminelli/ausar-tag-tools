@@ -446,6 +446,10 @@ impl<'s> Converter<'s, '_> {
                     Some(l) => format!("showing [0] {l}"),
                     None => "showing [0]".into(),
                 });
+                // Where the other entries are (D48).
+                if b.count > 1 {
+                    summary.push(format!("→ path={path}[*]"));
+                }
                 c.index = Some(0);
                 let inner = self.body(first, &n.field.children, &format!("{path}[0]"), level + 1);
                 c.children = inner.children;

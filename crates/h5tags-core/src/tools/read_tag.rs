@@ -40,7 +40,8 @@ pub struct ReadTag {
     #[arg(long, default_value_t = 2)]
     #[serde(default = "default_depth")]
     pub depth: u32,
-    /// brief = paths and values; normal; full = + help, offsets, markers.
+    /// brief = paths and values only (no units, options or headings); normal =
+    /// + units, ranges, options, headings; full = + help, offsets, markers.
     #[arg(long, value_enum, default_value_t)]
     #[serde(default)]
     pub detail: Detail,
