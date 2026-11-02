@@ -7,13 +7,13 @@
 //!
 //! Tags are named by global ID (game file names stay out of code).
 
-use std::path::PathBuf;
+mod common;
 
 use h5_module::testutil::TempDir;
 use h5tags_core::tag_view::{Detail, Options};
 use h5tags_core::tools::args::BuildArg;
 use h5tags_core::tools::{ReadTag, Tool};
-use h5tags_core::{Config, Format, Session};
+use h5tags_core::{Format, Session};
 use serde_json::Value;
 
 const BATTLE_RIFLE: &str = "0x00008593";
@@ -23,12 +23,7 @@ const RAILGUN: &str = "0x0000D3C7";
 const GRENADE_LIST: &str = "0x00000057";
 
 fn session() -> (Session, TempDir) {
-    let deploy = PathBuf::from(std::env::var("H5_DEPLOY").expect("set H5_DEPLOY to the Forge deploy folder"));
-    let defs = std::env::var("H5_DEFS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/H5Tags/tags"));
-    let cache = TempDir::new("core-spot-values");
-    (Session::open(Config::single(deploy, defs, None, Some(cache.0.clone()))).unwrap(), cache)
+    common::real_session("core-spot-values")
 }
 
 /// The value of each field `path` selects in `tag` (JSON `value`).

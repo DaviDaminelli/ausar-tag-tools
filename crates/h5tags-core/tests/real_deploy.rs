@@ -6,7 +6,8 @@
 //!
 //! Definitions default to `reference/H5Tags/tags`; set `H5_DEFS` to override.
 
-use std::path::PathBuf;
+mod common;
+
 use std::time::Instant;
 
 use h5_module::testutil::TempDir;
@@ -16,19 +17,14 @@ use h5tags_core::tools::args::{BuildArg, PageArgs};
 use h5tags_core::tools::{
     Browse, ListClasses, ListEntries, ListModules, ListResourceKinds, Reindex, SearchTags, Tool, What,
 };
-use h5tags_core::{Config, Format, Session};
+use h5tags_core::{Format, Session};
 
 /// A session on `H5_DEPLOY`, with its index cache in a folder deleted afterwards.
 fn session() -> (Session, TempDir) {
-    let deploy = PathBuf::from(std::env::var("H5_DEPLOY").expect("set H5_DEPLOY to a folder with .module files"));
-    let defs = std::env::var("H5_DEFS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/H5Tags/tags"));
-    let cache = TempDir::new("core-real");
     let start = Instant::now();
-    let s = Session::open(Config::single(deploy, defs, None, Some(cache.0.clone()))).unwrap();
+    let opened = common::real_session("core-real");
     println!("session opened in {:.2?}", start.elapsed());
-    (s, cache)
+    opened
 }
 
 fn check(s: &mut Session, name: &str, tool: &impl Tool) {
