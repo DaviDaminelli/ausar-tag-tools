@@ -446,3 +446,19 @@ Done-when met: a fresh Claude Code session with only the server's instructions a
 ### Step 1: token budget test (Forge sample; `h5tags-core` `real_token_budget`)
 
 The 45 distinct h5tags calls of the M4 acceptance session and its three retests (one transcript), replayed through `Command::from_json` as the MCP server runs them, text format. Current sizes: 128,486 characters in all (≈ 32,121 tokens); largest `search_tags assault_rifle limit=200` 23,877, `outline` of the battle rifle 10,345, the two `barrels depth=5` brief reads 9,305 and 8,978. Budgets = size + 20%, 154,199 in all. The run takes 0.25 s.
+
+### Step 2: Q12 survey and the header scan (2026-11-01)
+
+Survey (`h5tags-core` `real_reference_survey`, first copy of each tag): see format-notes "What references without a dependency point to". Forge: 40,672 references without a dependency but not null, 973 to indexed tags; Xbox 53,876, 3,768. Reading headers only: 1.73 s / 0.55 s; headers + tag data: 4.16 s / 1.11 s (one thread, warm).
+
+Header scan (`h5-module` `real_modules` `header_scan_timings`, release, every tag copy, all cores):
+
+| | Forge sample | Xbox sample |
+| --- | --- | --- |
+| Cold scan | 1.28 s: 10 modules, 62,976 tag copies, 429,388 non-null references (42,732 without a dependency) | 1.15 s: 9 modules, 57,537 copies, 402,086 references (55,363 without) |
+| String tables | 27.4 MB | 31.8 MB |
+| Cache file / save | 33.9 MB / 64 ms | 37.7 MB / 72 ms |
+| Warm start (load + stamps) | 57 ms | 60 ms |
+| Tags not readable / modules failed | 0 / 0 | 0 / 0 |
+
+PRD §6.2's target (< 2 min on a full install) can't be measured here; these samples are 1.1 GB of base module each.

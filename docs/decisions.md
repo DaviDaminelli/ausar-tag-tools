@@ -238,3 +238,9 @@ A tag block expanded to its entry 0 now says where the other entries are when it
 - **Order** as planned: budget test → header scan and references → queries → diff → maps → status and cache.
 - **Token budgets:** each replayed call's measured text size plus 20%.
 - **Tag paths in tests:** the budget test replays the AI's real calls, so it keeps their tag paths (the user: tests may check real file names; what stays out of code is naming specific `.module` files in comments).
+
+## D50. The header scan (2026-11-01, M5a step 2; design approved by the user)
+- **Reads header and tag data**, not the header alone (PRD §6.2 changed): the Q12 survey showed references without a dependency entry (Forge 40,672, Xbox 53,876) can only be resolved exactly from their fields in the tag data; their listed names are ambiguous for most indexed targets. Resource data is never read.
+- **Stores per tag copy** (`h5_module::scan::TagScan`): every non-null reference field (target global ID, class, its position in the reference list, whether it has a dependency entry), the dependency list (global IDs), and the string table bytes (for `search_values`). Tags whose header or tag data can't be read are listed per module with the reason, not dropped silently.
+- **Like the index:** per module, keyed by the module file's stamp; unchanged modules are reused, changed ones scanned again, on all cores; `force` rescans by path (for `reindex`). Cached in its own file (magic `H5TAGSCN`).
+- **Shared with the index (one definition):** the cache file format (`cache::CacheFile`: magic, format number, postcard, atomic write) and the parallel module loop (`cache::in_parallel`), both moved out of `index.rs`; and `ModuleRecord::path_in` for a module's file, now also used by the catalog.
