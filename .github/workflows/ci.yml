@@ -1,8 +1,9 @@
 name: CI
 
+# Started by hand (Actions → CI → Run workflow), to save the free plan's
+# minutes: the same checks run locally before every commit (decisions D65).
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
