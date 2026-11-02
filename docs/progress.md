@@ -507,3 +507,14 @@ Token budget test: the session's 4 calls added (browse 289, read_tag 253, find_r
 - Header scan builds on both samples: yes (Forge 1.28 s, Xbox 1.15 s, release; target < 2 min on a full install not measurable here).
 - `find_references(in)` matches a manual check on 3 tags: done for every target instead (76,724 Forge, 68,184 Xbox, all match).
 - A fresh session answers "Which tags reference this projectile?" within its budget: yes (4 calls, ≈ 230 tokens of tool results).
+
+## M5b: queries, diff, maps, status, cache (in progress, 2026-11-02)
+
+### Step 1: `query_field` (Forge sample, release CLI)
+
+| Call | Result |
+| --- | --- |
+| `query-field weap "magazines[0].rounds loaded maximum" --limit 200` | 67 weapons, 51 skipped (no magazine entry: Mantis guns, energy weapons…), each with its reason; 5,049 characters (≈ 1,262 tokens); **2.7 s** in all (process start, index and tag reads; done-when target < 5 s). Values match the user's: assault rifle 36, battle rifle 36, covenant carbine 20, railgun 1. |
+| `query-field weap "barrels[*].firing.rounds per second"` | 128 rows with field paths; 253 ms |
+| same with `--sort desc` | refused: the value is bounds (several numbers) |
+| `query-field weap "magazines[0].rounds loaded maximum" --filter ">= 40" --sort desc` | 8 rows, largest first |
