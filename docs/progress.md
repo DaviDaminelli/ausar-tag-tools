@@ -368,3 +368,12 @@ The first call of a session parses the module's lists once (the 12 ms); later ca
 | `read-tag 0x00008593 --confirm-large`       | —                               | 722 lines, ≈ 8,758 tokens (warning line first)  |
 | `get-definition weap` (whole)               | 815 lines, ≈ 8,494 tokens       | 71 lines, ≈ 874 tokens (class outline + hint)   |
 | `read-tag 0x000041B7 --path barrels[0]`     | unchanged (path reads are not guarded) | unchanged                               |
+
+### Step 4: the MCP server (2026-11-01, local config with both builds, debug build)
+
+End-to-end over stdio (JSON-RPC lines into `h5tags-mcp --config h5tags.toml`): `initialize` returns the §9a instructions and `serverInfo` `h5tags-mcp 0.1.0`, and the server logged `elicitation=true` for a probe client declaring it; `tools/list` lists the 11 tools; `read_tag 0x00008593 path=magazines[0].rounds loaded maximum` returns `36`; a whole `read_tag 0x00008593` returns the guarded outline; `resources/read h5tags://guide` returns the guide as `text/markdown`; `paths=` returns `isError` with the valid names. Session ready 0.53 s after start (both indexes from cache).
+
+| What the agent receives once per session | Size                        |
+| ---------------------------------------- | --------------------------- |
+| `initialize` result (with instructions)  | 1,562 characters            |
+| `tools/list` result (11 tools, schemas)  | 15,169 characters, ≈ 3,792 tokens |
