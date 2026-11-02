@@ -416,3 +416,7 @@ Forge sample (62,976 tags, 8.8 s) and Xbox sample (57,537 tags, 9.4 s); every no
 | `_field_real [degrees]` (plain reals)     | 14,844   | 6,843                    | 7,903           | 9999 |
 
 Plain reals with a degree unit: radian-like values only at `hlmt` `shadow slope scale bias` (×2 fields, 3,389 each), `licn` `angle fade cutoff` / `range` (29 each), one `vehi` steering field (7). After the fix: assault rifle `barrels[0].projectile error.error angle` reads `0.0026179939..0.04014257 rad  0.15..2.3 degrees (max_error_angle)`; every tag of both samples still renders (`real_read`, Forge 36.2 s, Xbox 32.4 s) and the 5 spot values match.
+
+### Retest of "AR vs SMG barrels" (2026-11-01, second fresh session)
+
+The server was the release build from 22:08, before the angle and GUID fixes (committed 23:01), so angles came without `rad`/degrees and the agent inferred radians again. The retest found three gaps in `detail=brief` (D45), all reproduced with the current code on `read-tag 0x00008595 --path barrels --detail brief --depth 3`: `automatic fire variations` (8 entries) showed only entry 0 with no count; the wield-penalty structs lost their `warning: definition GUID mismatch`; collapsed structs showed only `struct`. After the fix the same read is 115 lines, 7,441 characters (≈ 1,860 tokens), with 16 lines or annotations carrying block counts, warnings and `→ path=`. The agent also noted the penalty curves show as `(curve, 68 bytes)`: mapping functions aren't decoded in v1 (PRD §10 item 9).
