@@ -112,6 +112,7 @@ How the assistant reads the results (and how to read them yourself): [docs/AGENT
 ## Troubleshooting
 
 - **The server isn't listed / doesn't start:** check the path to `h5tags-mcp` and the config file in the client's settings, then restart the client. Running the same command in a terminal shows any config error (it is printed before the server starts).
+- **Windows says the program was blocked, or the client reports a spawn error (`uv_spawn`):** Windows 11's Smart App Control can block programs you build yourself, since they aren't signed. Microsoft documents no way to allow a single program; it lets apps run that its cloud service judges safe or that carry a valid signature from a trusted provider. A rebuild produces a new file that is judged again; a debug build (`cargo build`, `target\debug\`) is a separate file. Turning Smart App Control off affects the whole PC, and on some PCs it can't be turned back on without resetting Windows.
 - **"no definition for class …":** the `defs` path doesn't point to H5Tags' `tags` folder, or that class has no definition.
 - **The first call after starting is slow:** the server is still loading or building the index; later calls are fast.
 - **Logs** go to stderr, never stdout (stdout carries the MCP protocol). `H5TAGS_LOG=debug` shows more. Claude Code shows them with `claude --debug`; Claude Desktop writes them to its logs folder (`mcp-server-h5tags.log`).
