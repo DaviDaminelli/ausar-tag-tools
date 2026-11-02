@@ -136,7 +136,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `struct` | struct | heading |
 | `array` | array | heading |
 | `data` | data reference | `(N bytes)` |
-| `function` | mapping-function curve | `(curve, N bytes)` (not decoded) |
+| `function` | mapping-function curve (an input → output curve, e.g. inaccuracy over firing time) | `(curve, 68 bytes, #9a7cc512)`: its size and a fingerprint of its bytes. Not decoded: you can't tell what the curve does. Same fingerprint = byte-for-byte the same curve; a different one = the curves differ, not how |
 | `resource` | pageable resource | `(mesh resource, 6.1 MB, not loaded)`: the resource's kind and size; `(…, not stored in this module)` if its data isn't in the module |
 | `pad` | padding (hidden) | `(N bytes)` |
 | `tag` | a class code | `weap` |

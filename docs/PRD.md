@@ -381,7 +381,7 @@ One field per line. In `text` (what the AI reads), columns are separated by exac
 - Units and range (`[min-max]`) follow the value.
 - **Angle types** (`_field_angle`, `_field_angle_bounds`, `_field_real_euler_angles_2d`, `_field_real_euler_angles_3d`) store radians, though definitions label them in degrees (`docs/format-notes.md` "Angle units"): the exact stored value is marked `rad`, and the units show the value converted to degrees (3 decimals) before the definition's unit text; JSON adds `degrees` (since M4, decisions D44).
 - Extras: options (§7.5), markers (`detail=full`), states (§8).
-- Mapping-function structs render as one line: `<name>  function  (curve, N bytes)`.
+- Mapping-function structs render as one line: `<name>  function  (curve, N bytes, #xxxxxxxx)`: the size and a fingerprint of the curve's bytes (MurmurHash3 x86 32, seed 0, as 8 hex digits; JSON `fingerprint`), so equal curves can be recognised without decoding them (since M4, decisions D46).
 - The internal struct and `vtable space` are never shown, even with `show_hidden`.
 
 ### 7.3 Text format: headings and sections

@@ -217,3 +217,9 @@ Brief dropped every heading (D40), and with them three facts the agent needed. I
 - A struct or block **not expanded** (a stub) ends in `→ path=<full path>`, the signal the normal view and the server instructions use.
 - An expanded struct with nothing to add keeps no line of its own, as before.
 The value column now has one definition (`view::value_column`, value then state), used by the columns and by brief. Before, brief took the first non-empty optional column, which for a container without a value could be its units.
+
+## D46. A fingerprint for curves (2026-11-01, asked for by the user after the M4 retest)
+Mapping functions (529 struct places across the definitions) hold one data reference, the curve, whose byte layout is undocumented (decoding stays PRD §10 item 9). In the retest the agent could only say "I can't tell whether the AR's and SMG's curves are the same". Now:
+- **h5-meta:** `DataRef` keeps the data block holding its bytes (`target`, from the header's data reference list) and, for a mapping function's curve only, a `fingerprint`: MurmurHash3 x86 32, seed 0, of those bytes (the hash the module already uses for string_ids). Only curves are hashed (≈ 68 bytes each); other data references can be large and nothing shows a fingerprint for them (D26).
+- **Output:** `(curve, 68 bytes, #9a7cc512)`, 8 lowercase hex digits; JSON `fingerprint` next to `value` (the size). Same fingerprint = the same bytes; different = different curves, without saying how. A 32-bit hash can collide, in principle; for comparing a handful of curves that risk is negligible.
+- Not in the PRD before; the user approved it ("do it, its nice").

@@ -332,13 +332,23 @@ impl<'s> Converter<'s, '_> {
         match &n.content {
             Content::Value(value) => self.value(n, value, &mut v),
             Content::Struct(b) | Content::Array(b) if f.is_mapping_function() => {
-                // One line (PRD §7.2): the curve's data size.
-                let size = b.children.iter().find_map(|c| match &c.content {
-                    Content::Value(Value::Data(d)) => Some(d.size),
+                // One line (PRD §7.2): the curve's data size and fingerprint (D46).
+                let data = b.children.iter().find_map(|c| match &c.content {
+                    Content::Value(Value::Data(d)) => Some(d),
                     _ => None,
                 });
+                let size = data.map_or(0, |d| d.size);
                 v.short_type = "function".into();
-                v.value = Some(plain(format!("(curve, {} bytes)", size.unwrap_or(0)), json!(size.unwrap_or(0))));
+                let print = data.and_then(|d| d.fingerprint).map(|p| format!("{p:08x}"));
+                let text = match &print {
+                    Some(p) => format!("(curve, {size} bytes, #{p})"),
+                    None => format!("(curve, {size} bytes)"),
+                };
+                let mut shown = plain(text, json!(size));
+                if let Some(p) = print {
+                    shown.json.insert("fingerprint".into(), json!(p));
+                }
+                v.value = Some(shown);
             }
             Content::Struct(b) | Content::Array(b) => {
                 if self.guid_check(f, b.guid_mismatch, path, &mut v) {

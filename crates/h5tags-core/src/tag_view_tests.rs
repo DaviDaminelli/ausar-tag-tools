@@ -47,6 +47,28 @@ fn values_tag() -> TestTag {
     t
 }
 
+/// D46: a curve shows its size and a fingerprint of its bytes; JSON gives both.
+#[test]
+fn a_curve_shows_its_size_and_fingerprint() {
+    use h5_defs::definition::MAPPING_FUNCTION_GUID;
+    let xml = REFS.replace(
+        r#"<_field_data_64 name="data" />"#,
+        &format!(r#"<_field_struct name="curve" srcguid="{MAPPING_FUNCTION_GUID}"><_field_data_64 name="data" /></_field_struct>"#),
+    );
+    let guid =
+        Definition::parse(&xml).unwrap().fields.iter().find(|f| f.step.as_deref() == Some("curve")).unwrap().guid();
+    let mut t = sample_tag();
+    t.structs.push((3, -1, 0, 0x40, guid.unwrap(), 0));
+    let (text, json) = render(&t, &xml, NORMAL);
+    let print = format!("{:08x}", murmur3_x86_32(&[0xAB; 0x10], 0));
+    assert!(lines(&text).contains(&format!("curve  function  (curve, 16 bytes, #{print})").as_str()), "{text}");
+    let curve = json["fields"].as_array().unwrap().iter().find(|f| f["name"] == "curve").unwrap();
+    assert_eq!(
+        (curve["value"].clone(), curve["fingerprint"].clone()),
+        (serde_json::json!(16), serde_json::json!(print))
+    );
+}
+
 /// Angle-typed fields: stored in radians, labelled in degrees (format-notes "Angle units").
 const ANGLES: &str = r#"<plugin>
 	<_field_angle name="steering maximum" />
