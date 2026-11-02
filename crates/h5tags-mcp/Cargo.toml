@@ -14,3 +14,9 @@ h5tags-core.workspace = true
 rmcp.workspace = true
 tokio.workspace = true
 tracing-subscriber.workspace = true
+clap.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+h5tags-core = { workspace = true, features = ["testutil"] }

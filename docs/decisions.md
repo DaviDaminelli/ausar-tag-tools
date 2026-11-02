@@ -185,3 +185,15 @@ Each change was measured on the battle rifle (`0x00008593`) and the HUD screens 
 - **The warning** with `confirm_large=true` is the first title line, right under the tag line, so the agent sees the size before the content.
 - **Numbers without separators** (`≈ 8744 tokens`), like every other count in text output (`total: 6380`).
 - The limit lives in the session (`large_read_tokens`, PRD §6.1). Tests lower it to 10 tokens to guard the tiny sample tag.
+
+## D42. The MCP server (2026-11-01, M4 step 4)
+- **One definition per tool, both programs** (D7): the parameter structs derive `schemars::JsonSchema`, so `tools/list` schemas come from the same structs as the CLI flags; a test checks every CLI argument is a schema property and back. A tool's description is its struct's doc comment (also its CLI help). `Command::from_json` (input layer, `tools/args.rs`) turns MCP arguments into the same `Command` the CLI runs.
+- **Unknown argument names are refused**, with the valid names in the hint. serde drops unknown keys, and `deny_unknown_fields` doesn't work with the flattened shared arguments; a misspelt `path=` would otherwise read the whole tag silently.
+- **`format`** (`text` default, or `json`) is added to every tool's schema by the server, the MCP counterpart of the CLI's global `--format` (PRD §1: MCP default is compact text). `table` is for people and not offered.
+- **Errors** are tool results with `isError` and the same text as the CLI (`!! error: …` + `hint: …`), so the agent reads them; protocol errors are kept for the server's own failures.
+- **Config arguments** (`--config`, `--deploy`, `--defs`, `--resource-defs`, `--cache-dir`) and their rules moved from the CLI into `h5tags_core::config::ConfigArgs`, flattened into both programs.
+- **The session opens in a background thread** at start; tool calls wait for it (`OnceLock::wait`), so the client's connection doesn't time out during a first indexing. Calls run on tokio's blocking pool, one at a time (the session is behind a `Mutex`).
+- **Built once:** the tool list (it can't change while the server runs); the guide resource is `docs/AGENT_GUIDE.md` compiled in (`include_str!`), so it always matches the build; the instructions are a constant a test compares with the PRD §9a block.
+- **Elicitation** (a client showing the user a confirmation dialog, D38): the server logs on connect whether the client declares it (`elicitation=true/false`); nothing depends on it. Claude Code's answer is recorded at the M4 acceptance session.
+- **Logs** go to stderr (`H5TAGS_LOG` sets the level, default `info`), never stdout.
+- `cargo run` now needs `--bin h5tags` (two binaries in the workspace); CLAUDE.md updated.

@@ -236,6 +236,8 @@ Every tag stores, besides its field values, a few lists that say what its fields
 - **Section:** `section="EXPOSURE"` selects a section by heading. If the heading occurs more than once, you get the list of matches to choose from.
 - **depth:** how many nested struct/array/tag block levels to expand (default 2; `outline` too). Raise it only for small sections.
 - **confirm_large** (`read_tag`, `get_definition`): `true` = return a whole read even above the size limit (§3). Default `false`.
+- **format** (every tool): `text` (default; what this guide describes) or `json` (the same facts as structured data).
+- **Parameter names are checked:** a name the tool doesn't have is an error (`!! error: read_tag has no parameter 'paths'`) whose hint lists the real ones; nothing is ignored silently.
 - **Filters** mean the same on every list tool that has them, and all given filters must match:
   - `query` + `mode` (`default` = path contains; `regex`, e.g. `magnum|pistol`; `exact`)
   - `class` (class code or name)
