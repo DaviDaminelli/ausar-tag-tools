@@ -531,3 +531,25 @@ Before the fix found in this check, `path=barrels` compared only entry 0 and wro
 
 ### Server instructions: guide pointer and research method (2026-11-02, D56)
 Instructions 12 → 16 lines, 1,438 → 2,228 bytes (≈ 360 → 560 tokens, sent once per session). To check in the M5b acceptance session: whether the agent reads `h5tags://guide` for the battery questions, and whether it checks candidates on a third tag and labels engine behaviour as inference.
+
+### Step 3 research: Q5 and Q8 survey (2026-11-02, `real_layer_survey`, Forge and Xbox samples, release; 2.4 s per sample)
+
+| Measure | Forge | Xbox |
+| --- | --- | --- |
+| tags with copies | 195, all in `any\levels\globals` layers | 740 (325 in `globals` layers 0 + 75160; 415 across stacks) |
+| copies that read as whole tags | 404 of 404 | 1,474 of 1,480 |
+| layer copies with fewer resources than the lowest copy | 0 | 0 |
+| base references to a tag first found in a later layer of the same stack | 0 of 342,817 | 442 of 292,169 |
+| manifests | `mainmenu` 42,128 → 42,187 (+60, −1), layers 11587 and 12719 the same set | `fo06_deepsea` 70,530 → 70,595 (+70, −5), three layers the same set |
+
+Q8: no tag needs merged copies. Q5: Forge fits "highest layer in effect" (inference); Xbox order unknown. The assault rifle's rate of fire differs between its copies (9.999999 base, 10.5 in layer 11587); the tools read the base copy by default (PRD §6.4.6). Details in format-notes "Layers and load manifests".
+
+Follow-up the same day, Xbox sample with `globals-rtx-97230-1` and `singleplayer_4k-rtx-97230-1` added: 746 tags with copies (331 in `globals` layers), 1,490 of 1,496 copies read as whole tags, none with fewer resources. No module of either sample stores a module name (`stack_names_inside_modules`: 508 MB Xbox, 482 MB Forge searched, 0 hits; the only non-tag file is `loadmanifest`). Module header `buildVersionId` groups modules written together (`module_header_ids`): Xbox `globals-rtx-1` with `globals-rtx-75160-3`, and `globals-rtx-97230-1` with the newest modules.
+
+Xbox `.mapinfo` check (2026-11-02, the 54 `.mapinfo` files of the Xbox deploy, build 97230.18.02.27.2300): every file lists its modules in ascending layer order (base first), 46–74 module paths each; all 54 list the same 19 `globals` layers, 1 then 75160 … 97230. `version.txt` `ShortVersion: 97230-1` has the module names' `<build>-<revision>` form. Q5: both builds order a stack the same way; the default copy becomes the highest layer (D58).
+
+### Step 3a: default copy = latest layer (2026-11-02, D58, Forge and Xbox samples, debug CLI)
+- `read-tag 0x00008595 --path "barrels[0].firing.rounds per second"` → `10.5..10.5` from `any\levels\globals-rtx-11587-1.module, the latest layer` (before: 9.999999 from the base).
+- `tag-copies` on the assault rifle: `read by default: any\levels\globals-rtx-11587-1.module`, layers `base` and `11587-1`. Xbox DMR: `read by default: globals-rtx-97230-1.module`.
+- `query-field weap "magazines[0].rounds loaded maximum" --limit 200`: identical output under the old and the new rule (no magazine size differs between copies), so the step 1 spot values stand.
+- Forge real-file suites (`real_spot_values`, `real_read`, `real_deploy`, `real_repeat_calls`, `real_token_budget`): all pass. Workspace tests and clippy pass.
