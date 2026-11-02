@@ -661,7 +661,7 @@ h5tags/
 **Rules**
 
 - Logs go to **stderr only**; stdout carries the MCP protocol.
-- Memory-map module files. Decompress only what a call needs. LRU cache of decompressed tags (size: `tag_cache_mb`, §6.1). A long-running process (the MCP server) keeps the index, opened modules and parsed definitions between calls, and drops a definition or module when its file changes (same keys as §6.9).
+- Memory-map module files. Decompress only what a call needs. LRU cache of decompressed tags (size: `tag_cache_mb`, §6.1). A long-running process (the MCP server) keeps between calls the index, each module's parsed lists (module files are mapped again for each call, so none stays open and locked between calls), parsed definitions (parsed again when the file's size or modification time changes) and the tag cache (decisions D39).
 - The library crates MUST NOT depend on MCP; everything is usable from the CLI.
 - **OS-agnostic:** every crate MUST build and pass its tests on Windows, Linux and macOS. No OS-specific code outside an opt-in cargo feature (the only planned one: `xg.dll` de-tiling, backlog 8). File system paths use `std::path`; tag paths (`\`-separated game data) are never treated as file system paths. Prefer pure-Rust dependencies (no C toolchain needed). A CI workflow (GitHub Actions) builds and runs the unit tests on all three OSes from M1 on.
 

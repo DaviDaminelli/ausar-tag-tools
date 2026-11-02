@@ -300,3 +300,48 @@ CLI calls in text format, as the AI would make them; tokens ≈ characters / 4.
 | **Total**                                                     | 41    | 12,041   |
 
 For comparison: the whole battle rifle read is 35,052 characters (≈ 8,763 tokens), and the whole weapon pair ≈ 17,500 tokens without the HUD. The HUD's battery logic was found only in the string_id names of `header-dump` (32,137 / 19,361 / 19,314 characters for three HUD screens, ≈ 17,700 tokens if read whole); the session grepped them instead, which an AI with the tools alone cannot do.
+
+## M4: MCP server (in progress, 2026-11-01)
+
+### Step 1: what repeated calls cost (before any in-memory cache), Forge sample, release build
+
+One session making the same calls 3 times (test `h5tags-core` `real_repeat_calls`, `repeated_calls`):
+
+| Call                                               | First   | Repeated (mean of 2) |
+| -------------------------------------------------- | ------- | -------------------- |
+| `read-tag 0x00008593` (battle rifle, whole)        | 22.0 ms | 20.3 ms              |
+| `read-tag 0x00008593 --path barrels[0] --depth 1`  | 19.7 ms | 19.5 ms              |
+| `read-tag 0x000041B7 --path barrels[0] --depth 1`  | 11.3 ms | 10.3 ms              |
+| `outline --tag 0x00008593 --depth 1`               | 20.4 ms | 19.5 ms              |
+| `get-definition weap --path barrels`               | 1.7 ms  | 1.7 ms               |
+| `search-definitions energy --class weap`           | 1.8 ms  | 1.8 ms               |
+| `search-definitions rounds` (every class)          | 86.4 ms | 79.6 ms              |
+
+Where the time of one read goes (a one-off breakdown test, removed once the caches made it measure cached reads):
+
+| Tag (tag data size)            | Copy identity | Read + decompress | Parse definition | `read_tag` walk |
+| ------------------------------ | ------------- | ----------------- | ---------------- | --------------- |
+| battle rifle (11 KB, 3 copies) | 8.9 ms        | 8.6 ms            | 2.0 ms           | 1.7 ms          |
+| largest `mode` (4,135 KB)      | (1 copy)      | 16.2 ms           | 0.9 ms           | 130.1 ms        |
+| `unic` (2,749 KB, 3 copies)    | 9.2 ms        | 20.3 ms           | 0.3 ms           | 14.2 ms         |
+| `jmad` (1,019 KB)              | (1 copy)      | 12.1 ms           | 1.0 ms           | 39.3 ms         |
+
+Opening a module and parsing its file lists (once per copy for copy identity, once more for the read) is most of a small tag's time; decompression is small even for the largest tag. (The 0.27 s noted for `search_definitions` in D37 was a debug build.)
+
+Mapping that module (`globals-rtx-1`, 86,930 entries, 178,575 blocks) takes 0.18 ms; parsing its lists 6.7 ms.
+
+### Step 1: after the in-memory caches (same sample, same test, 2026-11-01)
+
+Kept between calls (decisions D39): each module's parsed lists, parsed definitions, and decompressed tags (LRU, `tag_cache_mb`, default 256).
+
+| Call                                               | First   | Repeated (mean of 2) | Repeated before |
+| -------------------------------------------------- | ------- | -------------------- | --------------- |
+| `read-tag 0x00008593` (battle rifle, whole)        | 12.1 ms | 1.5 ms               | 20.3 ms         |
+| `read-tag 0x00008593 --path barrels[0] --depth 1`  | 0.82 ms | 0.57 ms              | 19.5 ms         |
+| `read-tag 0x000041B7 --path barrels[0] --depth 1`  | 0.64 ms | 0.31 ms              | 10.3 ms         |
+| `outline --tag 0x00008593 --depth 1`               | 0.57 ms | 0.49 ms              | 19.5 ms         |
+| `get-definition weap --path barrels`               | 0.18 ms | 0.15 ms              | 1.7 ms          |
+| `search-definitions energy --class weap`           | 0.32 ms | 0.35 ms              | 1.8 ms          |
+| `search-definitions rounds` (every class)          | 94.3 ms | 22.4 ms              | 79.6 ms         |
+
+The first call of a session parses the module's lists once (the 12 ms); later calls cost the walk over the tag (`read_tag` walk: 120 ms for the largest tag, 0.2 ms for the battle rifle) and the search over every definition's text.
