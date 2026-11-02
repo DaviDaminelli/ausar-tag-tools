@@ -301,7 +301,7 @@ CLI calls in text format, as the AI would make them; tokens ≈ characters / 4.
 
 For comparison: the whole battle rifle read is 35,052 characters (≈ 8,763 tokens), and the whole weapon pair ≈ 17,500 tokens without the HUD. The HUD's battery logic was found only in the string_id names of `header-dump` (32,137 / 19,361 / 19,314 characters for three HUD screens, ≈ 17,700 tokens if read whole); the session grepped them instead, which an AI with the tools alone cannot do.
 
-## M4: MCP server (in progress, 2026-11-01)
+## M4: MCP server (2026-11-01, passed: accepted by the user)
 
 ### Step 1: what repeated calls cost (before any in-memory cache), Forge sample, release build
 
@@ -428,3 +428,15 @@ The server was the release build from 22:08, before the angle and GUID fixes (co
 ### Second retest of "AR vs SMG barrels" (2026-11-01; release built after the brief fix, before the curve fingerprints)
 
 Confirmed fixed by the agent: angle fields marked `rad` ("the degree conversions in brackets are just arithmetic"), `automatic fire variations block[8] showing [0]`, and `→ path=` on collapsed structs. New findings: (1) a direct `read_tag path=barrels[0].accuracy penalties.single wield penalties` didn't show the struct's GUID warning (fixed, D47); (2) the agent treated warned values as unreliable, since the bare warning didn't say the values were read (fixed: the warning explains itself, D47); (3) brief shows no units (by design, PRD §7.6); (4) curves not comparable (fixed by D46 after that build); (5) `diff_tags`/`query_field` not reachable (M5). After D47 the same path read shows, in normal and brief: `warning: definition GUID mismatch at barrels[0].accuracy penalties.single wield penalties (values read; only the struct type ID differs)`.
+
+### Third retest of "AR vs SMG barrels" (2026-11-01; release with D46 and D47)
+
+Confirmed by the agent: it now reports the wield-penalty values ("the mismatch warning explains itself … now I can report them"); the curve fingerprints (`#9a7cc512` vs `#d7f84014`) showed the AR's and SMG's firing penalty curves differ; one `read_tag path=barrels depth=5` per weapon replaced eight reads. Still open: `block[8] showing [0]` gives no next step for the other entries; brief has no units (by design; the `detail` description of `read_tag` now says "no units, options or headings", since the agent reads tool descriptions, not the guide); curves not decoded (PRD §10 item 9); `diff_tags`/`query_field` (M5).
+
+### Block hint (2026-11-01; decisions D48)
+
+`read-tag 0x00008595 --path barrels --depth 3`: brief `automatic fire sound.automatic fire variations  block[8]  showing [0] of 8  → path=barrels[0].automatic fire sound.automatic fire variations[*]`; normal heading `… showing [0] 010_wea_un_assaultrifle_fire_a_01  → path=…automatic fire variations[*]`. Every Forge tag still renders (`real_read`, 11.6 s).
+
+### M4 result: passed (2026-11-01, accepted by the user)
+
+Done-when met: a fresh Claude Code session with only the server's instructions and tools answered the four M4 questions correctly, read no whole large tag, and stated no `!!` value as fact (step 7); the guide-coverage test passes. Three retests of the AR vs SMG question confirmed the fixes that followed (D44–D48): radians shown with degrees, GUID warnings that explain themselves and appear on `path=` reads, brief keeping block counts, warnings and `→ path=`, curve fingerprints, and a next step on partly shown blocks.
