@@ -108,6 +108,27 @@ fn values_as_the_guide_shows_them() {
     assert!(!text.contains("\np  "), "{text}");
 }
 
+/// Labels that only repeat entry indices say nothing (decisions D40); JSON
+/// keeps them.
+#[test]
+fn labels_that_are_only_indices_are_left_out() {
+    // An entry with no string_id, string or tag reference has no label.
+    let xml = VALUES.replace(r#"<_field_string_id name="name^" />"#, r#"<_field_long_integer name="name" />"#);
+    let (text, json) = render(&values_tag(), &xml, NORMAL);
+    let l = lines(&text);
+    assert!(l.contains(&"### entries  block[2]  showing [0]"), "{text}");
+    assert!(l.contains(&"selected  blkidx  1 → entries[1]"), "{text}");
+    let entries = json["fields"].as_array().unwrap().iter().find(|f| f["name"] == "entries").unwrap();
+    assert_eq!(entries["labels"], serde_json::json!(["0", "1"]));
+
+    let def = Definition::parse(&xml).unwrap();
+    let (h, data) = build_tag(&values_tag());
+    let r = read_tag(&def, &TagHeader::parse(&h).unwrap(), &data);
+    let outline = TagView { nodes: crate::def_view::outline_tag(&r.root, &def.fields, 2), ..TagView::default() };
+    let outline = outline.render_lines(false);
+    assert!(outline.contains("### entries  block[2]  (2 fields)  path=entries\n"), "{outline}");
+}
+
 #[test]
 fn references_null_indexed_and_not_indexed() {
     let (text, json) = render(&sample_tag(), REFS, NORMAL);
@@ -174,7 +195,7 @@ fn json_carries_the_same_facts() {
 fn brief_and_full() {
     let (text, _) = render(&values_tag(), VALUES, ViewSettings { detail: Detail::Brief, ..NORMAL });
     assert!(text.contains("\ntrigger mode  1 latch\n"), "{text}");
-    assert!(text.contains("\nentries[0].value  7\n"), "{text}");
+    assert!(text.contains("\nin entries[0]:\n  name  first\n  value  7\n"), "{text}");
     assert!(!text.contains("##"), "{text}");
     let (text, _) = render(&values_tag(), VALUES, ViewSettings { detail: Detail::Full, ..NORMAL });
     assert!(text.contains("trigger mode  enum16  1 latch  {normal|latch}  @0x0\n"), "{text}");

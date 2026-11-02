@@ -24,8 +24,11 @@ fn default_depth() -> u32 {
     2
 }
 
+/// `outline` levels by default (PRD §6.5; 3 until M4, decisions D40).
+const OUTLINE_DEPTH: u32 = 2;
+
 fn default_outline_depth() -> u32 {
-    3
+    OUTLINE_DEPTH
 }
 
 /// A class's definition: (class code, class name, parsed definition).
@@ -135,7 +138,7 @@ pub struct Outline {
     #[arg(long)]
     pub class: Option<String>,
     /// Levels of the tree shown.
-    #[arg(long, default_value_t = 3)]
+    #[arg(long, default_value_t = OUTLINE_DEPTH)]
     #[serde(default = "default_outline_depth")]
     pub depth: u32,
     /// For a tag: read the copy in the module whose path contains this.
@@ -199,8 +202,9 @@ pub enum Scope {
 
 /// Find which class controls something, and where: a case-insensitive search
 /// of every definition's field names, option names, help text, units and
-/// explanations. Each hit: class, field path (tag blocks as name[*]), field
-/// type, what matched. Next: get_definition(class, path=...) or read_tag.
+/// explanations, whole-word hits first. Each hit: class, field path (tag
+/// blocks as name[*]), field type, what matched. Next:
+/// get_definition(class, path=...) or read_tag.
 #[derive(Clone, Debug, clap::Args, Deserialize)]
 pub struct SearchDefinitions {
     /// Text to find (part of a name, an option, or help text).
@@ -221,10 +225,49 @@ pub struct SearchDefinitions {
 }
 
 /// One search hit: (field path, field type, what matched).
-type Hit = (String, String, String);
+struct Hit {
+    path: String,
+    field_type: String,
+    matched: String,
+    /// The query is a whole word of something that matched: listed first.
+    word: bool,
+}
+
+/// How a text holds the query (lowercase): the order is the ranking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Fit {
+    Part,
+    /// Neither side of the match is a letter or digit.
+    Word,
+}
+
+fn fit(text: &str, q: &str) -> Option<Fit> {
+    let text = text.to_lowercase();
+    let edge = |c: Option<char>| !c.is_some_and(char::is_alphanumeric);
+    let mut found = None;
+    for (at, _) in text.match_indices(q) {
+        if edge(text[..at].chars().next_back()) && edge(text[at + q.len()..].chars().next()) {
+            return Some(Fit::Word);
+        }
+        found = Some(Fit::Part);
+    }
+    found
+}
 
 fn search_fields(fields: &[Field], path: &str, q: &str, scope: Scope, out: &mut Vec<Hit>) {
-    let has = |text: &str| text.to_lowercase().contains(q);
+    // The best fit of the field being looked at.
+    let best = std::cell::Cell::new(None);
+    let has = |text: &str| {
+        let f = fit(text, q);
+        best.set(best.get().max(f));
+        f.is_some()
+    };
+    let hit = |path: String, field_type: String, matched: String| Hit {
+        path,
+        field_type,
+        matched,
+        word: best.take() == Some(Fit::Word),
+    };
     let (names, options, help) = (
         matches!(scope, Scope::All | Scope::Names),
         matches!(scope, Scope::All | Scope::Options),
@@ -239,7 +282,7 @@ fn search_fields(fields: &[Field], path: &str, q: &str, scope: Scope, out: &mut 
             FieldKind::Known(FieldType::Explanation) => {
                 let text = f.text.as_deref().unwrap_or_default();
                 if help && (has(&f.name.display) || has(text)) {
-                    out.push((place(path), "explanation".into(), format!("explanation '{}'", f.name.display)));
+                    out.push(hit(place(path), "explanation".into(), format!("explanation '{}'", f.name.display)));
                 }
                 continue;
             }
@@ -247,7 +290,7 @@ fn search_fields(fields: &[Field], path: &str, q: &str, scope: Scope, out: &mut 
                 if let (true, Some(Custom::ClassSection(t) | Custom::Group(t))) = (names, custom_role(fields, i))
                     && has(&t)
                 {
-                    out.push((place(path), "heading".into(), format!("heading '{t}'")));
+                    out.push(hit(place(path), "heading".into(), format!("heading '{t}'")));
                 }
                 continue;
             }
@@ -282,7 +325,7 @@ fn search_fields(fields: &[Field], path: &str, q: &str, scope: Scope, out: &mut 
             }
         }
         if !matched.is_empty() {
-            out.push((p.clone(), ty, matched.join("; ")));
+            out.push(hit(p.clone(), ty, matched.join("; ")));
         }
         let inside = if f.kind == FieldKind::Known(FieldType::Block64) { format!("{p}[*]") } else { p };
         search_fields(&f.children, &inside, q, scope, out);
@@ -299,14 +342,13 @@ impl Tool for SearchDefinitions {
             return Err(ToolError::new("the query is empty").hint("pass part of a field name, an option or help text"));
         }
         let only = self.class.as_deref().map(|c| class_definition(b, c)).transpose()?;
-        let mut rows: Vec<Vec<Cell>> = Vec::new();
+        let mut rows: Vec<(bool, Vec<Cell>)> = Vec::new();
         let mut each = |code: &str, name: &str, def: &Definition| {
             let mut hits = Vec::new();
             search_fields(&def.fields, "", &q, self.scope, &mut hits);
-            rows.extend(
-                hits.into_iter()
-                    .map(|(path, ty, matched)| vec![code.into(), name.into(), path.into(), ty.into(), matched.into()]),
-            );
+            rows.extend(hits.into_iter().map(|h| {
+                (h.word, vec![code.into(), name.into(), h.path.into(), h.field_type.into(), h.matched.into()])
+            }));
         };
         match &only {
             Some((code, name, def)) => each(code, name, def),
@@ -322,6 +364,9 @@ impl Tool for SearchDefinitions {
                 }
             }
         }
+        // Whole-word hits first; a stable sort keeps definition order within each group.
+        rows.sort_by_key(|(word, _)| !word);
+        let rows: Vec<Vec<Cell>> = rows.into_iter().map(|(_, row)| row).collect();
         let total = rows.len();
         let hints =
             (total == 0).then(|| "nothing matched; try a shorter word, or scope=all".to_owned()).into_iter().collect();
@@ -414,5 +459,30 @@ mod tests {
         assert_eq!(v["rows"][0]["matched"], "name");
         let none = SearchDefinitions { query: "zzz".into(), ..search };
         assert!(text(&mut d, &none).unwrap().contains("hint: nothing matched"));
+    }
+
+    /// `age` must not bury "age misfire start" under every "damage" and "percentage".
+    #[test]
+    fn search_definitions_lists_whole_word_hits_first() {
+        let mut d = TestDeploy::new("def-search-words");
+        let xml = r#"<plugin>
+	<_field_real name="damage scale" />
+	<_field_real name="age misfire start" />
+	<_field_char_enum name="combiner"><item Name="total percentage" /></_field_char_enum>
+	<_field_real name="heat#rises with age" />
+	<_field_real name="ages" />
+</plugin>"#;
+        std::fs::write(d.dir.0.join("defs").join("(weap)weapon.xml"), xml).unwrap();
+        let search = SearchDefinitions {
+            query: "age".into(),
+            class: Some("weap".into()),
+            scope: Scope::All,
+            build: BuildArg::default(),
+            page: PageArgs::default(),
+        };
+        let out = search.run(&mut d.session).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&out.render(Format::Json)).unwrap();
+        let paths: Vec<&str> = v["rows"].as_array().unwrap().iter().map(|r| r["path"].as_str().unwrap()).collect();
+        assert_eq!(paths, ["age misfire start", "heat", "damage scale", "combiner", "ages"]);
     }
 }

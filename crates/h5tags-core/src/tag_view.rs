@@ -11,7 +11,7 @@ use h5_module::{FourCc, GlobalId};
 use serde_json::{Map, json};
 
 use crate::output::{format_size, marker};
-use crate::view::{Container, FieldView, HeadingKind, Shown, State, ViewNode};
+use crate::view::{Container, FieldView, HeadingKind, PATH_TARGET, Shown, State, ViewNode};
 
 /// How much to show (PRD §7.6).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, clap::ValueEnum, serde::Deserialize)]
@@ -229,12 +229,17 @@ struct Converter<'s, 'l> {
     scopes: Vec<(&'s Body<'s>, String)>,
 }
 
-/// Entry labels as a block heading shows them: at most 8, then `+N more` (PRD §7.3).
-pub(crate) fn label_list(labels: &[String]) -> String {
-    let shown: Vec<&str> = labels.iter().take(MAX_LABELS).map(String::as_str).collect();
+/// Entry labels as a block heading shows them: at most 8, then `+N more`
+/// (PRD §7.3), unlabelled entries by index. `None` when no entry has a label:
+/// a list of indices says nothing (decisions D40).
+pub(crate) fn label_list(labels: &[Option<String>]) -> Option<String> {
+    if labels.iter().all(Option::is_none) {
+        return None;
+    }
+    let shown: Vec<String> = labels.iter().take(MAX_LABELS).enumerate().map(|(i, l)| or_index(l, i)).collect();
     let more = labels.len().saturating_sub(MAX_LABELS);
     let more = if more > 0 { format!(", +{more} more") } else { String::new() };
-    format!("{{{}{more}}}", shown.join(", "))
+    Some(format!("{{{}{more}}}", shown.join(", ")))
 }
 
 pub(crate) fn join(path: &str, step: &str) -> String {
@@ -339,8 +344,9 @@ impl<'s> Converter<'s, '_> {
 
     fn block(&mut self, n: &'s h5_meta::Node<'s>, b: &'s Block<'s>, v: &mut FieldView, path: &str, level: u32) {
         v.short_type = short_type(FieldType::Block64, Some(b.count));
-        let labels: Vec<String> = b.entries.iter().enumerate().map(|(i, e)| entry_label(e, i)).collect();
-        let mut c = Container { count: Some(b.count), labels: labels.clone(), ..Container::default() };
+        let labels = entry_labels(&b.entries);
+        let json_labels = labels.iter().enumerate().map(|(i, l)| or_index(l, i)).collect();
+        let mut c = Container { count: Some(b.count), labels: json_labels, ..Container::default() };
         if b.guid_mismatch.is_some() {
             v.warning = Some("definition GUID mismatch".into());
         }
@@ -349,11 +355,14 @@ impl<'s> Converter<'s, '_> {
         } else if b.count == 0 {
             v.state = state(marker::EMPTY, "empty");
         } else {
-            let mut summary = label_list(&labels);
+            let mut summary: Vec<String> = label_list(&labels).into_iter().collect();
             if level < self.settings.depth
                 && let Some(first) = b.entries.first()
             {
-                summary.push_str(&format!("  showing [0] {}", labels[0]));
+                summary.push(match &labels[0] {
+                    Some(l) => format!("showing [0] {l}"),
+                    None => "showing [0]".into(),
+                });
                 c.index = Some(0);
                 let inner = self.body(first, &n.field.children, &format!("{path}[0]"), level + 1);
                 c.children = inner.children;
@@ -364,7 +373,7 @@ impl<'s> Converter<'s, '_> {
             } else {
                 c.stub = true;
             }
-            c.summary = Some(summary);
+            c.summary = (!summary.is_empty()).then(|| summary.join("  "));
         }
         v.container = Some(c);
     }
@@ -530,9 +539,15 @@ impl<'s> Converter<'s, '_> {
                     v.state = state(format!("(out of range; block has {})", b.count), "out_of_range");
                     i.to_string()
                 } else {
-                    let label = b.entries.get(i as usize).map(|e| entry_label(e, i as usize)).unwrap_or_default();
-                    json.insert("target".into(), json!({ "path": format!("{p}[{i}]"), "label": label }));
-                    format!("{i} → {p}[{i}] {label}")
+                    let label = b.entries.get(i as usize).and_then(entry_label);
+                    json.insert(
+                        "target".into(),
+                        json!({ "path": format!("{p}[{i}]"), "label": or_index(&label, i as usize) }),
+                    );
+                    match label {
+                        Some(l) => format!("{i} → {p}[{i}] {l}"),
+                        None => format!("{i} → {p}[{i}]"),
+                    }
                 }
             }
             None => {
@@ -580,8 +595,9 @@ impl<'s> Converter<'s, '_> {
 }
 
 /// An entry's label (PRD §6.4.4): its labelling field's value; tag references
-/// by file name (decisions D36); else the entry index.
-pub(crate) fn entry_label(e: &Body<'_>, i: usize) -> String {
+/// by file name (decisions D36). `None` when it has none: text then shows
+/// nothing, JSON the entry index (D40).
+pub(crate) fn entry_label(e: &Body<'_>) -> Option<String> {
     let text = e.label.and_then(|l| match &e.children[l].content {
         Content::Value(Value::StringId(s)) => s.text.clone(),
         Content::Value(Value::String(s)) => Some(s.clone()),
@@ -590,7 +606,16 @@ pub(crate) fn entry_label(e: &Body<'_>, i: usize) -> String {
         }
         _ => None,
     });
-    text.filter(|t| !t.is_empty()).unwrap_or_else(|| i.to_string())
+    text.filter(|t| !t.is_empty())
+}
+
+/// Every entry's label (`None` where it has none).
+pub(crate) fn entry_labels(entries: &[Body<'_>]) -> Vec<Option<String>> {
+    entries.iter().map(entry_label).collect()
+}
+
+fn or_index(label: &Option<String>, i: usize) -> String {
+    label.clone().unwrap_or_else(|| i.to_string())
 }
 
 /// The view of a read tag's main struct (or of the fields at `path`).
@@ -615,7 +640,7 @@ pub fn view_selection(
     lookup: &dyn Lookup,
 ) -> Vec<ViewNode> {
     let mut out =
-        vec![ViewNode::Heading { kind: HeadingKind::Target, title: format!("{requested}  (path)"), text: None }];
+        vec![ViewNode::Heading { kind: HeadingKind::Target, title: format!("{requested}{PATH_TARGET}"), text: None }];
     let several = sels.len() > 1;
     for s in sels {
         let mut c = Converter { settings, lookup, scopes: s.scopes.iter().map(|(b, p)| (*b, p.clone())).collect() };

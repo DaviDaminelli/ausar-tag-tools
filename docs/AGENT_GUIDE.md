@@ -73,14 +73,20 @@ bounding radius  real  0.1708791                   ← field of the main struct:
 - A section contains everything after its heading until the next heading at the same or a higher level.
 - **Field line:** name, short type, value, then units/range and extras, separated by two spaces. Units come from the definition (`stops`, `seconds`); `[0.1-1]` is the definition's stated valid range. Numbers are exact (the shortest form that reads back to the stored value), never rounded.
 - **Group headings** (`#### Outlining`) are the editor's grouping of the fields below them; **explanations** are the definition's own notes. Neither holds data.
-- `block[N] {labels}` = entry count and entry labels (max 8, then `+N more`). `showing [i]` = which entry is printed below. A label is the entry's labelling field (a name, or a referenced tag's file name), else its index.
+- `block[N] {labels}` = entry count and entry labels (max 8, then `+N more`). `showing [i]` = which entry is printed below. A label is the entry's labelling field (a name, or a referenced tag's file name); an entry without one is listed by its index (`{0, bullet_hit}`). When **no** entry has a label, the list is left out (`### magazines  block[1]  showing [0]`), and so is the label after a block index (`0 → magazines[0]`). JSON always has `labels`, with the index for an unlabelled entry.
 - `→ path=...` = not expanded here; call again with that path.
 - Repeated names among siblings get `#2`, `#3`: `flags#2` is the second field named `flags`.
 - `resources: N (size)` on the tag line = the tag owns N resources (textures, meshes, sounds… stored outside the tag) totalling that size. Their contents are not loaded. `detail=full` lists each one (`resource [i]  <kind>  <size>`). Omitted when the tag has none.
 - `copies: N (identical)` = all copies are the same. `copies: N (differ; reading <module>; use module= to choose)` = they differ; say which module's copy your numbers come from.
 
 ### 4.2 Brief format
-`detail=brief` drops headings: each line is `<full field path>  <value>`, e.g. `barrels[0].rounds per second  8.5..8.5`.
+`detail=brief` drops headings: each line is `<full field path>  <value>`, e.g. `barrels[0].rounds per second  8.5..8.5`. Two or more lines in a row from one tag block entry (or one entry of a `[*]` read) go under an `in <entry path>:` line, **indented**, with paths relative to it:
+```
+in barrels[0]:
+  flags  0x00000380 {…}
+  firing.rounds per second  29.999998..29.999998     ← = barrels[0].firing.rounds per second
+```
+An unindented line always has its full path. When a nested entry's group ends, the outer entry's next lines get their own `in` line again.
 
 **Lists** (search results, `browse`, `list_*`, `query_field`, references) look like this:
 ```
@@ -162,6 +168,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `list_resource_kinds` | Each asset kind with its count and total size | — |
 | `# <class> <name> (definition)` (`get_definition`, `outline(class=)`) | The class's schema from its definition alone: no tag data, no values | Field types, units, options and help apply to every tag of the class |
 | `get_definition` `block  (max N)` / `tagref  [proj]` / `blkidx  → barrels` / `(N options)` | A tag block and its maximum entry count; the classes a reference allows; the block an index points into; an enum or flags field with more options than shown (`options=all` lists them) | — |
+| `search_definitions` row order | Hits where the query is a whole word (`age` in "age misfire start", "cannot fire at maximum age") come first; after them come hits that only contain it inside a word ("damage", "percentage", "ages"), each group in definition order | The first rows are usually the ones you want; the later ones rarely need paging through |
 | `outline` `(N fields)  path=…` | How many fields the struct or tag block holds directly, and the path to read it with | Read only the part you need: `read_tag(path=...)` |
 | `outline(tag=)` `block[N] {labels}` | The tag's entry count and labels; nested blocks are shown as entry 0 has them | Other entries can have different counts |
 | `definition_status` `has definition` | Whether a definition XML exists for the class | No → that class's tags can't be read field by field, only listed and followed by references |

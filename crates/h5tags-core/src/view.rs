@@ -5,6 +5,9 @@
 
 use serde_json::{Map, Value, json};
 
+/// Ends the title of the heading that opens a `path=` read: `barrels[0]  (path)`.
+pub const PATH_TARGET: &str = "  (path)";
+
 /// What a heading is (PRD §7.3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeadingKind {
@@ -259,17 +262,60 @@ fn write_nodes(nodes: &[ViewNode], depth: usize, lines: &mut Lines) {
     lines.flush();
 }
 
-fn write_brief(nodes: &[ViewNode], out: &mut String) {
+/// One `detail=brief` row: the block entry (or read target) it lies in, its
+/// full path and its value.
+struct BriefRow<'v> {
+    group: Option<String>,
+    path: &'v str,
+    value: String,
+}
+
+fn brief_rows<'v>(nodes: &'v [ViewNode], mut group: Option<String>, rows: &mut Vec<BriefRow<'v>>) {
     for n in nodes {
-        let ViewNode::Field(f) = n else { continue };
-        match &f.container {
-            Some(c) if !c.children.is_empty() => write_brief(&c.children, out),
-            _ => {
-                let cols = columns(f);
-                let value = cols.get(2).filter(|v| !v.is_empty()).cloned().unwrap_or_else(|| f.short_type.clone());
-                out.push_str(&format!("{}  {value}\n", f.path));
+        match n {
+            // A read's target, or one entry of a `[*]` read.
+            ViewNode::Heading { kind: HeadingKind::Target, title, .. } => {
+                group = Some(title.strip_suffix(PATH_TARGET).unwrap_or(title).to_owned());
             }
+            ViewNode::Heading { .. } => {}
+            ViewNode::Field(f) => match &f.container {
+                Some(c) if !c.children.is_empty() => {
+                    let entry = c.index.map(|i| format!("{}[{i}]", f.path)).or_else(|| group.clone());
+                    brief_rows(&c.children, entry, rows);
+                }
+                _ => {
+                    let cols = columns(f);
+                    let value = cols.get(2).filter(|v| !v.is_empty()).cloned().unwrap_or_else(|| f.short_type.clone());
+                    rows.push(BriefRow { group: group.clone(), path: &f.path, value });
+                }
+            },
         }
+    }
+}
+
+/// `<full path>  <value>` lines; two or more rows in a row from one block
+/// entry go under an `in <entry path>:` line, indented, with paths relative
+/// to it (decisions D40).
+fn write_brief(nodes: &[ViewNode], out: &mut String) {
+    let mut rows = Vec::new();
+    brief_rows(nodes, None, &mut rows);
+    // A row's path inside its group; `None` if the path doesn't start with it
+    // (a section heading, a single value read).
+    let inside: Vec<Option<&str>> =
+        rows.iter().map(|r| r.group.as_deref().and_then(|g| r.path.strip_prefix(g)?.strip_prefix('.'))).collect();
+    let mut i = 0;
+    while i < rows.len() {
+        let run = (i..rows.len()).take_while(|&k| inside[k].is_some() && rows[k].group == rows[i].group).count();
+        if run < 2 {
+            out.push_str(&format!("{}  {}\n", rows[i].path, rows[i].value));
+            i += 1;
+            continue;
+        }
+        out.push_str(&format!("in {}:\n", rows[i].group.as_deref().unwrap_or_default()));
+        for k in i..i + run {
+            out.push_str(&format!("  {}  {}\n", inside[k].unwrap_or_default(), rows[k].value));
+        }
+        i += run;
     }
 }
 
@@ -470,13 +516,62 @@ mod tests {
         assert_eq!(fields[4]["children"][0]["path"], "barrels[0].rounds per second");
     }
 
+    fn brief_lines(nodes: Vec<ViewNode>) -> String {
+        TagView { title: "# t".into(), nodes, brief: true, ..TagView::default() }.render_lines(false)
+    }
+
+    fn at(path: &str, value: &str) -> ViewNode {
+        let ViewNode::Field(mut f) = field(path, "real", value) else { unreachable!() };
+        f.path = path.into();
+        ViewNode::Field(f)
+    }
+
+    /// Decisions D40: the rows of one block entry share an `in <path>:` line.
     #[test]
-    fn brief_is_paths_and_values() {
+    fn brief_is_paths_and_values_grouped_by_block_entry() {
         let mut v = sample();
         v.brief = true;
+        if let Some(ViewNode::Field(f)) = v.nodes.last_mut() {
+            let ViewNode::Field(x) = &mut f.container.as_mut().unwrap().children[1] else { unreachable!() };
+            x.path = "barrels[0].x".into();
+        }
         let t = v.render_lines(false);
         assert!(t.contains("\nbounding radius  0.17\n"), "{t}");
-        assert!(t.contains("\nbarrels[0].rounds per second  8.5..8.5\n"), "{t}");
+        assert!(t.contains("\nin barrels[0]:\n  rounds per second  8.5..8.5\n  x  1\n"), "{t}");
         assert!(!t.contains("##"), "{t}");
+    }
+
+    #[test]
+    fn a_brief_group_of_one_row_keeps_the_full_path() {
+        let mut v = sample();
+        v.brief = true;
+        if let Some(ViewNode::Field(f)) = v.nodes.last_mut() {
+            f.container.as_mut().unwrap().children.truncate(1);
+        }
+        let t = v.render_lines(false);
+        assert!(t.contains("\nbarrels[0].rounds per second  8.5..8.5\n"), "{t}");
+        assert!(!t.contains("in barrels"), "{t}");
+    }
+
+    /// A `[*]` read: each entry's target heading starts its group; a `path=`
+    /// read of one entry: the `(path)` heading does.
+    #[test]
+    fn brief_groups_the_entries_of_a_read() {
+        let target = |title: &str| ViewNode::Heading { kind: HeadingKind::Target, title: title.into(), text: None };
+        let t = brief_lines(vec![
+            target("list[*]  (path)"),
+            target("list[0]"),
+            at("list[0].a", "1"),
+            at("list[0].b", "2"),
+            target("list[1]"),
+            at("list[1].a", "3"),
+            at("list[1].b", "4"),
+        ]);
+        assert!(t.ends_with("# t\nin list[0]:\n  a  1\n  b  2\nin list[1]:\n  a  3\n  b  4\n"), "{t}");
+        let t = brief_lines(vec![target("list[1]  (path)"), at("list[1].a", "3"), at("list[1].b", "4")]);
+        assert!(t.ends_with("# t\nin list[1]:\n  a  3\n  b  4\n"), "{t}");
+        // A single value read keeps its full path.
+        let t = brief_lines(vec![target("list[1].a  (path)"), at("list[1].a", "3")]);
+        assert!(t.ends_with("# t\nlist[1].a  3\n"), "{t}");
     }
 }

@@ -7,9 +7,9 @@ use h5_defs::field_type::FieldType;
 use h5_meta::{Body, Content, FieldPath, PathError, Section, parse_path};
 
 use crate::tag_view::{
-    Detail, Options, Role, ViewSettings, entry_label, is_hidden, join, label_list, role, short_type,
+    Detail, Options, Role, ViewSettings, entry_labels, is_hidden, join, label_list, role, short_type,
 };
-use crate::view::{Container, FieldView, HeadingKind, Shown, ViewNode};
+use crate::view::{Container, FieldView, HeadingKind, PATH_TARGET, Shown, ViewNode};
 
 const AUTO_ENUM_OPTIONS: usize = 12;
 
@@ -172,7 +172,8 @@ pub fn definition_view(fields: &[Field], path: &str, settings: ViewSettings) -> 
         level = &level[s.field].children;
     }
     let f = &level[last.field];
-    let mut out = vec![ViewNode::Heading { kind: HeadingKind::Target, title: format!("{shown}  (path)"), text: None }];
+    let mut out =
+        vec![ViewNode::Heading { kind: HeadingKind::Target, title: format!("{shown}{PATH_TARGET}"), text: None }];
     if is_container(f) {
         out.extend(view.body(&f.children, &shown, 0, false));
     } else {
@@ -273,8 +274,7 @@ pub fn outline_tag(body: &Body<'_>, fields: &[Field], depth: u32) -> Vec<ViewNod
             let deeper = level + 1 < depth;
             let node = match &n.content {
                 Content::Block(b) => {
-                    let labels: Vec<String> = b.entries.iter().enumerate().map(|(i, e)| entry_label(e, i)).collect();
-                    let extra = (b.count > 0).then(|| label_list(&labels));
+                    let extra = label_list(&entry_labels(&b.entries));
                     let children = match b.entries.first() {
                         Some(e) if deeper => visit(e, &f.children, &format!("{p}[0]"), depth, level + 1),
                         _ => Vec::new(),

@@ -285,7 +285,7 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
   - string_id: resolved string, or hash if unresolved.
   - Multi-component (points, vectors, bounds, Euler angles, quaternions, planes, colours): named components (`min/max`, `x/y/z`, `i/j/k/w`, `r/g/b`, `a/r/g/b`, ...).
   - Data reference: size in bytes. Pageable resource: the resource's kind and size, `(mesh resource, 6.1 MB, not loaded)` (§12 Q9, answered); `(none)` when the field has no resource struct; `(not stored in this module)` when the resource's data isn't in the module (D17). Bitmaps can be viewed (§6.8).
-- **Tag block entry labels:** the value of the entry's field marked `^`; if none, the first string, string_id or tag reference field in the entry; if empty or none, the entry index.
+- **Tag block entry labels:** the value of the entry's field marked `^`; if none, the first string, string_id or tag reference field in the entry; if empty or none, the entry index. Text output leaves out a block's label list, and a block index's label, when no entry has a label of its own (since M4, decisions D40); JSON keeps every label.
 
 #### 6.4.5 Definition checks
 
@@ -435,7 +435,7 @@ Example (`read_tag`, `detail=normal`; values illustrative):
 
 | `detail`           | Shows                                                                                                                                                    |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `brief`            | Field paths and values only (enum labels, tag reference display names, resolved string_ids, state markers). No headings, units, options or explanations. |
+| `brief`            | Field paths and values only (enum labels, tag reference display names, resolved string_ids, state markers). No headings, units, options or explanations. Lines of one tag block entry are grouped under an `in <entry path>:` line, indented, with relative paths (since M4, decisions D40). |
 | `normal` (default) | + headings and section structure, first line of explanations, units, ranges, options per `options`.                                                      |
 | `full`             | + help text, full explanations, field offsets (hex, relative to the start of their struct), markers, `(not read)` lines after a read failure.            |
 
