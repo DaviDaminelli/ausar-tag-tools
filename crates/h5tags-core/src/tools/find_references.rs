@@ -31,7 +31,8 @@ fn default_max_depth() -> u32 {
 }
 
 /// What a tag references (direction=out, with each field path), what
-/// references it (in), or both. recursive=true follows references out up to
+/// references it (in), or both; a change to the tag reaches every tag listed
+/// under in. recursive=true follows references out up to
 /// max_depth levels; with class=, only tags of that class are listed (the walk
 /// still follows every class). The first call may build the header scan.
 /// Next: read_tag or outline on a listed tag.

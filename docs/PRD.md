@@ -570,6 +570,7 @@ Delivered in three layers:
 
 ```
 h5tags reads Halo 5 .module tags (builds: see list_modules / the build parameter). Values come only from these tools; never fill them in from memory.
+Guide: AGENT_GUIDE.md, resource h5tags://guide. Read it before a task that needs more context about the tool or the game: what a change would affect, tag internals (dependencies, string tables, resources), or a result these lines don't explain. Simple lookups don't need it.
 Workflow: find (search_tags / browse / search_definitions) → outline(tag) → read_tag(section= or path=) → find_references → compare (query_field / diff_tags).
 Never read a whole large tag (scnr, effe, vehi, bipd, char, gint, unit, weap): call outline first.
 detail: brief for many tags, normal by default, full only for fields you explain or change.
@@ -580,7 +581,10 @@ Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks
 '!!' or (not read) = the TOOL failed: never state those values, or their absence, as facts; tell the user. 'warning: definition GUID mismatch' = the values were read; use them and mention the warning.
 copies: N (differ) = the tag differs between modules; say which module's copy you used.
 Field names and help text are hints about behaviour, not proof; say where an explanation comes from.
-Full guide: resource h5tags://guide.
+What a change affects (guide §2.1): diff_tags against a tag that already behaves as wanted; the fields that differ are candidates, not causes.
+Check a candidate on a third tag or across the class (query_field) before calling it the cause.
+Follow references out (HUD, projectiles, effects) and in (find_references direction=in): a change reaches every tag that uses the tag.
+Tags hold settings; the engine decides what happens at runtime: say when a conclusion is inference. Answer with a change list: tag, field path, current → proposed value, why.
 ```
 
 2. **MCP resource `h5tags://guide`**: serves `docs/AGENT_GUIDE.md`.
