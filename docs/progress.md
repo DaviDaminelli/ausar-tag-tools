@@ -441,7 +441,7 @@ Confirmed by the agent: it now reports the wield-penalty values ("the mismatch w
 
 Done-when met: a fresh Claude Code session with only the server's instructions and tools answered the four M4 questions correctly, read no whole large tag, and stated no `!!` value as fact (step 7); the guide-coverage test passes. Three retests of the AR vs SMG question confirmed the fixes that followed (D44–D48): radians shown with degrees, GUID warnings that explain themselves and appear on `path=` reads, brief keeping block counts, warnings and `→ path=`, curve fingerprints, and a next step on partly shown blocks.
 
-## M5a: token budget test, header scan, references (in progress, 2026-11-01)
+## M5a: token budget test, header scan, references (2026-11-02, passed: accepted by the user)
 
 ### Step 1: token budget test (Forge sample; `h5tags-core` `real_token_budget`)
 
