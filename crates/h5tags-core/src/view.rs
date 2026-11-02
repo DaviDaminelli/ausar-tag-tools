@@ -125,13 +125,19 @@ pub struct TagView {
 }
 
 /// The columns of one field line, before joining.
+/// The value column: the value, then its state (`(none)`, `!! …`).
+fn value_column(f: &FieldView) -> String {
+    let value = f.value.as_ref().map(|v| v.text.clone()).unwrap_or_default();
+    match f.state.as_ref().filter(|s| !s.text.is_empty()) {
+        Some(s) if value.is_empty() => s.text.clone(),
+        Some(s) => format!("{value} {}", s.text),
+        None => value,
+    }
+}
+
 fn columns(f: &FieldView) -> Vec<String> {
     let mut cols = vec![f.name.clone(), f.short_type.clone()];
-    let mut value = f.value.as_ref().map(|v| v.text.clone()).unwrap_or_default();
-    if let Some(s) = f.state.as_ref().filter(|s| !s.text.is_empty()) {
-        value = if value.is_empty() { s.text.clone() } else { format!("{value} {}", s.text) };
-    }
-    cols.push(value);
+    cols.push(value_column(f));
     let units = match (&f.units, &f.range) {
         (Some(u), Some(r)) => format!("[{r}] {u}"),
         (Some(u), None) => u.clone(),
@@ -293,22 +299,45 @@ impl<'v> Brief<'v> {
                 ViewNode::Heading { .. } => {}
                 ViewNode::Field(f) => match &f.container {
                     Some(c) if !c.children.is_empty() => {
+                        // What its heading would say that its rows can't: a
+                        // block's entry count, a warning, an error (D45).
+                        if c.count.is_some() || f.warning.is_some() || f.state.is_some() {
+                            self.rows.push(BriefRow { group, path: &f.path, value: brief_value(f) });
+                        }
                         let entry = c.index.map(|i| {
                             self.groups.push(Cow::Owned(format!("{}[{i}]", f.path)));
                             self.groups.len() - 1
                         });
                         self.collect(&c.children, entry.or(group));
                     }
-                    _ => {
-                        let cols = columns(f);
-                        let value =
-                            cols.get(2).filter(|v| !v.is_empty()).cloned().unwrap_or_else(|| f.short_type.clone());
-                        self.rows.push(BriefRow { group, path: &f.path, value });
-                    }
+                    _ => self.rows.push(BriefRow { group, path: &f.path, value: brief_value(f) }),
                 },
             }
         }
     }
+}
+
+/// A brief row's value: the value column (for a container, its type), plus
+/// what its heading says: the entry shown, not expanded (`→ path=`), a warning.
+fn brief_value(f: &FieldView) -> String {
+    use std::fmt::Write;
+    let mut s = value_column(f);
+    if s.is_empty() {
+        s = f.short_type.clone();
+    }
+    // Writing to a String can't fail.
+    if let Some(c) = &f.container {
+        if let Some(i) = c.index.filter(|_| !c.children.is_empty()) {
+            let _ = write!(s, "  showing [{i}]");
+        }
+        if c.stub {
+            let _ = write!(s, "  → path={}", f.path);
+        }
+    }
+    if let Some(w) = &f.warning {
+        let _ = write!(s, "  warning: {w}");
+    }
+    s
 }
 
 /// `<full path>  <value>` lines; two or more rows in a row from one block
@@ -561,6 +590,43 @@ mod tests {
         assert!(t.contains("\nbounding radius  0.17\n"), "{t}");
         assert!(t.contains("\nin barrels[0]:\n  rounds per second  8.5..8.5\n  x  1\n"), "{t}");
         assert!(!t.contains("##"), "{t}");
+        // The block's own row keeps its entry count (D45).
+        assert!(t.contains("\nbarrels  block[2]  showing [0]\nin barrels[0]:\n"), "{t}");
+    }
+
+    /// D45: what a heading carries survives brief: a block's count, a
+    /// warning, and where a collapsed struct can be read.
+    #[test]
+    fn brief_keeps_counts_warnings_and_stubs() {
+        let container = |name: &str, short: &str, c: Container, warning: Option<&str>| {
+            ViewNode::Field(Box::new(FieldView {
+                name: name.into(),
+                path: name.into(),
+                short_type: short.into(),
+                container: Some(c),
+                warning: warning.map(str::to_owned),
+                ..FieldView::default()
+            }))
+        };
+        let inner = vec![at("penalties.a", "1"), at("penalties.b", "2")];
+        let t = brief_lines(vec![
+            container(
+                "penalties",
+                "struct",
+                Container { children: inner, ..Container::default() },
+                Some("definition GUID mismatch"),
+            ),
+            container(
+                "plain",
+                "struct",
+                Container { children: vec![at("plain.c", "3")], ..Container::default() },
+                None,
+            ),
+            container("kick", "struct", Container { stub: true, ..Container::default() }, None),
+        ]);
+        assert!(t.contains("\npenalties  struct  warning: definition GUID mismatch\n"), "{t}");
+        assert!(!t.contains("\nplain  struct"), "an expanded struct without news has no row: {t}");
+        assert!(t.contains("\nkick  struct  → path=kick\n"), "{t}");
     }
 
     #[test]

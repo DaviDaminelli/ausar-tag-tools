@@ -104,7 +104,7 @@ in barrels[0]:
   flags  0x00000380 {…}
   firing.rounds per second  29.999998..29.999998     ← = barrels[0].firing.rounds per second
 ```
-An unindented line always has its full path. When a nested entry's group ends, the outer entry's next lines get their own `in` line again.
+An unindented line always has its full path. When a nested entry's group ends, the outer entry's next lines get their own `in` line again. Headings are dropped, but not what they say: a tag block gets a line of its own with its entry count (`automatic fire variations  block[8]  showing [0]`: only entry 0 follows; read `[*]` for all), a struct or block with a warning or error gets one too (`single wield penalties  struct  warning: definition GUID mismatch`), and a struct or block that wasn't expanded ends in `→ path=…`.
 
 **Lists** (search results, `browse`, `list_*`, `query_field`, references) look like this:
 ```

@@ -436,7 +436,7 @@ Example (`read_tag`, `detail=normal`; values illustrative):
 
 | `detail`           | Shows                                                                                                                                                    |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `brief`            | Field paths and values only (enum labels, tag reference display names, resolved string_ids, state markers). No headings, units, options or explanations. Lines of one tag block entry are grouped under an `in <entry path>:` line, indented, with relative paths (since M4, decisions D40). |
+| `brief`            | Field paths and values only (enum labels, tag reference display names, resolved string_ids, state markers). No headings, units, options or explanations. Lines of one tag block entry are grouped under an `in <entry path>:` line, indented, with relative paths (since M4, decisions D40). A tag block, and a struct or block with a warning or error, keeps a line of its own with its entry count and the warning or error; one not expanded ends in `→ path=…` (decisions D45). |
 | `normal` (default) | + headings and section structure, first line of explanations, units, ranges, options per `options`.                                                      |
 | `full`             | + help text, full explanations, field offsets (hex, relative to the start of their struct), markers, `(not read)` lines after a read failure.            |
 
