@@ -462,3 +462,24 @@ Header scan (`h5-module` `real_modules` `header_scan_timings`, release, every ta
 | Tags not readable / modules failed | 0 / 0 | 0 / 0 |
 
 PRD §6.2's target (< 2 min on a full install) can't be measured here; these samples are 1.1 GB of base module each.
+
+### Step 3a–b: scan in the session, `find_references` (2026-11-02, Forge sample, release CLI, empty cache folder)
+
+| Call | Result |
+| --- | --- |
+| `find-references 0x00008593` (battle rifle, out; first call) | 87 references, by class `fpal 34, wcfg 32, effe 5, bitm 3, …`; 90 lines, ≈ 2,728 tokens; `header scan built: 62976 tags, 1.23 s`; 4.0 s in all (index and scan built from nothing) |
+| `find-references 0x0000B131 --direction in` (its bullet) | `br.weapon` (3 of 3 copies) and `br_tuning.weapon`; 272 ms (scan cached) |
+| `find-references 0x00008593 --recursive --class bitm` (depth 3) | 92 rows, ≈ 3,852 tokens, with `via` and `(see above)` |
+| `find-references 0x00008593 --recursive --max-depth 2` | 2,894 references (paged, 100 per page) |
+
+Dependencies with no reference field pointing to them: 0 on both samples.
+
+### Step 3c–d: `tag_copies`, `search_values` (2026-11-02, Forge sample, release CLI)
+
+| Call | Result |
+| --- | --- |
+| `tag-copies 0x00008593` (battle rifle) | 3 copies, `versions: 3` (A, B, C) |
+| `tag-copies 0x00008595` (assault rifle) | 2 copies, `versions: 2` |
+| `search-values battery_remaining` | 49 tags (HUD screens holding `ammo_or_battery_remaining_decision`, `battery_remaining_expression`); 52 lines, ≈ 1,667 tokens; 331 ms (second call; the first after a rebuild took 2.6 s without scanning, cause not measured). In the M4 simulation the same finding took header dumps worth ≈ 17,700 tokens. |
+
+The token budget test still passes (no replayed call grew).
