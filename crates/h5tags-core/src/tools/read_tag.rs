@@ -140,7 +140,9 @@ impl Tool for ReadTag {
             (Some(path), _) => {
                 let p = parse_path(&def.fields, path).map_err(present::path_error)?;
                 let sels = select(&read.root, &p).map_err(present::path_error)?;
-                view.nodes = view_selection(&sels, &p.display(&def.fields), settings, &lookup);
+                let selection = view_selection(&sels, &p.display(&def.fields), settings, &lookup);
+                view.nodes = selection.nodes;
+                view.title_lines.extend(selection.notes);
                 if sels.len() > 1 {
                     view.legend = into_legend(&mut view.nodes);
                 }

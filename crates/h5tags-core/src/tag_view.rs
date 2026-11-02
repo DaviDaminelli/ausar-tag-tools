@@ -166,6 +166,21 @@ fn error(text: impl Into<String>) -> Option<State> {
     Some(State { text: text.into(), key: "error", error: true })
 }
 
+/// A GUID mismatch under `guid_check` (decisions D43, D47).
+enum GuidNote {
+    /// `warn`: the values are shown.
+    Warning,
+    /// `enforce`: the values are not shown; the error text.
+    Error(String),
+}
+
+/// The `warn` text, saying what it means (the agent may never read the
+/// guide): `at <path>` when the line doesn't already name the field.
+fn guid_warning(path: Option<&str>) -> String {
+    let at = path.map(|p| format!(" at {p}")).unwrap_or_default();
+    format!("{}{at} (values read; only the struct type ID differs)", marker::GUID_MISMATCH)
+}
+
 /// Radians in degrees, to 3 decimals (`-0` as `0`): only for reading; the stored
 /// value is shown exactly next to it.
 fn degrees(rad: f32) -> f64 {
@@ -378,21 +393,33 @@ impl<'s> Converter<'s, '_> {
     /// (`stored`) isn't `field`'s `srcguid`; `true` when its values must not be
     /// shown (`enforce`, like a size mismatch).
     fn guid_check(&self, field: &Field, stored: Option<[u8; 16]>, path: &str, v: &mut FieldView) -> bool {
-        let Some(stored) = stored else { return false };
-        match self.settings.guid_check {
-            GuidCheck::Off => false,
-            GuidCheck::Warn => {
-                v.warning = Some(marker::GUID_MISMATCH.into());
+        match self.guid_note(field, stored, path) {
+            None => false,
+            Some(GuidNote::Warning) => {
+                v.warning = Some(guid_warning(None));
                 false
             }
+            Some(GuidNote::Error(text)) => {
+                v.state = error(text);
+                true
+            }
+        }
+    }
+
+    /// What `guid_check` makes of a struct or tag block whose stored type
+    /// GUID (`stored`) isn't `field`'s `srcguid` (PRD §6.4.5).
+    fn guid_note(&self, field: &Field, stored: Option<[u8; 16]>, path: &str) -> Option<GuidNote> {
+        let stored = stored?;
+        match self.settings.guid_check {
+            GuidCheck::Off => None,
+            GuidCheck::Warn => Some(GuidNote::Warning),
             GuidCheck::Enforce => {
                 let definition = field.attr("srcguid").unwrap_or("none");
-                v.state = error(format!(
+                Some(GuidNote::Error(format!(
                     "!! {} at {path} (definition {definition}, tag {}; guid_check = enforce)",
                     marker::GUID_MISMATCH,
                     guid_text(&stored)
-                ));
-                true
+                )))
             }
         }
     }
@@ -712,25 +739,55 @@ pub fn view_body<'s>(
     c.body(body, fields, path, 0).children
 }
 
+/// What a `path=` read shows: the nodes, and notes about the selected struct
+/// or block itself (its heading isn't shown), for the lines under the tag line.
+pub struct Selection {
+    pub nodes: Vec<ViewNode>,
+    pub notes: Vec<String>,
+}
+
 /// The view of what a path selected (PRD §7.3): `### <path>  (path)`, then the
 /// selected fields. With several selections (`[*]`), each value is named by its
-/// full path, and each struct or entry gets its own heading.
+/// full path, and each struct or entry gets its own heading. A selected struct
+/// or block with a GUID mismatch gets a note (D47); under `enforce` its values
+/// are not shown.
 pub fn view_selection(
     sels: &[Selected<'_, '_>],
     requested: &str,
     settings: ViewSettings,
     lookup: &dyn Lookup,
-) -> Vec<ViewNode> {
+) -> Selection {
     let mut out =
         vec![ViewNode::Heading { kind: HeadingKind::Target, title: format!("{requested}{PATH_TARGET}"), text: None }];
+    let mut notes = Vec::new();
     let several = sels.len() > 1;
     for s in sels {
         let mut c = Converter { settings, lookup, scopes: s.scopes.iter().map(|(b, p)| (*b, p.clone())).collect() };
-        let body = match (s.entry, &s.node.content) {
-            (Some(i), Content::Block(b)) => b.entries.get(i as usize),
-            (None, Content::Struct(b) | Content::Array(b)) if !s.node.field.is_mapping_function() => Some(b),
-            _ => None,
+        // The body read, and the GUID mismatch of the struct or block holding it.
+        let (body, mismatch, at) = match (s.entry, &s.node.content) {
+            (Some(i), Content::Block(b)) => {
+                let block_path = s.path.strip_suffix(&format!("[{i}]")).unwrap_or(&s.path);
+                (b.entries.get(i as usize), b.guid_mismatch, block_path)
+            }
+            (None, Content::Struct(b) | Content::Array(b)) if !s.node.field.is_mapping_function() => {
+                (Some(b), b.guid_mismatch, s.path.as_str())
+            }
+            _ => (None, None, s.path.as_str()),
         };
+        match c.guid_note(s.node.field, mismatch, at).filter(|_| body.is_some()) {
+            Some(GuidNote::Warning) => {
+                // Once per block, though `[*]` selects each of its entries.
+                let note = format!("warning: {}", guid_warning(Some(at)));
+                if !notes.contains(&note) {
+                    notes.push(note);
+                }
+            }
+            Some(GuidNote::Error(text)) => {
+                notes.push(text);
+                continue;
+            }
+            None => {}
+        }
         match body {
             Some(body) => {
                 if several {
@@ -747,7 +804,7 @@ pub fn view_selection(
             }
         }
     }
-    out
+    Selection { nodes: out, notes }
 }
 
 /// A struct of a read tag: its body, definition fields, path, and the structs around it.

@@ -192,7 +192,7 @@ fn guid_check_off_warn_and_enforce() {
     let warn = with(GuidCheck::Warn);
     assert!(
         warn.contains(
-            "\n### entries  block[2]  {first, second}  showing [0] first  warning: definition GUID mismatch\n"
+            "\n### entries  block[2]  {first, second}  showing [0] first  warning: definition GUID mismatch (values read; only the struct type ID differs)\n"
         ),
         "{warn}"
     );
@@ -205,6 +205,37 @@ fn guid_check_off_warn_and_enforce() {
         "{enforce}"
     );
     assert!(!enforce.contains("value  int32"), "no values: {enforce}");
+}
+
+/// A `path=` read of a struct or block with a GUID mismatch says so under the
+/// tag line (both normal and brief show title lines); `enforce` shows no values.
+#[test]
+fn a_path_read_of_a_mismatched_block_says_so() {
+    let xml = VALUES.replace(
+        r#"<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">"#,
+        r#"<_field_block_64 name="entries" srcguid="03030303-0303-0303-0303-030303030303">"#,
+    );
+    let def = Definition::parse(&xml).unwrap();
+    let (h, data) = build_tag(&values_tag());
+    let header = TagHeader::parse(&h).unwrap();
+    let r = read_tag(&def, &header, &data);
+    let p = h5_meta::parse_path(&def.fields, "entries[0]").unwrap();
+    let sels = h5_meta::select(&r.root, &p).unwrap();
+    let with = |guid_check| view_selection(&sels, "entries[0]", ViewSettings { guid_check, ..NORMAL }, &Stub);
+    let warn = with(GuidCheck::Warn);
+    assert_eq!(
+        warn.notes,
+        ["warning: definition GUID mismatch at entries (values read; only the struct type ID differs)"]
+    );
+    assert!(warn.nodes.len() > 1, "values shown");
+    assert!(with(GuidCheck::Off).notes.is_empty());
+    let enforce = with(GuidCheck::Enforce);
+    assert!(
+        enforce.notes[0].starts_with("!! definition GUID mismatch at entries (definition 03030303-"),
+        "{:?}",
+        enforce.notes
+    );
+    assert_eq!(enforce.nodes.len(), 1, "only the (path) heading: {:?}", enforce.nodes);
 }
 
 /// Labels that only repeat entry indices say nothing (decisions D40); JSON
@@ -323,8 +354,8 @@ fn every_entry_options_go_to_one_legend() {
     let r = read_tag(&def, &header, &data);
     let p = h5_meta::parse_path(&def.fields, "flags").unwrap();
     let sels = h5_meta::select(&r.root, &p).unwrap();
-    let mut nodes = view_selection(&sels, "flags", NORMAL, &Stub);
-    nodes.extend(view_selection(&sels, "flags", NORMAL, &Stub).into_iter().skip(1));
+    let mut nodes = view_selection(&sels, "flags", NORMAL, &Stub).nodes;
+    nodes.extend(view_selection(&sels, "flags", NORMAL, &Stub).nodes.into_iter().skip(1));
     let legend = into_legend(&mut nodes);
     let v = TagView { title: "# t".into(), nodes, legend, ..TagView::default() };
     let text = v.render_lines(false);
