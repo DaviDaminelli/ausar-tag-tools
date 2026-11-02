@@ -328,7 +328,7 @@ Two checks run for every struct field, tag block field and the main struct:
   - `filter` grammar: `<op> <value>`, op ∈ `== != > >= < <= contains`. Numbers compare numerically; enums compare by label (or by number if the value is a number); flags support `contains <option label>`; strings, string_ids and tag references support `==`, `!=`, `contains` (case-insensitive). Filters on multi-component values are an error.
   - `sort`: `none`, `asc`, `desc` (by value; same type rules as filter).
   - Tags that fail to read are listed under `skipped` with the reason; they never stop the query.
-- `diff_tags(a, b, path?, detail=brief, build?)`: both tags MUST have the same class (otherwise error). Lists only fields whose values differ, as `path: a-value → b-value`. Tag block fields: compare entry counts, then entries by index; extra entries are listed as `only in a` / `only in b`. `a` and `b` MAY be in different builds (`xbox:...` vs `forge:...`).
+- `diff_tags(a, b, path?, build?, offset=0, limit=100)`: both tags MUST have the same class (otherwise error). Lists only fields whose values differ, one row per field: field path, a-value, b-value (values as `detail=brief` writes them; D55). Tag block fields: compare entry counts, then entries by index; an extra entry is one row, `present: <label>` on the side that has it and `(no entry)` on the other. `a` and `b` MAY be in different builds (`xbox:...` vs `forge:...`) from M6 on.
 - `search_values(term, class?, build?, offset=0, limit=50)`: tags whose string table contains `term` (case-insensitive substring), i.e. string_ids and referenced tag names. Uses the header scan. Each hit lists the matching strings.
 - `tag_copies(tag, build?)`: every copy: module, asset checksum, sizes; and whether all copies are identical (§6.4.6 copy identity).
 - `map_tags(module, class?, build?, offset=0, limit=100)`: tags listed in that module's `loadmanifest`, grouped by class. Error if the module has no manifest.
@@ -570,7 +570,7 @@ Delivered in three layers:
 
 ```
 h5tags reads Halo 5 .module tags (builds: see list_modules / the build parameter). Values come only from these tools; never fill them in from memory.
-Workflow: find (search_tags / browse / search_definitions) → outline(tag) → read_tag(section= or path=) → find_references → compare (query_field / diff_tags, detail=brief).
+Workflow: find (search_tags / browse / search_definitions) → outline(tag) → read_tag(section= or path=) → find_references → compare (query_field / diff_tags).
 Never read a whole large tag (scnr, effe, vehi, bipd, char, gint, unit, weap): call outline first.
 detail: brief for many tags, normal by default, full only for fields you explain or change.
 Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks, indented lines = fields (name, type, value, units, extras).

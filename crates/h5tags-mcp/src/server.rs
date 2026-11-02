@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 /// Sent once per connection (PRD §9a, exact text).
 pub const INSTRUCTIONS: &str = "\
 h5tags reads Halo 5 .module tags (builds: see list_modules / the build parameter). Values come only from these tools; never fill them in from memory.
-Workflow: find (search_tags / browse / search_definitions) → outline(tag) → read_tag(section= or path=) → find_references → compare (query_field / diff_tags, detail=brief).
+Workflow: find (search_tags / browse / search_definitions) → outline(tag) → read_tag(section= or path=) → find_references → compare (query_field / diff_tags).
 Never read a whole large tag (scnr, effe, vehi, bipd, char, gint, unit, weap): call outline first.
 detail: brief for many tags, normal by default, full only for fields you explain or change.
 Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks, indented lines = fields (name, type, value, units, extras).

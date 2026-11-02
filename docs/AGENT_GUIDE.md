@@ -19,7 +19,7 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 2. **Orient**: `outline(tag)` before reading anything large. It's cheap and shows sections, field paths and entry counts.
 3. **Read** only what you need: `read_tag(tag, section=...)` or `read_tag(tag, path=...)`.
 4. **Follow references** when the answer isn't in this tag: `find_references(tag)`, optionally `recursive=true`.
-5. **Compare** with `query_field` (one field across a class) or `diff_tags` (two tags of the same class), at `detail=brief`.
+5. **Compare** with `query_field` (one field across a class) or `diff_tags` (two tags of the same class); both write values as `detail=brief` does.
 6. **Look up meaning** with `get_definition(class, path=..., detail=full)` when a field's name isn't self-explanatory.
 
 ### Which tool
@@ -35,7 +35,7 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "What uses this projectile?" | `find_references(tag, direction=in)` |
 | "Magazine size of every weapon" | `query_field("weap", "magazines[0].rounds loaded maximum")`; add `filter=">= 30"`, `sort=desc` |
 | "One field's value in one tag" | `read_tag(tag, path=…, depth=0)` (there is no separate field tool) |
-| "Assault rifle vs SMG" | `diff_tags(a, b)` |
+| "Assault rifle vs SMG" | `diff_tags(a, b)`; `path="barrels"` for one part |
 | "Which maps load this?" | `which_maps(tag)` |
 | "What assets does this tag have, and how big are they?" | `list_entries(tag=...)` |
 | "Biggest meshes / all assets of a kind" | `list_entries(kind="mesh resource", sort=size)` |
@@ -161,7 +161,8 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `(target block unknown)` | Block index whose tag block isn't in an enclosing struct (it may index into another tag) | The number is real; don't say what it points to |
 | `(hidden)` / `(N hidden fields)` | Hidden by default (padding, internal fields) | Use `show_hidden=true` if relevant |
 | `!! …` | **The tool failed to read this** | **Never** present those values, or their absence, as facts. Tell the user reading failed there and why |
-| `(not read)` | Field after a read failure | Same as `!!` |
+| `(not read)` | Field after a read failure; in `diff_tags`, a part of one tag (or both) that couldn't be read, so it wasn't compared | Same as `!!` |
+| `(no entry)` (`diff_tags`) | That tag's tag block has fewer entries, so this entry exists only in the other tag | Fact about the tag |
 | `warning: definition GUID mismatch (values read; only the struct type ID differs)` | The tag stores a different struct type ID than the definition names here. On a heading it follows the struct or tag block; for a `path=` read of that struct or block itself it is the line under the tag line, with `at <path>`. The size fits and the checks passed; in every sample tag this was a labelling difference, not a misread. Shown by default (config `guid_check = warn`); with `guid_check = off` it isn't shown at all | Use the values, but mention the warning when precision matters |
 | `!! definition GUID mismatch at <path> (definition <srcguid>, tag <guid>; guid_check = enforce)` | The same `definition GUID mismatch`, with the config set to `guid_check = enforce`: the struct or tag block is treated like a size mismatch, and its values are not shown | The tool refused to read them; say so, and don't state their values or their absence |
 | `!! the definition doesn't match the tag header at N place(s) …` (below the tag line) | The definition places fields where the tag's own lists don't | Values may be misplaced: don't state them as facts |
@@ -202,6 +203,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `find_references` rows | `out`: each non-null reference of the tag: its field path (empty without a definition), the target's class, ID and name, grouped by class. `in`: each tag whose copies reference it; `copies` = in how many of its copies (`1 of 2`: the other copy doesn't), `count` = how many of its fields do. `recursive`: depth first, in the order the tags list their references; with `class=` only that class is listed, though the walk follows every class. References come from the fields in the tag data, so they include references the tag header has no dependency entry for | The links are real; what they do in game needs reading the tags. A target marked `(not in indexed modules)` exists as a reference, not as a tag you can read here |
 | `hint: N tags skipped: <name> (<why>); …` (`query_field`) | Those tags couldn't be read, or the path doesn't reach a value in them (an empty tag block, a part not read); they have no row | The list is missing them; say so if it matters |
 | `query_field` rows | One row per tag of the class (with `[*]`: per entry, with its field path), from each tag's **first copy**. `units:` above the table is the field's unit from the definition (angles say `rad` in the value instead). `filter`: numbers `== != > >= < <=`; enums `== !=` by label (or compared as a number); flags `contains <option>`; text and tag references `== != contains` by name. Bounds, points and colors can't be filtered or sorted | A tag whose copies differ may hold another value in another copy (`tag_copies`) |
+| `diff_tags` rows | Only the fields whose values differ between tag `a` and tag `b` (named above the table), from each tag's **first copy**, in field order. A tag block with another entry count gives a `block[N]` row, then its entries are compared one by one (`[0]` with `[0]`); an entry only one tag has reads `present: <label>` on that side and `(no entry)` on the other. Tag references compare by target, curves by fingerprint, other data by size; resources aren't compared. `path=` compares only that struct or tag block. `total: 0` = no compared value differs | Differences are in the stored values; what they do in game needs the fields' meaning. Before calling one the cause of a behaviour, check it on a third tag (§2.1) |
 | `header scan built: N tags, T s` (summary line) | This call first had to scan every tag copy's header and tag data (only when modules changed, or the first time); later calls are fast | — |
 | `hint: N tag copies couldn't be scanned; references from them are missing here (…)` | Some copies couldn't be read; their references aren't in `in` or `recursive` results | Say the list may be incomplete |
 | `reindex` result | What was rebuilt or dropped, and how long it took | — |
@@ -234,6 +236,8 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `via` | `find_references(recursive=true)`: the tag holding the reference |
 | `data` | `tag_copies`: copies with the same letter (`A`, `B`, …) hold the same data (compared by their compression blocks' checksums of the uncompressed data, or by the data itself); `versions: N` above the table counts the letters. `read_tag` reads the first copy unless `module=` picks another |
 | `value` | `query_field`: the field's value, written as `read_tag` at `detail=brief` writes it |
+| `a` | `diff_tags`: the value in tag `a`, written as `read_tag` at `detail=brief` writes it |
+| `b` | `diff_tags`: the value in tag `b`, written the same way |
 | `asset checksum` | `tag_copies`: a 64-bit value stored with the copy, for the file it was built from; not a check of the stored data (copies are compared by their data) |
 
 Results may come from the tool's cache (kept across sessions). A cached result is always identical to a fresh one, so you never need to "refresh" it. Only `reindex` forces a rebuild, and the tool keeps itself up to date when game files change.

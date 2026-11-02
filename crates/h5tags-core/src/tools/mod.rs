@@ -8,6 +8,7 @@
 
 pub mod args;
 mod definitions;
+mod diff_tags;
 mod find_references;
 mod header_dump;
 mod lists;
@@ -22,6 +23,7 @@ mod tag_copies;
 mod tests;
 
 pub use definitions::{GetDefinition, Outline, Scope, SearchDefinitions};
+pub use diff_tags::DiffTags;
 pub use find_references::{Direction, FindReferences};
 pub use header_dump::HeaderDump;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
@@ -97,6 +99,7 @@ tools!(
     TagCopies,
     SearchValues,
     QueryField,
+    DiffTags,
     Reindex
 );
 

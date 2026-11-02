@@ -62,6 +62,8 @@ pub mod col {
     pub const DATA: Column = Column { header: "data", key: "data" };
     pub const ASSET_CHECKSUM: Column = Column { header: "asset checksum", key: "asset_checksum" };
     pub const VALUE: Column = Column { header: "value", key: "value" };
+    pub const A: Column = Column { header: "a", key: "a" };
+    pub const B: Column = Column { header: "b", key: "b" };
 
     pub const ALL: &[Column] = &[
         GLOBAL_ID,
@@ -90,6 +92,8 @@ pub mod col {
         DATA,
         ASSET_CHECKSUM,
         VALUE,
+        A,
+        B,
     ];
 }
 
@@ -111,9 +115,15 @@ pub mod marker {
     pub const SEE_ABOVE: &str = "(see above)";
     /// A struct or tag block whose stored type GUID isn't the definition's (PRD §6.4.5).
     pub const GUID_MISMATCH: &str = "definition GUID mismatch";
+    /// Part of a tag that couldn't be read (PRD §8): its values aren't known.
+    pub const NOT_READ: &str = "(not read)";
+    /// `diff_tags`: the tag has no entry at that index.
+    pub const NO_ENTRY: &str = "(no entry)";
 
     pub const ALL: &[&str] = &[
         GUID_MISMATCH,
+        NOT_READ,
+        NO_ENTRY,
         NOT_STORED,
         INCOMPLETE,
         DAMAGED,
