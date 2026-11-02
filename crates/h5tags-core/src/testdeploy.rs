@@ -18,6 +18,8 @@ use crate::stored::TagCache;
 /// The sample tag (`h5_module::testutil::sample_tag`), stored as a weapon.
 pub const WEAPON: &str = r"objects\test\test.weapon";
 pub const WEAPON_ID: i32 = 0x10;
+/// The first of the weapons [`TestDeploy::with_weapons`] adds.
+pub const MORE_WEAPON_ID: i32 = 0x30;
 /// Its first dependency, indexed (listed in the tag as `objects\weapons\rifle\ar\bullet`).
 /// The second (`fx\impact\bullet_hit`, an effect) is not indexed.
 pub const BULLET: &str = r"objects\weapons\rifle\ar\bullet.projectile";
@@ -62,6 +64,17 @@ impl TestDeploy {
 
     /// With a tag cache of `tag_cache_bytes`.
     pub fn with_tag_cache(name: &str, second: SecondCopy, tag_cache_bytes: usize) -> TestDeploy {
+        TestDeploy::build(name, second, tag_cache_bytes, &[])
+    }
+
+    /// With more weapons after the first, in the same module: `more_<i>.weapon`
+    /// (global ID `MORE_WEAPON_ID + i`), each the sample weapon with `count` = `counts[i]`;
+    /// `None` = a weapon whose data is no tag (it can't be read).
+    pub fn with_weapons(name: &str, counts: &[Option<i32>]) -> TestDeploy {
+        TestDeploy::build(name, SecondCopy::None, megabytes(DEFAULT_TAG_CACHE_MB), counts)
+    }
+
+    fn build(name: &str, second: SecondCopy, tag_cache_bytes: usize, counts: &[Option<i32>]) -> TestDeploy {
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -74,7 +87,22 @@ impl TestDeploy {
         weapon.resources = vec![2];
         let bullet = TestEntry::tag(BULLET, 0x0040_1000, "proj", b"bullet data");
         let mesh = TestEntry::resource(&format!("{WEAPON}[0:mesh resource]"), 0, b"mesh data");
-        let module = build_module(Version::V27, &[weapon, bullet, mesh], &[]);
+        let mut entries = vec![weapon, bullet, mesh];
+        for (i, count) in counts.iter().enumerate() {
+            let path = format!(r"objects\test\more_{i}.weapon");
+            let id = MORE_WEAPON_ID + i as i32;
+            let Some(count) = count else {
+                entries.push(TestEntry::tag(&path, id, "weap", b"not a tag"));
+                continue;
+            };
+            let mut more = tag.clone();
+            more.blocks[0][0x5C..0x60].copy_from_slice(&count.to_le_bytes());
+            let (header, tag_data) = build_tag(&more);
+            let mut e = TestEntry::tag(&path, id, "weap", &tag_data);
+            e.sections.0 = header;
+            entries.push(e);
+        }
+        let module = build_module(Version::V27, &entries, &[]);
         fs::write(deploy.join("any").join("levels").join("test-rtx-1.module"), module).unwrap();
         if second != SecondCopy::None {
             if second == SecondCopy::Changed {

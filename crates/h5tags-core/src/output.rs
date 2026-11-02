@@ -61,6 +61,7 @@ pub mod col {
     pub const VIA: Column = Column { header: "via", key: "via" };
     pub const DATA: Column = Column { header: "data", key: "data" };
     pub const ASSET_CHECKSUM: Column = Column { header: "asset checksum", key: "asset_checksum" };
+    pub const VALUE: Column = Column { header: "value", key: "value" };
 
     pub const ALL: &[Column] = &[
         GLOBAL_ID,
@@ -88,6 +89,7 @@ pub mod col {
         VIA,
         DATA,
         ASSET_CHECKSUM,
+        VALUE,
     ];
 }
 

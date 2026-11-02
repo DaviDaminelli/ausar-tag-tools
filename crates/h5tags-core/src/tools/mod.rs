@@ -12,6 +12,7 @@ mod find_references;
 mod header_dump;
 mod lists;
 pub mod present;
+mod query_field;
 mod read_tag;
 mod reindex;
 mod search;
@@ -24,6 +25,7 @@ pub use definitions::{GetDefinition, Outline, Scope, SearchDefinitions};
 pub use find_references::{Direction, FindReferences};
 pub use header_dump::HeaderDump;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
+pub use query_field::QueryField;
 pub use read_tag::ReadTag;
 pub use reindex::{Reindex, What};
 pub use search::{Browse, SearchTags};
@@ -94,6 +96,7 @@ tools!(
     FindReferences,
     TagCopies,
     SearchValues,
+    QueryField,
     Reindex
 );
 

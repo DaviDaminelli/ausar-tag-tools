@@ -256,3 +256,46 @@ pub fn scan_built(built: Option<crate::references::ScanBuilt>) -> Option<crate::
     let value = format!("{} tags, {:.2} s", b.tags, b.elapsed.as_secs_f64());
     Some(crate::output::Summary { label: "header scan built", key: "header_scan_built", value: value.into() })
 }
+
+/// `query_field` errors, with the next step where there is one.
+pub fn query_error(e: crate::field_query::QueryError) -> ToolError {
+    use crate::field_query::QueryError;
+    let hint = match &e {
+        QueryError::NotAValue { field, .. } => {
+            Some(format!("query one of its fields: {field}[*].<field> (outline or get_definition lists them)"))
+        }
+        QueryError::Unsupported { .. } => Some(
+            "numbers: == != > >= < <=; enums: == != by label; flags: contains <option>; text: == != contains".into(),
+        ),
+        QueryError::NotANumber { .. } => None,
+    };
+    let err = ToolError::new(e.to_string());
+    match hint {
+        Some(h) => err.hint(h),
+        None => err,
+    }
+}
+
+/// `N tags skipped: <name> (<why>); …` for tags a query couldn't read.
+pub fn skipped_hint(build: &Build, skipped: &[crate::field_query::Skipped<'_>]) -> Option<String> {
+    use crate::field_query::SkipReason;
+    const SHOWN: usize = 3;
+    if skipped.is_empty() {
+        return None;
+    }
+    let shown: Vec<String> = skipped
+        .iter()
+        .take(SHOWN)
+        .map(|s| {
+            let why = match &s.reason {
+                SkipReason::Read(e) => e.to_string(),
+                SkipReason::Path(e) => path_error(e.clone()).message,
+            };
+            format!("{} ({why})", build.display_name(s.tag))
+        })
+        .collect();
+    let n = skipped.len();
+    let more = if n > SHOWN { format!("; +{} more", n - SHOWN) } else { String::new() };
+    let tags = if n == 1 { "1 tag skipped".to_owned() } else { format!("{n} tags skipped") };
+    Some(format!("{tags}: {}{more}", shown.join("; ")))
+}

@@ -126,7 +126,7 @@ pub struct TagView {
 
 /// The columns of one field line, before joining.
 /// The value column: the value, then its state (`(none)`, `!! …`).
-fn value_column(f: &FieldView) -> String {
+pub(crate) fn value_column(f: &FieldView) -> String {
     let value = f.value.as_ref().map(|v| v.text.clone()).unwrap_or_default();
     match f.state.as_ref().filter(|s| !s.text.is_empty()) {
         Some(s) if value.is_empty() => s.text.clone(),

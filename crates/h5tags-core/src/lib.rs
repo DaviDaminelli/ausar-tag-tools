@@ -4,6 +4,7 @@
 pub mod catalog;
 pub mod config;
 pub mod def_view;
+pub mod field_query;
 pub mod filters;
 pub mod output;
 pub mod query;

@@ -9,6 +9,7 @@ use super::present;
 use h5_module::FourCc;
 
 use crate::catalog::{Build, ClassLookup, Copy, Tag, TagLookupError, TagSpec};
+use crate::field_query::{FieldFilter, Op};
 use crate::filters::{Mode, ModuleFilter, NameMatcher};
 use crate::output::ToolError;
 use crate::query;
@@ -123,6 +124,21 @@ pub fn class_code(build: &Build, query: &str) -> Result<FourCc, ToolError> {
         }
     }
 }
+
+/// `query_field`'s `filter`: `<op> <value>` (PRD §6.6).
+pub fn field_filter(text: &str) -> Result<FieldFilter, ToolError> {
+    let text = text.trim();
+    let bad = || {
+        ToolError::new(format!("can't read the filter '{text}'"))
+            .hint("operators: == != > >= < <= contains, then a value (e.g. '>= 30')")
+    };
+    let (op, rest) =
+        Op::ALL.iter().find_map(|&(name, op)| text.strip_prefix(name).map(|rest| (op, rest.trim()))).ok_or_else(bad)?;
+    if rest.is_empty() {
+        return Err(bad());
+    }
+    Ok(FieldFilter { op, value: rest.to_owned() })
+}
 pub fn module_filter(text: Option<&str>) -> Option<ModuleFilter> {
     text.map(ModuleFilter::new)
 }
@@ -182,5 +198,21 @@ mod tests {
         assert_eq!(page(4, None).page(&v, 100), &[5]);
         assert_eq!(page(1, None).page(&v, 2), &[2, 3]);
         assert!(page(9, Some(10)).page(&v, 100).is_empty());
+    }
+
+    /// `query_field`'s filter (PRD §6.6): `<op> <value>`, spaces optional after the op.
+    #[test]
+    fn field_filters_are_an_operator_and_a_value() {
+        use crate::field_query::{FieldFilter, Op};
+        let f = |op, value: &str| FieldFilter { op, value: value.into() };
+        assert_eq!(field_filter("== 36").unwrap(), f(Op::Eq, "36"));
+        assert_eq!(field_filter(">=2.5").unwrap(), f(Op::Ge, "2.5"));
+        assert_eq!(field_filter("> 1").unwrap(), f(Op::Gt, "1"));
+        assert_eq!(field_filter("!= none").unwrap(), f(Op::Ne, "none"));
+        assert_eq!(field_filter("<= -1").unwrap(), f(Op::Le, "-1"));
+        assert_eq!(field_filter("contains  plasma rifle ").unwrap(), f(Op::Contains, "plasma rifle"));
+        let err = field_filter("~ 3").unwrap_err();
+        assert_eq!(err.hint.as_deref(), Some("operators: == != > >= < <= contains, then a value (e.g. '>= 30')"));
+        assert!(field_filter("==").is_err(), "an operator needs a value");
     }
 }

@@ -33,7 +33,8 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "What does field X mean / what values can it take?" | `get_definition(class, path=..., detail=full)` |
 | "What does this weapon use?" | `find_references(tag, direction=out, recursive=true)` |
 | "What uses this projectile?" | `find_references(tag, direction=in)` |
-| "Magazine size of every weapon" | `query_field("weap", path, ...)` |
+| "Magazine size of every weapon" | `query_field("weap", "magazines[0].rounds loaded maximum")`; add `filter=">= 30"`, `sort=desc` |
+| "One field's value in one tag" | `read_tag(tag, path=…, depth=0)` (there is no separate field tool) |
 | "Assault rifle vs SMG" | `diff_tags(a, b)` |
 | "Which maps load this?" | `which_maps(tag)` |
 | "What assets does this tag have, and how big are they?" | `list_entries(tag=...)` |
@@ -199,7 +200,8 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `compare_builds` `only in A` / `only in B` / `different` | By global ID: tags present in one build only, or in both with different stored data | `different` means the data differs, not necessarily a gameplay change; diff the tags to see what |
 | `find_references` `(see above)` (recursive) | That tag was already listed earlier in this walk; it isn't expanded again | Not a new reference; look it up above |
 | `find_references` rows | `out`: each non-null reference of the tag: its field path (empty without a definition), the target's class, ID and name, grouped by class. `in`: each tag whose copies reference it; `copies` = in how many of its copies (`1 of 2`: the other copy doesn't), `count` = how many of its fields do. `recursive`: depth first, in the order the tags list their references; with `class=` only that class is listed, though the walk follows every class. References come from the fields in the tag data, so they include references the tag header has no dependency entry for | The links are real; what they do in game needs reading the tags. A target marked `(not in indexed modules)` exists as a reference, not as a tag you can read here |
-| `query_field` / batch `skipped` | Tags that failed to read, with the reason | They are missing from the results; say so if it matters |
+| `hint: N tags skipped: <name> (<why>); …` (`query_field`) | Those tags couldn't be read, or the path doesn't reach a value in them (an empty tag block, a part not read); they have no row | The list is missing them; say so if it matters |
+| `query_field` rows | One row per tag of the class (with `[*]`: per entry, with its field path), from each tag's **first copy**. `units:` above the table is the field's unit from the definition (angles say `rad` in the value instead). `filter`: numbers `== != > >= < <=`; enums `== !=` by label (or compared as a number); flags `contains <option>`; text and tag references `== != contains` by name. Bounds, points and colors can't be filtered or sorted | A tag whose copies differ may hold another value in another copy (`tag_copies`) |
 | `header scan built: N tags, T s` (summary line) | This call first had to scan every tag copy's header and tag data (only when modules changed, or the first time); later calls are fast | — |
 | `hint: N tag copies couldn't be scanned; references from them are missing here (…)` | Some copies couldn't be read; their references aren't in `in` or `recursive` results | Say the list may be incomplete |
 | `reindex` result | What was rebuilt or dropped, and how long it took | — |
@@ -231,6 +233,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `depth` | `find_references(recursive=true)`: how many references from the start tag (1 = it references this directly) |
 | `via` | `find_references(recursive=true)`: the tag holding the reference |
 | `data` | `tag_copies`: copies with the same letter (`A`, `B`, …) hold the same data (compared by their compression blocks' checksums of the uncompressed data, or by the data itself); `versions: N` above the table counts the letters. `read_tag` reads the first copy unless `module=` picks another |
+| `value` | `query_field`: the field's value, written as `read_tag` at `detail=brief` writes it |
 | `asset checksum` | `tag_copies`: a 64-bit value stored with the copy, for the file it was built from; not a check of the stored data (copies are compared by their data) |
 
 Results may come from the tool's cache (kept across sessions). A cached result is always identical to a fresh one, so you never need to "refresh" it. Only `reindex` forces a rebuild, and the tool keeps itself up to date when game files change.
