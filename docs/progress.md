@@ -617,3 +617,4 @@ After the rerun (D64): `diff_tags` results with differences end with the candida
 
 ## M5c: distribution (in progress, 2026-11-02; plan D63)
 - Step 1: programs renamed `ausar-tag-cli` and `ausar-tag-mcp` (only the programs, D63 update); workspace tests pass.
+- Step 2: `ausar-tag-cli identify <folder>` (2026-11-02, release CLI). Forge sample: 10 modules, format 27 (supported, forge), tag headers 27, latest game version 12719-1, suggested `forge-12719`. Xbox sample: 11 modules, format 23 (supported, xbox), tag headers 27, latest 97230-1, suggested `xbox-97230`. The Xbox root folder (no modules): "found no .module files". Tests: a folder with an unsupported format (53) and a non-module file (`h5-module` `identify`), the naming rule (`h5tags-core` `identify`), the report (`tools::identify`). README and SETUP.md name the renamed programs, and SETUP.md has the AI run `identify` on each folder.
