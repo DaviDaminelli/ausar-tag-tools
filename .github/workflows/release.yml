@@ -1,0 +1,78 @@
+name: Release
+
+# A version tag (`v0.1.0-alpha.1`) builds the Windows and Linux zips and
+# publishes them as a GitHub release (decisions D63). The tag must be `v` +
+# the version in Cargo.toml; a tag with `-` (alpha, beta) is a pre-release.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            exe: .exe
+          - os: ubuntu-latest
+            platform: linux
+            exe: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: The tag matches the version in Cargo.toml
+        shell: bash
+        run: |
+          version="$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME doesn't match the version in Cargo.toml ($version)"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      # Unit tests only: tests against real game files are #[ignore]d.
+      - run: cargo test --workspace --locked
+      - run: cargo build --release --locked --bin ausar-tag-cli --bin ausar-tag-mcp
+      - name: Package
+        shell: bash
+        run: |
+          name="ausar-tag-tools-$VERSION-${{ matrix.platform }}"
+          mkdir "$name"
+          cp "target/release/ausar-tag-cli${{ matrix.exe }}" "target/release/ausar-tag-mcp${{ matrix.exe }}" "$name/"
+          cp README.md docs/SETUP.md dist/h5tags.example.toml "$name/"
+          if [ "${{ matrix.platform }}" = windows ]; then
+            7z a "$name.zip" "$name" > /dev/null
+          else
+            zip -rq "$name.zip" "$name"
+          fi
+          echo "ZIP=$name.zip" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: ${{ env.ZIP }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: zips
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" zips/*.zip $pre \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Ausar Tag Tools ${GITHUB_REF_NAME#v}" \
+            --notes "Evaluation build for invited testers; all rights reserved. Download the zip for your system and extract it. To set it up, ask your AI assistant: \"Set up h5tags for me, following SETUP.md in this folder.\" Or follow README.md by hand."

@@ -1,0 +1,20 @@
+# Example config for Ausar Tag Tools. Copy it as h5tags.toml next to the
+# programs, then fill in your folders. `ausar-tag-cli identify <folder>` tells
+# you which build a folder holds and suggests a name for it.
+# Single quotes keep Windows paths as written.
+
+# cache_dir = 'D:\ausar-tag-cache'     # optional; default: %LOCALAPPDATA%\h5tags
+
+# One [[build]] per game build you have; the first is the default.
+[[build]]
+name = "forge-12719"                   # a-z, 0-9, _ and -
+deploy = 'D:\Halo 5 Forge\deploy'      # the folder with the .module files (any layout below it)
+defs = 'C:\H5Tags\tags'                # Lord Zedd's H5Tags definitions
+resource_defs = 'C:\H5Tags\tag_resources'
+
+# A second build, if you have one:
+# [[build]]
+# name = "xbox-97230"
+# deploy = 'D:\Halo 5 Xbox\deploy'
+# defs = 'C:\H5Tags\tags'
+# resource_defs = 'C:\H5Tags\tag_resources'

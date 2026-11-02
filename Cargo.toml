@@ -3,7 +3,8 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+# One version for every program; a release tag must be `v` + this (release workflow).
+version = "0.1.0-alpha.1"
 edition = "2024"
 rust-version = "1.88"
 
