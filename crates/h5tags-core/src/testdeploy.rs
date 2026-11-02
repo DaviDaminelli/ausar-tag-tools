@@ -3,6 +3,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use h5_defs::Definitions;
 use h5_module::Version;
@@ -10,8 +11,9 @@ use h5_module::index::Index;
 use h5_module::testutil::{TempDir, TestEntry, build_module, build_tag, sample_tag};
 
 use crate::catalog::Build;
-use crate::config::BuildConfig;
+use crate::config::{BuildConfig, DEFAULT_TAG_CACHE_MB, megabytes};
 use crate::session::Session;
+use crate::stored::TagCache;
 
 /// The sample tag (`h5_module::testutil::sample_tag`), stored as a weapon.
 pub const WEAPON: &str = r"objects\test\test.weapon";
@@ -55,6 +57,11 @@ impl TestDeploy {
     }
 
     pub fn with(name: &str, second: SecondCopy) -> TestDeploy {
+        TestDeploy::with_tag_cache(name, second, megabytes(DEFAULT_TAG_CACHE_MB))
+    }
+
+    /// With a tag cache of `tag_cache_bytes`.
+    pub fn with_tag_cache(name: &str, second: SecondCopy, tag_cache_bytes: usize) -> TestDeploy {
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -86,7 +93,8 @@ impl TestDeploy {
         let (index, _) = Index::update(&deploy, None, &|_| false).unwrap();
         let definitions = Definitions::load(&defs).unwrap();
         let cfg = BuildConfig { name: "forge".into(), deploy, defs, resource_defs: None };
-        let build = Build::new("forge".into(), cfg, index, definitions);
+        let build =
+            Build::new_sharing("forge".into(), cfg, index, definitions, Arc::new(TagCache::new(tag_cache_bytes)));
         TestDeploy { session: Session::from_builds(dir.0.join("cache"), vec![build]), dir }
     }
 

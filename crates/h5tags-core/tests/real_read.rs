@@ -6,33 +6,29 @@
 //! H5_DEPLOY=<folder> cargo test --release -p h5tags-core --test real_read -- --ignored --nocapture
 //! ```
 
+mod common;
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use h5_defs::definition::Definition;
 use h5_meta::read_tag;
 use h5_module::tag::TagHeader;
-use h5_module::testutil::TempDir;
 use h5_module::{EntryKind, FourCc, Module, Section, map_file};
 use h5tags_core::catalog::Copy;
 use h5tags_core::stored::load_definition;
 use h5tags_core::tag_view::{BuildLookup, Detail, Options, ViewSettings, view_body};
 use h5tags_core::view::TagView;
-use h5tags_core::{Config, Session};
 
 #[test]
 #[ignore]
 fn every_tag_renders() {
-    let deploy = PathBuf::from(std::env::var("H5_DEPLOY").expect("set H5_DEPLOY"));
-    let defs = std::env::var("H5_DEFS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/H5Tags/tags"));
-    let cache = TempDir::new("core-real-read");
-    let s = Session::open(Config::single(deploy, defs, None, Some(cache.0.clone()))).unwrap();
+    let (s, _cache) = common::real_session("core-real-read");
     let b = &s.builds()[0];
     let settings = ViewSettings { depth: 2, detail: Detail::Normal, options: Options::Auto, show_hidden: false };
-    let mut parsed: HashMap<FourCc, Option<Definition>> = HashMap::new();
+    let mut parsed: HashMap<FourCc, Option<Arc<Definition>>> = HashMap::new();
     let start = Instant::now();
     let (mut tags, mut lines, mut text_bytes, mut json_bytes) = (0usize, 0usize, 0usize, 0usize);
     let mut largest: Vec<(usize, String)> = Vec::new();
@@ -91,9 +87,7 @@ fn every_definition_renders() {
     use h5tags_core::def_view::{definition_view, outline_definition};
     use h5tags_core::stored::load_definition_file;
 
-    let defs = std::env::var("H5_DEFS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../reference/H5Tags/tags"));
+    let defs = common::defs_dir();
     let settings = ViewSettings { depth: 99, detail: Detail::Full, options: Options::All, show_hidden: true };
     let start = Instant::now();
     let (mut files, mut lines, mut outline_lines) = (0usize, 0usize, 0usize);

@@ -1,6 +1,7 @@
 //! Every configured build, loaded and kept up to date (PRD §6.1, §6.2).
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use h5_defs::Definitions;
 pub use h5_module::index::Progress;
@@ -8,6 +9,7 @@ use h5_module::index::{Index, UpdateReport};
 
 use crate::catalog::Build;
 use crate::config::{BuildConfig, Config};
+use crate::stored::TagCache;
 
 /// Receives progress of long steps: the build's name and how far it is.
 /// Called from worker threads. The CLI draws it; the MCP server ignores it.
@@ -16,6 +18,8 @@ pub type ProgressSink = Box<dyn Fn(&str, Progress) + Send + Sync>;
 pub struct Session {
     cache_dir: PathBuf,
     builds: Vec<Build>,
+    /// Shared by every build (PRD §13), and kept across `reindex`.
+    tag_cache: Arc<TagCache>,
     progress: ProgressSink,
 }
 
@@ -44,6 +48,7 @@ fn load_build(
     cfg: &BuildConfig,
     cache_dir: &Path,
     previous: Option<Index>,
+    tag_cache: &Arc<TagCache>,
     force: &(dyn Fn(&str) -> bool + Sync),
     progress: &ProgressSink,
 ) -> Result<(Build, UpdateReport), SessionError> {
@@ -63,7 +68,7 @@ fn load_build(
     {
         tracing::warn!(cache = %cache.display(), error = %e, "couldn't save the index cache");
     }
-    Ok((Build::new(cfg.name.clone(), cfg.clone(), index, defs), report))
+    Ok((Build::new_sharing(cfg.name.clone(), cfg.clone(), index, defs, tag_cache.clone()), report))
 }
 
 impl Session {
@@ -77,18 +82,19 @@ impl Session {
     pub fn open_with_progress(config: Config, progress: ProgressSink) -> Result<Session, SessionError> {
         let cache_dir = config.cache_dir();
         let never = |_: &str| false;
+        let tag_cache = Arc::new(TagCache::new(config.tag_cache_bytes()));
         let builds = config
             .builds
             .iter()
-            .map(|cfg| load_build(cfg, &cache_dir, None, &never, &progress).map(|(b, _)| b))
+            .map(|cfg| load_build(cfg, &cache_dir, None, &tag_cache, &never, &progress).map(|(b, _)| b))
             .collect::<Result<_, _>>()?;
-        Ok(Session { cache_dir, builds, progress })
+        Ok(Session { cache_dir, builds, tag_cache, progress })
     }
 
     /// A session over builds already in memory (tests, embedding).
     pub fn from_builds(cache_dir: PathBuf, builds: Vec<Build>) -> Session {
         assert!(!builds.is_empty(), "a session needs at least one build");
-        Session { cache_dir, builds, progress: no_progress() }
+        Session { cache_dir, builds, tag_cache: Arc::default(), progress: no_progress() }
     }
 
     pub fn builds(&self) -> &[Build] {
@@ -103,7 +109,8 @@ impl Session {
     pub fn reindex(&mut self, b: usize, force: &(dyn Fn(&str) -> bool + Sync)) -> Result<UpdateReport, SessionError> {
         let previous = std::mem::take(&mut self.builds[b].index);
         let cfg = self.builds[b].config.clone();
-        let (build, report) = load_build(&cfg, &self.cache_dir, Some(previous), force, &self.progress)?;
+        let (build, report) =
+            load_build(&cfg, &self.cache_dir, Some(previous), &self.tag_cache, force, &self.progress)?;
         self.builds[b] = build;
         Ok(report)
     }

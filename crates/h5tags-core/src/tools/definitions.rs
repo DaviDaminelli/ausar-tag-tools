@@ -1,6 +1,8 @@
 //! `get_definition`, `outline`, `search_definitions` (PRD §6.5): definitions
 //! read without tag data, and the section tree of a class or a tag.
 
+use std::sync::Arc;
+
 use h5_defs::definition::{Custom, Definition, Field, FieldKind, custom_role};
 use h5_defs::field_type::FieldType;
 use h5_meta::{find_sections, read_tag};
@@ -14,7 +16,7 @@ use crate::catalog::{Build, ClassLookup};
 use crate::def_view::{definition_section, definition_view, outline_definition, outline_tag};
 use crate::output::{Cell, Output, Table, ToolError, col};
 use crate::session::Session;
-use crate::stored::{copy_identity, load_definition, load_definition_file, read_stored_tag};
+use crate::stored::{copy_identity, load_definition, read_stored_tag};
 use crate::tag_view::{Detail, Options, ViewSettings, join};
 use crate::view::TagView;
 
@@ -27,7 +29,7 @@ fn default_outline_depth() -> u32 {
 }
 
 /// A class's definition: (class code, class name, parsed definition).
-fn class_definition(b: &Build, query: &str) -> Result<(String, String, Definition), ToolError> {
+fn class_definition(b: &Build, query: &str) -> Result<(String, String, Arc<Definition>), ToolError> {
     let (code, name, path) = match b.lookup_class(query) {
         ClassLookup::Found(c) => {
             let path = c.definition.clone().ok_or_else(|| {
@@ -43,7 +45,7 @@ fn class_definition(b: &Build, query: &str) -> Result<(String, String, Definitio
             );
         }
     };
-    let def = load_definition_file(&path).map_err(present::definition_error)?;
+    let def = b.store.definition(&path).map_err(present::definition_error)?;
     Ok((code, name, def))
 }
 
@@ -310,7 +312,7 @@ impl Tool for SearchDefinitions {
             Some((code, name, def)) => each(code, name, def),
             None => {
                 for d in b.defs.files() {
-                    let def = load_definition_file(&d.path).map_err(present::definition_error)?;
+                    let def = b.store.definition(&d.path).map_err(present::definition_error)?;
                     let code = b
                         .classes
                         .values()

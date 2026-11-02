@@ -4,6 +4,7 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use h5_defs::{DefinitionFile, Definitions};
 use h5_module::index::{EntryKind, EntryRecord, Index, ModuleRecord};
@@ -11,9 +12,10 @@ use h5_module::names::split_tag_name;
 use h5_module::{FourCc, GlobalId};
 
 use crate::config::BuildConfig;
+use crate::stored::{Store, TagCache};
 
 /// One copy of a tag: a module and the file entry in it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Copy {
     pub module: u32,
     pub entry: u32,
@@ -84,6 +86,8 @@ pub struct Build {
     by_id: HashMap<GlobalId, usize>,
     by_path: HashMap<String, Vec<usize>>,
     pub classes: BTreeMap<FourCc, ClassInfo>,
+    /// What is kept between calls (PRD §13).
+    pub store: Store,
 }
 
 impl std::fmt::Debug for Build {
@@ -148,7 +152,19 @@ fn collect_classes(tags: &[Tag], names: &HashMap<FourCc, String>, defs: &Definit
 }
 
 impl Build {
+    /// A build with a tag cache of its own (the default size); a session gives
+    /// all its builds one ([`Build::new_sharing`]).
     pub fn new(name: String, config: BuildConfig, index: Index, defs: Definitions) -> Build {
+        Build::new_sharing(name, config, index, defs, Arc::new(TagCache::default()))
+    }
+
+    pub fn new_sharing(
+        name: String,
+        config: BuildConfig,
+        index: Index,
+        defs: Definitions,
+        tag_cache: Arc<TagCache>,
+    ) -> Build {
         let (tags, names) = collect_tags(&index);
         let classes = collect_classes(&tags, &names, &defs);
         let by_id = tags.iter().enumerate().map(|(i, t)| (t.global_id, i)).collect();
@@ -156,7 +172,7 @@ impl Build {
         for (i, t) in tags.iter().enumerate() {
             by_path.entry(t.path_lower.clone()).or_default().push(i);
         }
-        Build { name, config, index, defs, tags, by_id, by_path, classes }
+        Build { name, config, index, defs, tags, by_id, by_path, classes, store: Store::new(tag_cache) }
     }
 
     /// Borrowed from the class list; the code itself if the class is unknown.

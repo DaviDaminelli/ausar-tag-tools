@@ -5,6 +5,13 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
+/// `tag_cache_mb` when the config doesn't set it (PRD §6.1).
+pub const DEFAULT_TAG_CACHE_MB: u64 = 256;
+
+pub(crate) fn megabytes(mb: u64) -> usize {
+    (mb as usize) << 20
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
@@ -14,6 +21,8 @@ pub struct Config {
     pub notes_file: Option<PathBuf>,
     /// Definition GUID check mode (PRD §6.4.5); used from M3.
     pub guid_check: Option<String>,
+    /// Decompressed tags kept in memory, in MB (PRD §13). Default 256.
+    pub tag_cache_mb: Option<u64>,
     #[serde(rename = "build")]
     pub builds: Vec<BuildConfig>,
 }
@@ -61,6 +70,7 @@ impl Config {
             cache_dir,
             notes_file: None,
             guid_check: None,
+            tag_cache_mb: None,
             builds: vec![BuildConfig { name: "default".into(), deploy, defs, resource_defs }],
         }
     }
@@ -104,6 +114,11 @@ impl Config {
         Ok(())
     }
 
+    /// `tag_cache_mb` in bytes.
+    pub fn tag_cache_bytes(&self) -> usize {
+        megabytes(self.tag_cache_mb.unwrap_or(DEFAULT_TAG_CACHE_MB))
+    }
+
     /// `cache_dir`, or the OS cache folder (decisions D15).
     pub fn cache_dir(&self) -> PathBuf {
         self.cache_dir.clone().unwrap_or_else(default_cache_dir)
@@ -141,6 +156,7 @@ mod tests {
             r#"
 cache_dir = 'C:\h5tags\cache'
 notes_file = 'C:\h5tags\h5tags-notes.toml'
+tag_cache_mb = 64
 
 [[build]]
 name = "forge"
@@ -159,6 +175,9 @@ defs = 'C:\H5Tags\tags'
         assert_eq!(c.builds[0].name, "forge");
         assert_eq!(c.builds[1].resource_defs, None);
         assert_eq!(c.cache_dir(), PathBuf::from(r"C:\h5tags\cache"));
+        assert_eq!(c.tag_cache_bytes(), 64 << 20);
+        let default = parse("[[build]]\nname = \"a\"\ndeploy = 'x'\ndefs = 'y'\n").unwrap();
+        assert_eq!(default.tag_cache_bytes(), 256 << 20);
     }
 
     #[test]
