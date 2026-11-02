@@ -345,3 +345,17 @@ Kept between calls (decisions D39): each module's parsed lists, parsed definitio
 | `search-definitions rounds` (every class)          | 94.3 ms | 22.4 ms              | 79.6 ms         |
 
 The first call of a session parses the module's lists once (the 12 ms); later calls cost the walk over the tag (`read_tag` walk: 120 ms for the largest tag, 0.2 ms for the battle rifle) and the search over every definition's text.
+
+### Step 2: shorter results (2026-11-01, Forge sample; tokens ≈ characters ÷ 4)
+
+| Call                                                                   | Before                    | After                     |
+| ---------------------------------------------------------------------- | ------------------------- | ------------------------- |
+| `search-definitions age --class weap`: battery fields in the first 15 rows | 0 of 15 (all "damage" and "message" hits) | 12 of 15 |
+| `outline --tag 0x00008593` (default depth 3 → 2, index-only labels left out) | 185 lines, ≈ 3,055 tokens | 164 lines, ≈ 2,585 tokens |
+| `outline --tag 0x00008593 --depth 1`                                   | 70 lines, ≈ 1,026 tokens  | 70 lines, ≈ 1,018 tokens  |
+| `read-tag 0x00003E1B --path "system.property bindings[*]" --depth 0 --detail brief` | ≈ 1,138 tokens | ≈ 796 tokens   |
+| `read-tag 0x0000B130 --path "system.property bindings[*]" --depth 0 --detail brief` | ≈ 267 tokens   | ≈ 205 tokens   |
+| `read-tag 0x00008593 --path barrels[0] --depth 1 --detail brief`       | ≈ 1,350 tokens            | ≈ 1,098 tokens            |
+| `read-tag 0x00008593 --detail brief` (whole tag)                       | ≈ 6,914 tokens            | ≈ 6,092 tokens            |
+
+"Before" for the brief reads is the new output with each group's prefix put back on its lines and the `in` lines removed (the same text the old renderer printed); it reproduces the simulation's measured 1,138 and 267 exactly.
