@@ -385,3 +385,7 @@ AGENT_GUIDE §2.1: a seven-step workflow (compare with a tag that already behave
 ### Step 6: README and `.mcp.json` (2026-11-01)
 
 `README.md` with the nine parts of PRD §14, in order. Measured for it: release binaries `h5tags` 4,495,360 bytes (4.5 MB) and `h5tags-mcp` 6,919,680 bytes (6.9 MB), Windows x64. `.mcp.json` registers the development server for this project (`cargo run -q --bin h5tags-mcp -- --config h5tags.toml`). Found while writing it: `guid_check` is accepted in the config but not read; the GUID check always behaves as `warn` (the README says so).
+
+### `guid_check` wired up (2026-11-01, Forge sample; decisions D43)
+
+Weapon `0x00406299` (the first `weap` with a GUID mismatch): `barrels[0].accuracy penalties.single wield penalties` and `…dual wield penalties`. `warn`: both headings end in `warning: definition GUID mismatch`. `off`: no warning. `enforce`: both show `!! definition GUID mismatch at … (definition 7d45a208-4f19-aa30-f6e6-7f849132455b, tag 7db0bb50-4ab6-dd6d-2809-68b1c8e10a13; guid_check = enforce)` and no values. One `srcguid` for both structs, as M3 found for `weap` ("GUIDs" in format-notes).
