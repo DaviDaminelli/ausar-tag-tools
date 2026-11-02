@@ -4,6 +4,8 @@ use crate::testdeploy::{BULLET, TestDeploy, WEAPON};
 
 const MORE_0: &str = r"objects\test\more_0.weapon";
 const MORE_1: &str = r"objects\test\more_1.weapon";
+const CANDIDATES_HINT_LINE: &str =
+    "hint: these are candidates, not causes: check one across the class with query_field before naming it the cause";
 
 fn diff(d: &mut TestDeploy, a: &str, b: &str, path: Option<&str>) -> Result<String, ToolError> {
     diff_in(d, a, b, path, None)
@@ -48,7 +50,10 @@ fn only_the_differing_fields() {
     assert_eq!(lines[0], format!("total: 1  a: {MORE_0}  b: {MORE_1}"));
     assert_eq!(lines[1], "field path\ta\tb");
     assert_eq!(lines[2], "count\t36\t12");
-    assert!(diff(&mut d, MORE_0, MORE_0, None).unwrap().starts_with("total: 0 "));
+    // Method step 2 (AGENT_GUIDE §2.1), where the agent is looking (D64).
+    assert_eq!(lines.last().copied(), Some(CANDIDATES_HINT_LINE));
+    let same = diff(&mut d, MORE_0, MORE_0, None).unwrap();
+    assert!(same.starts_with("total: 0 ") && !same.contains("hint:"), "{same}");
     // path= narrows the comparison to that part.
     assert!(diff(&mut d, MORE_0, MORE_1, Some("entries")).unwrap().starts_with("total: 0 "));
     // A part neither tag has is a path error, not "no differences".

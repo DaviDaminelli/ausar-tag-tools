@@ -168,6 +168,7 @@ impl Tool for DiffTags {
             offset: self.page.offset,
             columns: vec![col::FIELD_PATH, col::A, col::B],
             rows,
+            hints: if found.is_empty() { Vec::new() } else { vec![present::CANDIDATES_HINT.into()] },
             ..Table::default()
         }))
     }

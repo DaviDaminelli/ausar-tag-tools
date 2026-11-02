@@ -130,6 +130,11 @@ pub fn read_error(e: ReadError) -> ToolError {
     ToolError::new(e.to_string()).hint(hint)
 }
 
+/// `diff_tags` with differences: method step 2 (AGENT_GUIDE §2.1), where the
+/// agent is looking (D64).
+pub const CANDIDATES_HINT: &str =
+    "these are candidates, not causes: check one across the class with query_field before naming it the cause";
+
 /// `read_tag` and `diff_tags`: path= and section= both given.
 pub fn path_and_section() -> ToolError {
     ToolError::new("path= and section= can't be used together").hint("pass one of them")
