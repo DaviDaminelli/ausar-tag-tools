@@ -528,3 +528,6 @@ Token budget test: the session's 4 calls added (browse 289, read_tag 253, find_r
 | spot check with `read-tag --path … --detail brief` on each tag | rounds per second 9.999999 / 14.999999, reload penalty 2.5 / 3.5, kickback impulse hip `block[1]` / `(empty)`: all match the diff rows |
 
 Before the fix found in this check, `path=barrels` compared only entry 0 and wrote paths without `[0]`, and a changed curve showed as `(68 bytes)` on both sides; both are covered by `diff_tests` now.
+
+### Server instructions: guide pointer and research method (2026-11-02, D56)
+Instructions 12 → 16 lines, 1,438 → 2,228 bytes (≈ 360 → 560 tokens, sent once per session). To check in the M5b acceptance session: whether the agent reads `h5tags://guide` for the battery questions, and whether it checks candidates on a third tag and labels engine behaviour as inference.
