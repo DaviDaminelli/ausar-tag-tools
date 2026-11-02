@@ -389,3 +389,30 @@ AGENT_GUIDE §2.1: a seven-step workflow (compare with a tag that already behave
 ### `guid_check` wired up (2026-11-01, Forge sample; decisions D43)
 
 Weapon `0x00406299` (the first `weap` with a GUID mismatch): `barrels[0].accuracy penalties.single wield penalties` and `…dual wield penalties`. `warn`: both headings end in `warning: definition GUID mismatch`. `off`: no warning. `enforce`: both show `!! definition GUID mismatch at … (definition 7d45a208-4f19-aa30-f6e6-7f849132455b, tag 7db0bb50-4ab6-dd6d-2809-68b1c8e10a13; guid_check = enforce)` and no values. One `srcguid` for both structs, as M3 found for `weap` ("GUIDs" in format-notes).
+
+### Step 7: acceptance session (2026-11-01, fresh Claude Code in an empty folder, release `h5tags-mcp`, local config with both builds)
+
+| Question | Calls (h5tags) | Context before → after (tokens) | Answer |
+| -------- | -------------- | ------------------------------- | ------ |
+| "Find every tag related to the assault rifle." | 4 `search_tags` (two with `limit=200`), 3 `browse` | 35,981 → 65,162 | ≈ 300 tags by class, build and copies named, inference marked |
+| "What's in `objects\weapons\rifle\`?" | 1 `browse` | 65,181 → 66,677 | 34 subfolders with counts; faction grouping marked as its own inference |
+| "Battle rifle's first barrel firing settings, every trigger mode" | 1 `browse` (twice), `outline` depth 2, 2 `read_tag path=` | 66,711 → 77,137 | 30 rounds/s, 3 per fire, 0.3 s recovery, `latch-zoom` + all 10 behaviours; copy named |
+| "AR vs SMG barrels" | 2 `browse`, 8 `read_tag path=` (brief) | 77,162 → 93,338 | 10 vs 15 rounds/s, accuracy, recoil, effects; tags' units questioned (radians) |
+
+Context = input + cache-read + cache-write tokens from each reply's usage record (the transcript's own numbers). The session started at 35,981 (Claude Code's own prompt plus our ≈ 3,800-token tool list). Largest results: `search_tags limit=200` 23,890 characters (≈ 5,972 tokens); `outline` 10,343 (≈ 2,586). Tool times 6–98 ms; connected in 116 ms; protocol `2026-07-28`.
+
+Done-when: four questions answered with correct values (battle rifle against M3's reads; AR 9.999999 and SMG 14.999999 rounds per second re-read with the CLI); no whole large tag read (outline, then `path=` only; the size guard never had to act); no `!!` value stated as a fact. Found: (1) the agent never read the `h5tags://guide` resource; (2) the instructions called GUID mismatch warnings tool failures, so the agent withheld values it had (fixed, D44); (3) angle values are radians under a "degrees" label (fixed, D44); (4) the instructions name M5 tools (`diff_tags`, `query_field`): the agent looked for them, found none, said so and read by hand (one wasted call). Claude Code's MCP log doesn't keep the server's stderr, so its elicitation support stays unknown.
+
+### Angle units survey (2026-11-01; `h5-meta` `real_tags` `angle_units_survey`)
+
+Forge sample (62,976 tags, 8.8 s) and Xbox sample (57,537 tags, 9.4 s); every non-zero value of the angle types:
+
+| Type [unit] (Forge)                       | Non-zero | Whole degrees if radians | Whole as stored | Largest |
+| ----------------------------------------- | -------- | ------------------------ | --------------- | ------- |
+| `_field_angle [degrees]`                  | 5,843    | 5,351                    | 34              | 6.283185 (2π) |
+| `_field_angle_bounds [degrees]`           | 3,053    | 2,755                    | 0               | 24.434608 (a flinch magnitude) |
+| `_field_angle [degrees [0, 180]]`         | 2        | 2                        | 0               | 3.1415925 (π) |
+| `_field_real_euler_angles_3d [no unit]`   | 2,181    | 1,867                    | 5               | 6.283185 (2π) |
+| `_field_real [degrees]` (plain reals)     | 14,844   | 6,843                    | 7,903           | 9999 |
+
+Plain reals with a degree unit: radian-like values only at `hlmt` `shadow slope scale bias` (×2 fields, 3,389 each), `licn` `angle fade cutoff` / `range` (29 each), one `vehi` steering field (7). After the fix: assault rifle `barrels[0].projectile error.error angle` reads `0.0026179939..0.04014257 rad  0.15..2.3 degrees (max_error_angle)`; every tag of both samples still renders (`real_read`, Forge 36.2 s, Xbox 32.4 s) and the 5 spot values match.
