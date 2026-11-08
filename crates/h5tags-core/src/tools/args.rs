@@ -2,6 +2,8 @@
 //! arguments into domain values. Bad input becomes a [`ToolError`] here, with
 //! a hint; the domain (`catalog`, `filters`, `query`) never sees raw text.
 
+use std::borrow::Cow;
+
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -64,7 +66,8 @@ pub fn tag<'s>(session: &'s Session, text: &str, arg: &BuildArg) -> Result<(&'s 
         _ => (arg.build.as_deref(), text),
     };
     let build = build_named(session, build_name)?;
-    let spec = TagSpec::parse(tag_text).map_err(|e| ToolError::new(e).hint("global IDs look like 0x00A1B2C3"))?;
+    let spec =
+        TagSpec::parse(&typed_path(tag_text)).map_err(|e| ToolError::new(e).hint("global IDs look like 0x00A1B2C3"))?;
     match build.find_tag(&spec) {
         Ok(tag) => Ok((build, tag)),
         Err(TagLookupError::NotFound) => {
@@ -108,8 +111,20 @@ pub fn tag_copy<'s>(
     Ok(TagCopy { build, tag, copy, other_copies_hint })
 }
 
+/// A tag or module path as typed (decisions D77): `/` stands for `\`, which
+/// is what the game's names use (no tag or module path holds a `/`).
+pub fn typed_path(text: &str) -> Cow<'_, str> {
+    if text.contains('/') { Cow::Owned(text.replace('/', "\\")) } else { Cow::Borrowed(text) }
+}
+
 pub fn name_matcher(query: &str, mode: Mode) -> Result<NameMatcher, ToolError> {
-    NameMatcher::new(query, mode).map_err(|e| ToolError::new(e).hint("mode=regex uses Rust regex syntax"))
+    // In a regex a backslash escapes: `/` becomes an escaped one.
+    let query = match mode {
+        Mode::Regex if query.contains('/') => Cow::Owned(query.replace('/', r"\\")),
+        Mode::Regex => Cow::Borrowed(query),
+        _ => typed_path(query),
+    };
+    NameMatcher::new(&query, mode).map_err(|e| ToolError::new(e).hint("mode=regex uses Rust regex syntax"))
 }
 
 /// A class code from `class=` (code or name), also for classes with no
@@ -158,7 +173,7 @@ pub fn field_filter(text: &str) -> Result<FieldFilter, ToolError> {
     Ok(FieldFilter::Compare { op, value: rest.to_owned() })
 }
 pub fn module_filter(text: Option<&str>) -> Option<ModuleFilter> {
-    text.map(ModuleFilter::new)
+    text.map(|t| ModuleFilter::new(&typed_path(t)))
 }
 
 /// A tool as MCP lists it (PRD §9a): its name, its description (the

@@ -161,14 +161,9 @@ pub struct Rows<'b> {
 /// array, curve or tag block entry). A tag block without an index counts: its
 /// value is its entry count (decisions D75).
 pub fn value_field<'d>(fields: &'d [Field], path: &FieldPath, shown: &str) -> Result<&'d Field, QueryError> {
-    let mut level = fields;
-    let mut field = None;
-    for s in &path.steps {
-        let f = &level[s.field];
-        field = Some(f);
-        level = &f.children;
-    }
-    let Some(f) = field else { return Err(QueryError::NotAValue { field: shown.to_owned(), what: "the whole tag" }) };
+    let Some(f) = path.field(fields) else {
+        return Err(QueryError::NotAValue { field: shown.to_owned(), what: "the whole tag" });
+    };
     let entry = path.steps.last().is_some_and(|s| s.select.is_some());
     let what = match f.kind {
         FieldKind::Known(FieldType::Block64) if !entry => return Ok(f),

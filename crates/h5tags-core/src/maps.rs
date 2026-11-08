@@ -9,6 +9,7 @@ use h5_module::names::{module_layer, module_stack};
 use h5_module::{FourCc, GlobalId};
 
 use crate::catalog::{Build, Tag};
+use crate::filters::ModuleFilter;
 use crate::stored::{ReadError, read_manifest};
 
 /// For each map, the module of its latest layer that has a load manifest; by
@@ -89,8 +90,13 @@ pub struct WhichMaps {
     pub checked: usize,
 }
 
-pub fn which_maps(b: &Build, id: GlobalId) -> WhichMaps {
-    let in_effect = manifests_in_effect(b);
+/// The maps whose manifest in effect lists `id`; with `module`, only maps whose
+/// manifest module path matches it, chosen before any manifest is read (D76).
+pub fn which_maps(b: &Build, id: GlobalId, module: Option<&ModuleFilter>) -> WhichMaps {
+    let mut in_effect = manifests_in_effect(b);
+    if let Some(f) = module {
+        in_effect.retain(|&m| f.matches(&b.index.modules[m as usize].rel_path));
+    }
     let mut found = WhichMaps { modules: Vec::new(), failed: Vec::new(), checked: in_effect.len() };
     for module in in_effect {
         match read_manifest(b, module) {

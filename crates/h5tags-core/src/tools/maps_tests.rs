@@ -15,7 +15,26 @@ fn map_tags(d: &mut TestDeploy, module: &str, class: Option<&str>) -> Result<Str
 }
 
 fn which_maps(d: &mut TestDeploy, tag: &str) -> String {
-    WhichMaps { tag: tag.into(), build: BuildArg::default() }.run(&mut d.session).unwrap().render(Format::Text)
+    which_maps_in(d, tag, |_| {})
+}
+
+fn which_maps_in(d: &mut TestDeploy, tag: &str, f: impl FnOnce(&mut WhichMaps)) -> String {
+    let mut t = WhichMaps { tag: tag.into(), module: None, build: BuildArg::default(), page: PageArgs::default() };
+    f(&mut t);
+    t.run(&mut d.session).unwrap().render(Format::Text)
+}
+
+/// D76: `module=` and paging, as `map_tags` has them.
+#[test]
+fn which_maps_in_some_modules_by_pages() {
+    let mut d = TestDeploy::with_map("tool-which-maps-module");
+    let text = which_maps_in(&mut d, BULLET, |t| t.module = Some("menu".into()));
+    assert!(text.starts_with("total: 1\n") && text.contains(&format!("{UPDATE}\t11587-1\t2")), "{text}");
+    let text = which_maps_in(&mut d, BULLET, |t| t.module = Some("warzone".into()));
+    assert!(text.starts_with("total: 0\n"), "{text}");
+    assert!(text.contains("hint: no map's module path contains 'warzone'"), "{text}");
+    let text = which_maps_in(&mut d, BULLET, |t| t.page = PageArgs { offset: 1, limit: Some(5) });
+    assert!(text.starts_with("total: 1\n") && !text.contains(UPDATE), "{text}");
 }
 
 /// PRD §6.6, D59: the latest layer's manifest, its tags by class, and how many

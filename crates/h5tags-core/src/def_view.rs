@@ -8,7 +8,7 @@ use h5_meta::{Body, Content, FieldPath, PathError, Section, parse_path};
 
 use crate::output::marker;
 use crate::tag_view::{
-    Detail, Options, Role, ViewSettings, entry_labels, is_hidden, join, label_list, role, short_type,
+    Detail, Options, Role, ViewSettings, entry_labels, is_hidden, join, label_list, role, short_type, shown_fields,
 };
 use crate::view::{Container, FieldView, HeadingKind, PATH_TARGET, Shown, ViewNode};
 
@@ -204,9 +204,7 @@ pub fn definition_section(fields: &[Field], sec: &Section, settings: ViewSetting
 
 /// One outline node: a container with its direct field count and path.
 fn outline_node(f: &Field, path: &str, short: String, extra: Option<String>, children: Vec<ViewNode>) -> ViewNode {
-    let direct = (0..f.children.len())
-        .filter(|&i| matches!(role(&f.children, i, false, Detail::Normal), Role::Field) && !is_hidden(&f.children[i]))
-        .count();
+    let direct = shown_fields(&f.children, false).count();
     let mut summary = extra.map(|e| format!("{e}  ")).unwrap_or_default();
     summary.push_str(&format!("{}  path={path}", fields_text(direct)));
     ViewNode::Field(Box::new(FieldView {

@@ -129,7 +129,8 @@ impl Tool for Browse {
 
     fn run(&self, s: &mut Session) -> Result<Output, ToolError> {
         let b = args::build(s, &self.build)?;
-        let folder = self.path.trim_matches('\\');
+        let path = args::typed_path(&self.path);
+        let folder = path.trim_matches('\\');
         let Some(listing) = query::browse(b, folder) else {
             return Err(ToolError::new(format!("no folder '{folder}'"))
                 .hint("browse its parent folder, or search_tags for part of the name"));

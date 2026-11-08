@@ -14,7 +14,8 @@ use crate::stored::read_manifest;
 /// The tags a map loads: those its module's load manifest lists, by class.
 /// module= a map's module (part of its path, e.g. mainmenu); for a map with
 /// update layers, the latest layer's manifest (each layer's is a full list).
-/// IDs that aren't indexed tags are only counted. Next: read_tag on a row.
+/// IDs that aren't indexed tags are only counted. Next: read_tag on a row;
+/// which_maps for the other way (a tag's maps).
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct MapTags {
     /// The map's module: part of its path (`mainmenu`), or a whole module path for one layer.
@@ -31,6 +32,9 @@ pub struct MapTags {
 }
 
 const TAG_COLUMNS: [Column; 3] = [col::GLOBAL_ID, col::CLASS, col::DISPLAY_NAME];
+
+/// Rows per page, for both tools.
+const DEFAULT_LIMIT: usize = 100;
 
 impl Tool for MapTags {
     const NAME: &'static str = "map_tags";
@@ -53,7 +57,7 @@ impl Tool for MapTags {
         summary.extend(present::by_class(query::count_by_class(found.tags.iter().map(|t| t.class))));
         let rows = self
             .page
-            .page(&found.tags, 100)
+            .page(&found.tags, DEFAULT_LIMIT)
             .iter()
             .map(|t| vec![t.global_id.to_string().into(), t.class.to_string().into(), b.display_name(t).into()])
             .collect();
@@ -73,14 +77,21 @@ impl Tool for MapTags {
 
 /// The maps that load a tag, of any class (scripts too): the maps whose load
 /// manifest in effect (each map's latest layer) lists it, with each
-/// manifest's tag count. Next: map_tags(module=...) for a map's other tags.
+/// manifest's tag count. module= keeps maps whose module path contains it
+/// (e.g. wz_). Next: map_tags(module=...) for a map's other tags.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct WhichMaps {
     /// The tag: global ID, tag path or display name.
     pub tag: String,
+    /// Only maps whose module path contains this (`multi`, `wz_`).
+    #[arg(long)]
+    pub module: Option<String>,
     #[command(flatten)]
     #[serde(flatten)]
     pub build: BuildArg,
+    #[command(flatten)]
+    #[serde(flatten)]
+    pub page: PageArgs,
 }
 
 impl Tool for WhichMaps {
@@ -88,9 +99,11 @@ impl Tool for WhichMaps {
 
     fn run(&self, s: &mut Session) -> Result<Output, ToolError> {
         let (b, tag) = args::tag(s, &self.tag, &self.build)?;
-        let found = which_maps(b, tag.global_id);
-        let mut rows = Vec::with_capacity(found.modules.len());
-        for &m in &found.modules {
+        let filter = args::module_filter(self.module.as_deref());
+        let found = which_maps(b, tag.global_id, filter.as_ref());
+        // Tag counts only for the rows shown (D26; the manifests are cached).
+        let mut rows = Vec::new();
+        for &m in self.page.page(&found.modules, DEFAULT_LIMIT) {
             let path = &b.index.modules[m as usize].rel_path;
             let count = read_manifest(b, m).map_err(present::read_error)?.map_or(0, |ids| ids.len());
             rows.push(vec![
@@ -100,15 +113,18 @@ impl Tool for WhichMaps {
             ]);
         }
         let mut hints = Vec::new();
-        if found.modules.is_empty() && found.failed.is_empty() {
-            hints.push(present::no_map_hint(found.checked));
+        match &self.module {
+            Some(m) if found.checked == 0 => hints.push(present::no_map_matches(m)),
+            _ if found.modules.is_empty() && found.failed.is_empty() => hints.push(present::no_map_hint(found.checked)),
+            _ => {}
         }
         if !found.failed.is_empty() {
             hints.push(present::unread_manifests_hint(b, &found.failed));
         }
         Ok(Output::Table(Table {
             build: s.label(b),
-            total: rows.len(),
+            total: found.modules.len(),
+            offset: self.page.offset,
             columns: vec![col::MODULE, col::LAYER, col::TAGS],
             rows,
             hints,

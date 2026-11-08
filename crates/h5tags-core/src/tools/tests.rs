@@ -231,6 +231,19 @@ fn browse_folders_and_tags() {
     assert!(run(&browse("nowhere"))["error"].is_string());
 }
 
+/// D77: `/` stands for `\` wherever a tag or module path is typed.
+#[test]
+fn slashes_stand_for_backslashes() {
+    assert_eq!(names(&run(&browse("objects/weapons/"))), [r"pistol\", r"rifle\"]);
+    let v = run(&search("weapons/pistol/magnum"));
+    assert_eq!(v["total"], 2);
+    // In a regex, as an escaped backslash.
+    let v = run(&SearchTags { mode: Mode::Regex, ..search("pistol/magnum/magnum$") });
+    assert_eq!(v["total"], 2);
+    let v = run(&SearchTags { module: Some("any/levels/globals-rtx-11587".into()), ..search("magnum") });
+    assert_eq!(v["total"], 1);
+}
+
 fn list_classes(query: Option<&str>) -> ListClasses {
     ListClasses { query: query.map(Into::into), build: BuildArg::default() }
 }

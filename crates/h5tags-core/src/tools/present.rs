@@ -262,9 +262,14 @@ pub const GUARD_OUTLINE_DEPTH: u32 = 1;
 /// when its text is within `limit` tokens (characters ÷ 4), or with a warning
 /// first when `confirm`ed; otherwise `outline()` in its place, with a hint
 /// giving the whole read's size and how to go on.
-pub fn size_guard(mut view: TagView, limit: usize, confirm: bool, outline: impl FnOnce() -> Vec<ViewNode>) -> TagView {
+/// About how many tokens a view's text is (4 bytes each), and its text.
+pub fn estimated_tokens(view: &TagView) -> (usize, String) {
     let text = view.render_lines(false);
-    let tokens = text.len() / 4;
+    (text.len() / 4, text)
+}
+
+pub fn size_guard(mut view: TagView, limit: usize, confirm: bool, outline: impl FnOnce() -> Vec<ViewNode>) -> TagView {
+    let (tokens, text) = estimated_tokens(&view);
     if tokens <= limit {
         return view;
     }
@@ -355,6 +360,21 @@ pub fn missing_value(e: &PathError) -> &'static str {
         PathError::OutOfRange { .. } => marker::NO_ENTRY,
         _ => marker::NOT_READ,
     }
+}
+
+/// D77: a `path=` read of a block of one-field entries shows every entry's field.
+pub fn every_entry_note(field: &str, path: &str) -> String {
+    format!("every entry's {field} (as path={path})")
+}
+
+/// D77: the same, over the size limit: entry 0 is shown, and this says where the rest is.
+pub fn every_entry_hint(field: &str, path: &str, tokens: usize) -> String {
+    format!("every entry's {field}: path={path} (≈ {tokens} tokens; over the size limit, so entry 0 is shown)")
+}
+
+/// `which_maps(module=)` kept no map (D76).
+pub fn no_map_matches(module: &str) -> String {
+    format!("no map's module path contains '{module}'; list_modules lists the modules with a load manifest")
 }
 
 /// `list_classes(query=)` found nothing.

@@ -1,7 +1,8 @@
 //! `read_tag` (PRD §6.4): a tag's fields read with its class's definition.
 
-use h5_defs::definition::Definition;
-use h5_meta::{Content, find_sections, parse_path, read_tag, select};
+use h5_defs::definition::{Definition, Field, FieldKind};
+use h5_defs::field_type::FieldType;
+use h5_meta::{Content, FieldPath, Select, Selected, Step, find_sections, parse_path, read_tag, select};
 use serde::Deserialize;
 use serde_json::{Map, json};
 
@@ -15,8 +16,8 @@ use crate::query::choose_copy;
 use crate::session::Session;
 use crate::stored::{Identity, copy_identity, load_definition, read_stored_tag};
 use crate::tag_view::{
-    BuildLookup, Detail, Lookup, Options, ResourceInfo, StructAt, ViewSettings, into_legend, view_body, view_section,
-    view_selection,
+    BuildLookup, Detail, Lookup, Options, ResourceInfo, StructAt, ViewSettings, into_legend, shown_fields, view_body,
+    view_section, view_selection,
 };
 use crate::view::TagView;
 
@@ -148,12 +149,27 @@ impl Tool for ReadTag {
             (Some(path), _) => {
                 let p = parse_path(&def.fields, path).map_err(present::path_error)?;
                 let sels = select(&read.root, &p).map_err(present::path_error)?;
-                let selection = view_selection(&sels, &p.display(&def.fields), settings, &lookup);
-                view.nodes = selection.nodes;
-                view.title_lines.extend(selection.notes);
-                if sels.len() > 1 {
-                    view.legend = into_legend(&mut view.nodes);
+                // D77: a tag block of one-field entries, without an index:
+                // that field in every entry, if it fits the size limit.
+                let mut every_hint = None;
+                if let Some((every, name)) = one_field_entries(&def.fields, &p, self.show_hidden)
+                    && let Ok(all) = select(&read.root, &every)
+                {
+                    let shown = every.display(&def.fields);
+                    let part = path_view(&all, &shown, settings, &lookup);
+                    let (tokens, _) = present::estimated_tokens(&part);
+                    if tokens <= limit || self.confirm_large {
+                        view.title_lines.push(present::every_entry_note(name, &shown));
+                        view.title_lines.extend(part.title_lines);
+                        (view.nodes, view.legend) = (part.nodes, part.legend);
+                        return Ok(Output::Tag(view));
+                    }
+                    every_hint = Some(present::every_entry_hint(name, &shown, tokens));
                 }
+                let part = path_view(&sels, &p.display(&def.fields), settings, &lookup);
+                view.title_lines.extend(part.title_lines);
+                (view.nodes, view.legend) = (part.nodes, part.legend);
+                view.hints.extend(every_hint);
             }
             (None, Some(heading)) => view.nodes = section(&def, &read.root, heading, settings, &lookup)?,
             (None, None) => {
@@ -167,6 +183,35 @@ impl Tool for ReadTag {
         }
         Ok(Output::Tag(view))
     }
+}
+
+/// A `path=` read: the selected nodes, their notes, and a legend when there are several.
+fn path_view(sels: &[Selected<'_, '_>], shown: &str, settings: ViewSettings, lookup: &dyn Lookup) -> TagView {
+    let selection = view_selection(sels, shown, settings, lookup);
+    let mut part = TagView { nodes: selection.nodes, title_lines: selection.notes, ..TagView::default() };
+    if sels.len() > 1 {
+        part.legend = into_legend(&mut part.nodes);
+    }
+    part
+}
+
+/// D77: `p` as `<block>[*].<field>`, and that field's name, when `p` ends at
+/// a tag block without an index whose entries show one field, a value.
+fn one_field_entries<'d>(fields: &'d [Field], p: &FieldPath, show_hidden: bool) -> Option<(FieldPath, &'d str)> {
+    let (last, block) = (p.steps.last()?, p.field(fields)?);
+    if last.select.is_some() || block.kind != FieldKind::Known(FieldType::Block64) {
+        return None;
+    }
+    let mut shown = shown_fields(&block.children, show_hidden);
+    let (Some(i), None) = (shown.next(), shown.next()) else { return None };
+    let f = &block.children[i];
+    if matches!(f.kind, FieldKind::Known(FieldType::Struct | FieldType::Array | FieldType::Block64)) {
+        return None;
+    }
+    let mut steps = p.steps.clone();
+    steps.last_mut()?.select = Some(Select::Every);
+    steps.push(Step { field: i, select: None });
+    Some((FieldPath { steps }, f.step.as_deref().unwrap_or_default()))
 }
 
 /// `section=`: the one section with that heading (PRD §6.4.3).
@@ -293,6 +338,28 @@ mod tests {
         assert!(err.hint.unwrap().starts_with("closest names there: projectile"));
     }
 
+    /// D77: `path=` at a tag block whose entries have one field (`entries`:
+    /// `target`) shows that field in every entry, as `[*].<field>` would.
+    #[test]
+    fn a_block_of_one_field_shows_every_entry() {
+        let mut d = TestDeploy::new("read-one-field");
+        let text = read(&mut d, |t| t.path = Some("entries".into())).unwrap();
+        assert!(text.contains("\n  every entry's target (as path=entries[*].target)\n"), "{text}");
+        assert!(text.contains("\nentries[0].target  tagref  (none) []\n"), "{text}");
+        assert!(text.contains("\nentries[1].target  tagref  "), "{text}");
+        // With an index, that entry only.
+        let text = read(&mut d, |t| t.path = Some("entries[1]".into())).unwrap();
+        assert!(!text.contains("entries[0]") && !text.contains("every entry"), "{text}");
+    }
+
+    /// D77: `/` stands for `\` in a tag path (no tag or module path holds a `/`).
+    #[test]
+    fn a_tag_path_may_use_slashes() {
+        let mut d = TestDeploy::new("read-slash");
+        let text = read(&mut d, |t| t.tag = WEAPON.replace('\\', "/")).unwrap();
+        assert!(text.starts_with(&format!("# weap {WEAPON}")), "{text}");
+    }
+
     #[test]
     fn a_section_reads_up_to_the_next_heading() {
         let mut d = TestDeploy::new("read-section");
@@ -342,6 +409,8 @@ mod tests {
         d.session.large_read_tokens = 1;
         let text = read(&mut d, |t| t.path = Some("entries".into())).unwrap();
         assert!(text.contains("\n  target  tagref  (none) []\n"), "{text}");
+        // D77: too big to show every entry's one field: entry 0, and where the rest is.
+        assert!(text.contains("\nhint: every entry's target: path=entries[*].target (≈ "), "{text}");
         let text = read(&mut d, |t| t.section = Some("weapon".into())).unwrap();
         assert!(text.contains("\ncount  int32  0\n"), "{text}");
     }

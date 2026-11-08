@@ -112,6 +112,14 @@ pub(crate) fn is_hidden(f: &Field) -> bool {
     hidden_type(f) || f.name.is_hidden()
 }
 
+/// The positions of `fields` a view shows as fields of a struct or entry
+/// (not headings or internal fields; hidden ones only with `show_hidden`).
+pub(crate) fn shown_fields(fields: &[Field], show_hidden: bool) -> impl Iterator<Item = usize> + '_ {
+    (0..fields.len()).filter(move |&i| {
+        matches!(role(fields, i, false, Detail::Normal), Role::Field) && (show_hidden || !is_hidden(&fields[i]))
+    })
+}
+
 pub(crate) fn short_type(t: FieldType, count: Option<u32>) -> String {
     use FieldType as T;
     let s = match t {

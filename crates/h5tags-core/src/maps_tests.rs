@@ -25,7 +25,7 @@ fn a_flat_deploy_folder_works_the_same() {
     let d = TestDeploy::with_flat_map("maps-flat");
     let b = &d.session.builds()[0];
     assert_eq!(module_paths(b, &manifests_in_effect(b)), ["menu-rtx-11587-1.module"]);
-    let found = which_maps(b, GlobalId(BULLET_ID));
+    let found = which_maps(b, GlobalId(BULLET_ID), None);
     assert_eq!(module_paths(b, &found.modules), ["menu-rtx-11587-1.module"]);
 }
 
@@ -63,11 +63,24 @@ fn tags_of_a_manifest() {
 fn maps_of_a_tag() {
     let d = TestDeploy::with_map("maps-which");
     let b = &d.session.builds()[0];
-    let found = which_maps(b, GlobalId(BULLET_ID));
+    let found = which_maps(b, GlobalId(BULLET_ID), None);
     assert_eq!(module_paths(b, &found.modules), [UPDATE]);
     assert!(found.failed.is_empty());
     // The update dropped the weapon from the map's manifest.
-    assert!(which_maps(b, GlobalId(WEAPON_ID)).modules.is_empty());
-    assert!(which_maps(b, GlobalId(NOT_INDEXED_ID)).modules.len() == 1);
+    assert!(which_maps(b, GlobalId(WEAPON_ID), None).modules.is_empty());
+    assert!(which_maps(b, GlobalId(NOT_INDEXED_ID), None).modules.len() == 1);
     assert_eq!(module_stack(UPDATE), MAP);
+}
+
+/// D76: `module=` keeps the maps whose manifest module path contains it,
+/// before any manifest is read; the others aren't checked (or counted).
+#[test]
+fn maps_of_a_tag_in_some_modules() {
+    let d = TestDeploy::with_map("maps-which-module");
+    let b = &d.session.builds()[0];
+    let id = GlobalId(BULLET_ID);
+    let menu = which_maps(b, id, Some(&ModuleFilter::new("MENU")));
+    assert_eq!((module_paths(b, &menu.modules), menu.checked), (vec![UPDATE.to_owned()], 1));
+    let none = which_maps(b, id, Some(&ModuleFilter::new("warzone")));
+    assert_eq!((none.modules.len(), none.checked), (0, 0));
 }

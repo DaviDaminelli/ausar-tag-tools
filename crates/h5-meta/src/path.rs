@@ -141,6 +141,18 @@ pub fn parse_path(fields: &[Field], text: &str) -> Result<FieldPath, PathError> 
 }
 
 impl FieldPath {
+    /// The definition field the path ends at; `None` for the whole tag.
+    pub fn field<'d>(&self, fields: &'d [Field]) -> Option<&'d Field> {
+        let mut level = fields;
+        let mut found = None;
+        for s in &self.steps {
+            let f = level.get(s.field)?;
+            found = Some(f);
+            level = &f.children;
+        }
+        found
+    }
+
     /// The path as text, with the definition's names (`barrels[1].rounds per second`).
     pub fn display(&self, fields: &[Field]) -> String {
         self.display_with(fields, |_, select| suffix(select))
