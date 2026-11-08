@@ -41,10 +41,34 @@ fn in_lists_the_tags_pointing_here() {
     })
     .unwrap();
     let lines: Vec<&str> = text.lines().collect();
-    assert_eq!(lines[1], "class\tglobal ID\tdisplay name\tcopies\tcount");
-    assert_eq!(lines[2], format!("weap\t0x00000010\t{WEAPON}\t1 of 1\t1"));
+    assert_eq!(lines[1], "class\tglobal ID\tdisplay name\tcopies\tcount\tfield path");
+    // D73: the referring field, as `out` names it.
+    assert_eq!(lines[2], format!("weap\t0x00000010\t{WEAPON}\t1 of 1\t1\tprojectile"));
     // A copy that couldn't be scanned (the bullet's data is no tag) is said, not hidden.
     assert!(text.contains("\nhint: 1 tag copy couldn't be scanned"), "{text}");
+}
+
+/// D73: field paths only for the rows shown (D26); every referrer is still counted.
+#[test]
+fn in_names_fields_for_the_rows_shown() {
+    let mut d = TestDeploy::with_weapons("refs-in-page", &[Some(1), Some(2)]);
+    let text = find(&mut d, |t| {
+        t.tag = BULLET.into();
+        t.direction = Direction::In;
+        t.page = PageArgs { offset: 1, limit: Some(1) };
+    })
+    .unwrap();
+    assert!(text.starts_with("total: 3 "), "{text}");
+    let rows: Vec<&str> = text.lines().filter(|l| l.starts_with("weap\t")).collect();
+    assert_eq!(rows, [r"weap	0x00000031	objects\test\more_1.weapon	1 of 1	1	projectile"]);
+}
+
+/// More than three fields: three named, the rest counted (the count column has them all).
+#[test]
+fn many_field_paths_are_cut_short() {
+    let paths: Vec<String> = ["a", "b", "c", "d", "e"].map(String::from).to_vec();
+    assert_eq!(field_paths_cell(&paths), "a, b, c (+2 more)");
+    assert_eq!(field_paths_cell(&paths[..2]), "a, b");
 }
 
 #[test]

@@ -15,7 +15,7 @@ use h5_module::{FourCc, GlobalId};
 use crate::catalog::{Build, Copy, Tag};
 use crate::filters::ascii_matches;
 use crate::query::choose_copy;
-use crate::stored::{DefinitionLoadError, StoredTag, load_definition};
+use crate::stored::{DefinitionLoadError, ReadError, StoredTag, load_definition, read_stored_tag};
 use crate::tag_view::join;
 
 /// A build's header scan: where it is cached, and the scan once loaded or built.
@@ -88,11 +88,12 @@ impl ScanIndex {
 }
 
 /// A tag that references a target: in how many of its copies, and with how
-/// many fields (in the copy with the most).
+/// many fields in `copy`, the copy with the most.
 pub struct Referrer<'b> {
     pub tag: &'b Tag,
     pub copies: usize,
     pub fields: usize,
+    pub copy: Copy,
 }
 
 /// The tags whose copies reference `target`, by class, then path.
@@ -104,9 +105,13 @@ pub fn referrers<'b>(b: &'b Build, scan: &ScanIndex, target: GlobalId) -> Vec<Re
     let mut by_tag: HashMap<GlobalId, Referrer<'b>> = HashMap::new();
     for (copy, n) in fields {
         let Some(tag) = b.tag_by_id(b.entry(copy).global_id) else { continue };
-        let r = by_tag.entry(tag.global_id).or_insert(Referrer { tag, copies: 0, fields: 0 });
+        let r = by_tag.entry(tag.global_id).or_insert(Referrer { tag, copies: 0, fields: 0, copy });
         r.copies += 1;
-        r.fields = r.fields.max(n);
+        // The copy with the most fields; on a tie, the one read by default (D58).
+        let default = choose_copy(b, tag, None) == Some(copy);
+        if n > r.fields || (n == r.fields && default) {
+            (r.fields, r.copy) = (n, copy);
+        }
     }
     let mut out: Vec<Referrer<'b>> = by_tag.into_values().collect();
     out.sort_by(|a, b| (a.tag.class, &a.tag.path_lower).cmp(&(b.tag.class, &b.tag.path_lower)));
@@ -218,6 +223,42 @@ pub fn reference_paths(b: &Build, tag: &Tag, t: &StoredTag) -> Result<Option<Pla
     let mut out = HashMap::new();
     collect(&read.root, "", &mut out);
     Ok(Some(out))
+}
+
+/// The field path of reference `r` of tag copy `t` (one of its scan's
+/// references), if `places` has it.
+pub fn path_of<'p>(places: &'p Places, t: &StoredTag, r: &OutReference) -> Option<&'p str> {
+    let entry = &t.header.tag_references[r.reference as usize];
+    places.get(&(entry.field_block?, entry.field_offset)).map(String::as_str)
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum PathsError {
+    #[error(transparent)]
+    Read(#[from] ReadError),
+    #[error(transparent)]
+    Definition(#[from] DefinitionLoadError),
+}
+
+/// The field paths in tag copy `copy` of `tag` that reference `target`, in
+/// the tag's reference list order (decisions D73). `None` when the class has
+/// no definition.
+pub fn paths_to(
+    b: &Build,
+    scan: &ScanIndex,
+    tag: &Tag,
+    copy: Copy,
+    target: GlobalId,
+) -> Result<Option<Vec<String>>, PathsError> {
+    let stored = read_stored_tag(b, copy)?;
+    let Some(places) = reference_paths(b, tag, &stored)? else { return Ok(None) };
+    let refs = scan.outgoing(copy).map(|t| t.references.as_slice()).unwrap_or_default();
+    let paths = refs
+        .iter()
+        .filter(|r| r.target == target)
+        .filter_map(|r| path_of(&places, &stored, r).map(str::to_owned))
+        .collect();
+    Ok(Some(paths))
 }
 
 /// The header scan of `b`: loaded (and brought up to date) or built on the

@@ -9,7 +9,7 @@ use super::{Tool, present};
 use crate::catalog::{Build, Copy, Tag};
 use crate::output::{Cell, Column, Output, Part, Summary, Table, ToolError, col, marker};
 use crate::query::count_by_class;
-use crate::references::{ScanIndex, header_scan, reference_paths, referrers, walk_out};
+use crate::references::{Referrer, ScanIndex, header_scan, path_of, paths_to, reference_paths, referrers, walk_out};
 use crate::session::Session;
 use crate::stored::read_stored_tag;
 
@@ -78,6 +78,18 @@ fn target_name(b: &Build, tag: Option<&Tag>, listed: &str) -> String {
     }
 }
 
+/// Field paths named in one `in` row; the `count` column has them all.
+const MAX_FIELD_PATHS: usize = 3;
+
+/// `a, b, c (+2 more)`.
+fn field_paths_cell(paths: &[String]) -> String {
+    let mut text = paths[..paths.len().min(MAX_FIELD_PATHS)].join(", ");
+    if paths.len() > MAX_FIELD_PATHS {
+        text.push_str(&format!(" (+{} more)", paths.len() - MAX_FIELD_PATHS));
+    }
+    text
+}
+
 /// Copies the scan couldn't read: references from them are missing (said, not hidden).
 fn problems_hint(b: &Build, scan: &ScanIndex) -> Option<String> {
     let mut problems = scan.problems();
@@ -125,12 +137,7 @@ impl FindReferences {
             .iter()
             .filter(|r| class.is_none_or(|c| c == r.class))
             .map(|r| {
-                let entry = &stored.header.tag_references[r.reference as usize];
-                let path = paths
-                    .as_ref()
-                    .and_then(|p| p.get(&(entry.field_block.unwrap_or(u32::MAX), entry.field_offset)))
-                    .cloned()
-                    .unwrap_or_default();
+                let path = paths.as_ref().and_then(|p| path_of(p, &stored, r)).unwrap_or_default().to_owned();
                 let target = b.tag_by_id(r.target);
                 let name = target_name(b, target, &t.listed_name(r).unwrap_or_default());
                 (r.class, name, vec![path.into(), r.class.to_string().into(), r.target.to_string().into()])
@@ -153,24 +160,47 @@ impl FindReferences {
     }
 
     fn incoming(&self, b: &Build, target: GlobalId, scan: &ScanIndex, class: Option<FourCc>) -> Table {
-        let rows: Vec<(FourCc, Vec<Cell>)> = referrers(b, scan, target)
-            .into_iter()
-            .filter(|r| class.is_none_or(|c| c == r.tag.class))
+        let found: Vec<Referrer<'_>> =
+            referrers(b, scan, target).into_iter().filter(|r| class.is_none_or(|c| c == r.tag.class)).collect();
+        // Field paths only for the rows shown (D26): each is a read of the referrer.
+        let mut no_definition: Vec<FourCc> = Vec::new();
+        let rows = self
+            .page
+            .page(&found, DEFAULT_LIMIT)
+            .iter()
             .map(|r| {
-                let copies = format!("{} of {}", r.copies, r.tag.copies.len());
-                let cells = vec![
+                let paths = match paths_to(b, scan, r.tag, r.copy, target) {
+                    Ok(Some(paths)) => field_paths_cell(&paths),
+                    Ok(None) => {
+                        if !no_definition.contains(&r.tag.class) {
+                            no_definition.push(r.tag.class);
+                        }
+                        String::new()
+                    }
+                    Err(_) => marker::NOT_READ.to_owned(),
+                };
+                vec![
                     r.tag.class.to_string().into(),
                     r.tag.global_id.to_string().into(),
                     b.display_name(r.tag).into(),
-                    copies.into(),
+                    format!("{} of {}", r.copies, r.tag.copies.len()).into(),
                     Cell::Int(r.fields as i64),
-                ];
-                (r.tag.class, cells)
+                    paths.into(),
+                ]
             })
             .collect();
-        let mut table = self.table(&[col::CLASS, col::GLOBAL_ID, col::DISPLAY_NAME, col::COPIES, col::COUNT], rows);
-        table.hints.extend(problems_hint(b, scan));
-        table
+        let summary = present::by_class(count_by_class(found.iter().map(|r| r.tag.class))).into_iter().collect();
+        let mut hints: Vec<String> = no_definition.iter().map(|c| present::no_definition(&b.class_name(*c))).collect();
+        hints.extend(problems_hint(b, scan));
+        Table {
+            total: found.len(),
+            summary,
+            offset: self.page.offset,
+            columns: vec![col::CLASS, col::GLOBAL_ID, col::DISPLAY_NAME, col::COPIES, col::COUNT, col::FIELD_PATH],
+            rows,
+            hints,
+            ..Table::default()
+        }
     }
 
     fn walk(&self, b: &Build, tag: &Tag, scan: &ScanIndex, class: Option<FourCc>) -> Table {

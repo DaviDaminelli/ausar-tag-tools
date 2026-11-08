@@ -320,7 +320,7 @@ Two checks run for every struct field, tag block field and the main struct:
 - `find_references(tag, direction=out, recursive=false, max_depth=3, class?, build?, offset=0, limit=100)`
   - `class`: return only referenced/referencing tags of that class. With `recursive=true` the walk still follows references of every class, but the result is a flat list of the matching tags, each with its depth and the tag that references it (`via`). Example: every bitmap a weapon uses, through its projectiles and effects.
   - `out`: tags this tag references, from the tag header's dependency list and tag reference list (works without a definition). If a definition exists, each reference also gets its field path (from the reference's (data block, offset)). Null references (field global ID -1) are omitted. References without a dependency entry are included (§5.2).
-  - `in`: tags that reference this tag (uses the header scan, §6.2). The dependency list alone misses references without a dependency entry (§5.2, Q12).
+  - `in`: tags that reference this tag (uses the header scan, §6.2). The dependency list alone misses references without a dependency entry (§5.2, Q12). Each row also names the referring fields in that tag (decisions D73), read with its definition for the rows shown only: up to three, then `(+N more)`.
   - `both`: both lists, labelled.
   - `recursive=true` (only with `out`): follow references up to `max_depth` levels, as a tree; a tag already shown earlier in the tree is printed once more as `(see above)` and not expanded again.
   - Results grouped by class, with counts per class.
