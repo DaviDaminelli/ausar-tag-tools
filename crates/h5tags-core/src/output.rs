@@ -266,6 +266,9 @@ pub struct Table {
     pub summary: Vec<Summary>,
     pub offset: usize,
     pub columns: Vec<Column>,
+    /// Columns after `columns` that the call names (`query_field`'s `also`
+    /// paths, D75): each name is both the header and the JSON key.
+    pub named_columns: Vec<String>,
     pub rows: Vec<Vec<Cell>>,
     /// Index of a path column that may be shortened with `in <prefix>:` (text only).
     pub path_column: Option<usize>,
@@ -462,8 +465,17 @@ impl Table {
     }
 
     /// A column is right-aligned if every value in it is a number or a size.
+    /// Every column's header (its JSON key too, for a named one).
+    fn headers(&self) -> impl Iterator<Item = &str> {
+        self.columns.iter().map(|c| c.header).chain(self.named_columns.iter().map(String::as_str))
+    }
+
+    fn keys(&self) -> impl Iterator<Item = &str> {
+        self.columns.iter().map(|c| c.key).chain(self.named_columns.iter().map(String::as_str))
+    }
+
     fn numeric_columns(&self) -> Vec<bool> {
-        (0..self.columns.len())
+        (0..self.columns.len() + self.named_columns.len())
             .map(|i| {
                 let cells = || self.rows.iter().filter_map(|r| r.get(i)).filter(|c| **c != Cell::Empty);
                 cells().next().is_some() && cells().all(|c| matches!(c, Cell::Int(_) | Cell::Float(_) | Cell::Size(_)))
@@ -512,7 +524,7 @@ impl Table {
             }
         }
         if !self.rows.is_empty() {
-            let mut lines = vec![self.columns.iter().map(|c| c.header.to_owned()).collect::<Vec<_>>()];
+            let mut lines = vec![self.headers().map(str::to_owned).collect::<Vec<_>>()];
             lines.extend(rows);
             match layout {
                 Layout::Tabs => {
@@ -554,9 +566,9 @@ impl Table {
             .iter()
             .map(|r| {
                 let mut row = Map::new();
-                for (c, cell) in self.columns.iter().zip(r) {
+                for (key, cell) in self.keys().zip(r) {
                     if let Some(v) = cell.json() {
-                        row.insert(c.key.into(), v);
+                        row.insert(key.into(), v);
                     }
                 }
                 Value::Object(row)

@@ -102,6 +102,7 @@ impl Tool for SearchTags {
             path_column: Some(2),
             wide_column: Some(2),
             hints,
+            ..Table::default()
         }))
     }
 }

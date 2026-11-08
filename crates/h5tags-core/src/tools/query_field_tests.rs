@@ -13,6 +13,7 @@ fn query(d: &mut TestDeploy, path: &str, f: impl FnOnce(&mut QueryField)) -> Res
         path: path.into(),
         filter: None,
         sort: Sort::None,
+        also: Vec::new(),
         build: BuildArg::default(),
         page: PageArgs::default(),
     };
@@ -103,13 +104,62 @@ fn every_entry_with_its_path() {
     assert!(rows(&text)[0].starts_with(r"objects\test\more_0.weapon	entries[1].target	fx\impact\bullet_hit"), "{text}");
 }
 
+/// An entry of a tag block isn't one value: the error says which fields to query.
 #[test]
 fn a_path_must_end_at_a_value() {
     let mut d = deploy("query-struct");
-    let err = query(&mut d, "entries", |_| {}).unwrap_err();
-    assert_eq!(err.message, "entries is a tag block, not a value");
+    let err = query(&mut d, "entries[*]", |_| {}).unwrap_err();
+    assert_eq!(err.message, "entries[*] is a tag block entry, not a value");
     assert_eq!(
         err.hint.as_deref(),
         Some("query one of its fields: entries[*].<field> (outline or get_definition lists them)")
     );
+}
+
+/// D75: a tag block without an index gives each tag's entry count, a number
+/// (filter and sort work on it).
+#[test]
+fn a_tag_block_gives_its_entry_count() {
+    let mut d = deploy("query-count");
+    let text = query(&mut d, "entries", |t| t.filter = Some(">= 2".into())).unwrap();
+    assert!(text.starts_with("total: 4\ndisplay name\tvalue\n"), "{text}");
+    assert_eq!(rows(&text)[0], r"objects\test\more_0.weapon	2");
+    assert!(query(&mut d, "entries", |t| t.filter = Some("> 2".into())).unwrap().starts_with("total: 0\n"));
+}
+
+/// D75: `also` paths, one column each (named by the path), from the same read;
+/// a `[*]` the main path has takes the row's entry. Filter and sort stay on `path`.
+#[test]
+fn also_shows_more_fields_per_row() {
+    let mut d = deploy("query-also");
+    let text = query(&mut d, "count", |t| {
+        t.also = vec!["entries".into(), "projectile".into()];
+        t.sort = Sort::Desc;
+    })
+    .unwrap();
+    assert!(text.starts_with("total: 4\ndisplay name\tvalue\tentries\tprojectile\n"), "{text}");
+    assert!(
+        rows(&text)[0].starts_with(r"objects\test\more_2.weapon	50	2	objects\weapons\rifle\ar\bullet.projectile"),
+        "{text}"
+    );
+
+    let text =
+        query(&mut d, "entries[*].target", |t| t.also = vec!["count".into(), "entries[*].target".into()]).unwrap();
+    assert!(text.starts_with("total: 8\ndisplay name\tfield path\tvalue\tcount\tentries[*].target\n"), "{text}");
+    assert_eq!(rows(&text)[0], r"objects\test\more_0.weapon	entries[0].target	(none) []	36	(none) []");
+    // entries[1]'s also value is entries[1]'s, not entries[0]'s.
+    let second: Vec<&str> = rows(&text)[1].split('\t').collect();
+    assert_eq!((second[1], second[3]), ("entries[1].target", "36"), "{text}");
+    assert!(second[2].starts_with(r"fx\impact\bullet_hit") && second[4] == second[2], "{text}");
+}
+
+/// D75: an `also` path with a `[*]` the main path doesn't have has no one value per row.
+#[test]
+fn also_needs_the_rows_entries() {
+    let mut d = deploy("query-also-star");
+    let err = query(&mut d, "count", |t| t.also = vec!["entries[*].target".into()]).unwrap_err();
+    assert_eq!(err.message, "also: 'entries[*].target' has a [*] that 'count' doesn't have");
+    assert_eq!(err.hint.as_deref(), Some("give it an index (entries[0]), or put the same [*] in path"));
+    let err = query(&mut d, "count", |t| t.also = vec!["nothing".into()]).unwrap_err();
+    assert!(err.message.contains("nothing"), "{}", err.message);
 }

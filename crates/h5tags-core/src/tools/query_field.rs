@@ -1,17 +1,19 @@
 //! `query_field` (PRD §6.6): one field across every tag of a class.
 
+use std::borrow::Cow;
+
 use h5_defs::definition::FieldKind;
-use h5_meta::{Select, parse_path, select};
+use h5_meta::{Content, Select, Selected, parse_path, select};
 use serde::Deserialize;
 
 use super::args::{self, BuildArg, PageArgs};
 use super::{Tool, present};
-use crate::field_query::{Sort, query_field, value_field};
-use crate::output::{Output, Summary, Table, ToolError, col};
+use crate::field_query::{Sort, also_at, check_also, query_field, value_field};
+use crate::output::{Cell, Output, Summary, Table, ToolError, col};
 use crate::query::choose_copy;
 use crate::session::Session;
 use crate::stored::read_stored_tag;
-use crate::tag_view::{BuildLookup, Detail, Options, ViewSettings, view_selection};
+use crate::tag_view::{BuildLookup, Detail, Lookup, Options, ViewSettings, view_selection};
 use crate::view::{ViewNode, value_column};
 
 /// The same field in every tag of a class: one row per tag (path with [*]:
@@ -19,13 +21,15 @@ use crate::view::{ViewNode, value_column};
 /// each tag's copy in the latest layer. filter: '<op> <value>' with
 /// == != > >= < <= contains (enums by option label: '== none' is the option
 /// named none; flags: contains <option>; tag references by name), or 'is set'
-/// / 'is empty' ('== (none)' = a null reference). sort: none, asc, desc. Tags
-/// that can't be read are listed as skipped. Next: read_tag on a row's tag.
+/// / 'is empty' ('== (none)' = a null reference). sort: none, asc, desc. A tag
+/// block path without an index gives its entry count. also: more fields per
+/// row, one column each (not filtered or sorted). Tags that can't be read are
+/// listed as skipped. Next: read_tag on a row's tag.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct QueryField {
     /// Class code or name (weap or weapon).
     pub class: String,
-    /// The field: `magazines[0].rounds loaded maximum`, `barrels[*].rounds per second`.
+    /// The field: `magazines[0].rounds loaded maximum`, `barrels[*].rounds per second`; `barrels` = entry count.
     pub path: String,
     /// Keep only rows whose value passes: '>= 30', '== latch', 'contains plasma', 'is set'.
     #[arg(long)]
@@ -34,6 +38,10 @@ pub struct QueryField {
     #[arg(long, value_enum, default_value_t)]
     #[serde(default)]
     pub sort: Sort,
+    /// More fields shown on each row: ["barrels[*].heat generated per round", "magazines"]. A [*] in one must be one path has (the row's entry).
+    #[arg(long)]
+    #[serde(default)]
+    pub also: Vec<String>,
     #[command(flatten)]
     #[serde(flatten)]
     pub build: BuildArg,
@@ -57,6 +65,16 @@ impl Tool for QueryField {
         let path = parse_path(&def.fields, &self.path).map_err(present::path_error)?;
         let shown = path.display(&def.fields);
         let field = value_field(&def.fields, &path, &shown).map_err(present::query_error)?;
+        // D75: the also paths, each checked like path, and against it.
+        let mut also = Vec::with_capacity(self.also.len());
+        for text in &self.also {
+            let p = parse_path(&def.fields, text).map_err(present::path_error)?;
+            let name = p.display(&def.fields);
+            value_field(&def.fields, &p, &name).map_err(present::query_error)?;
+            check_also(&p, &path, &def.fields).map_err(present::query_error)?;
+            let star = p.steps.iter().any(|st| st.select == Some(Select::Every));
+            also.push((p, name, star));
+        }
         let filter = self.filter.as_deref().map(args::field_filter).transpose()?;
         let found =
             query_field(b, class, &def, &path, &shown, filter.as_ref(), self.sort).map_err(present::query_error)?;
@@ -64,6 +82,8 @@ impl Tool for QueryField {
         // Display text only for the rows shown (D26): their tags are read
         // again (from the tag cache) and their values rendered as read_tag does.
         let several = path.steps.iter().any(|st| st.select == Some(Select::Every));
+        // A row's own entries matter only to also paths with a [*].
+        let needs_row_path = also.iter().any(|(_, _, star)| *star);
         let settings = ViewSettings {
             depth: 0,
             detail: Detail::Brief,
@@ -79,16 +99,23 @@ impl Tool for QueryField {
             let sels = select(&read.root, &path).map_err(present::path_error)?;
             let Some(sel) = sels.get(r.selection) else { continue };
             let lookup = BuildLookup { build: b, copy };
-            let view = view_selection(std::slice::from_ref(sel), &shown, settings, &lookup);
-            let value = view.nodes.iter().find_map(|n| match n {
-                ViewNode::Field(f) => Some(value_column(f)),
-                _ => None,
-            });
             let mut cells = vec![b.display_name(r.tag).into()];
             if several {
                 cells.push(sel.path.clone().into());
             }
-            cells.push(value.unwrap_or_default().into());
+            cells.push(value_cell(sel, &shown, settings, &lookup));
+            let row_path = if needs_row_path { parse_path(&def.fields, &sel.path).ok() } else { None };
+            for (p, name, star) in &also {
+                // Copied only where a [*] takes the row's entry.
+                let at = match &row_path {
+                    Some(row) if *star => Cow::Owned(also_at(p, row)),
+                    _ => Cow::Borrowed(p),
+                };
+                cells.push(match select(&read.root, &at) {
+                    Ok(found) => found.first().map_or(Cell::Empty, |a| value_cell(a, name, settings, &lookup)),
+                    Err(e) => present::missing_value(&e).into(),
+                });
+            }
             rows.push(cells);
         }
         let mut columns = vec![col::DISPLAY_NAME];
@@ -107,11 +134,26 @@ impl Tool for QueryField {
             summary,
             offset: self.page.offset,
             columns,
+            named_columns: also.into_iter().map(|(_, name, _)| name).collect(),
             rows,
             hints: present::skipped_hint(b, &found.skipped).into_iter().collect(),
             ..Table::default()
         }))
     }
+}
+
+/// One selected value's cell, as `read_tag` writes it (brief); a tag block's
+/// entry count as a number (D75).
+fn value_cell(sel: &Selected<'_, '_>, shown: &str, settings: ViewSettings, lookup: &dyn Lookup) -> Cell {
+    if let (Content::Block(b), None) = (&sel.node.content, sel.entry) {
+        return Cell::Int(i64::from(b.count));
+    }
+    let view = view_selection(std::slice::from_ref(sel), shown, settings, lookup);
+    let value = view.nodes.iter().find_map(|n| match n {
+        ViewNode::Field(f) => Some(value_column(f)),
+        _ => None,
+    });
+    value.unwrap_or_default().into()
 }
 
 #[cfg(test)]

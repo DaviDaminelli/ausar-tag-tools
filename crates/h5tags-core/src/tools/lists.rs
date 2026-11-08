@@ -123,6 +123,7 @@ impl Tool for ListModules {
             path_column: Some(0),
             wide_column: Some(0),
             hints: (damaged > 0).then(|| present::damaged_modules_hint(damaged)).into_iter().collect(),
+            ..Table::default()
         }))
     }
 }
@@ -233,6 +234,7 @@ impl Tool for ListEntries {
             path_column: Some(1),
             wide_column: Some(1),
             hints,
+            ..Table::default()
         }))
     }
 }

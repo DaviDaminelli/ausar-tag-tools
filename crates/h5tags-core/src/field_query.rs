@@ -1,12 +1,13 @@
 //! `query_field` (PRD §6.6): one field across every tag of a class, with an
 //! optional filter and sort. Domain only: typed filters in, typed rows out.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 
 use h5_defs::definition::{Definition, Field, FieldKind};
 use h5_defs::field_type::FieldType;
 use h5_defs::name::Name;
-use h5_meta::{Content, EnumOption, FieldPath, Node, PathError, Value, select};
+use h5_meta::{Content, EnumOption, FieldPath, Node, PathError, Select, Value, select};
 use h5_module::FourCc;
 
 use crate::catalog::{Build, Tag};
@@ -157,7 +158,8 @@ pub struct Rows<'b> {
 }
 
 /// The definition field `path` ends at, if it holds one value (not a struct,
-/// array, tag block or curve).
+/// array, curve or tag block entry). A tag block without an index counts: its
+/// value is its entry count (decisions D75).
 pub fn value_field<'d>(fields: &'d [Field], path: &FieldPath, shown: &str) -> Result<&'d Field, QueryError> {
     let mut level = fields;
     let mut field = None;
@@ -167,8 +169,10 @@ pub fn value_field<'d>(fields: &'d [Field], path: &FieldPath, shown: &str) -> Re
         level = &f.children;
     }
     let Some(f) = field else { return Err(QueryError::NotAValue { field: shown.to_owned(), what: "the whole tag" }) };
+    let entry = path.steps.last().is_some_and(|s| s.select.is_some());
     let what = match f.kind {
-        FieldKind::Known(FieldType::Block64) => "a tag block",
+        FieldKind::Known(FieldType::Block64) if !entry => return Ok(f),
+        FieldKind::Known(FieldType::Block64) => "a tag block entry",
         FieldKind::Known(FieldType::Struct) if f.is_mapping_function() => "a curve",
         FieldKind::Known(FieldType::Struct) => "a struct",
         FieldKind::Known(FieldType::Array) => "an array",
@@ -210,9 +214,9 @@ pub fn query_field<'b>(
             }
         };
         for (i, s) in selections.iter().enumerate() {
-            let Content::Value(v) = &s.node.content else { continue };
+            let Some(v) = row_value(s.node) else { continue };
             if !checked {
-                let kind = ValueKind::of(v);
+                let kind = ValueKind::of(&v);
                 if let Some(f) = filter {
                     check_filter(shown, kind, &s.node.field.options, f)?;
                 }
@@ -253,6 +257,10 @@ pub enum QueryError {
     /// keep every tag, `contains <typo>` none (D69).
     #[error("'{value}' isn't an option of {field}")]
     NotAnOption { field: String, value: String, options: Vec<String> },
+    /// D75: an `also` path with a `[*]` the main path doesn't have; `example`
+    /// is its part up to there, with an index instead.
+    #[error("also: '{also}' has a [*] that '{path}' doesn't have")]
+    AlsoNotAligned { also: String, path: String, example: String },
 }
 
 /// Whether `f` can apply to values of `kind` whose definition field has
@@ -355,14 +363,54 @@ fn label<'n>(n: &Node<'n>) -> Option<&'n str> {
     }
 }
 
+/// What a row holds at `n`: the value read, or a tag block's entry count (D75,
+/// as a number: no copy, `Value::Uint` holds no heap data).
+pub fn row_value<'n>(n: &'n Node<'_>) -> Option<Cow<'n, Value>> {
+    match &n.content {
+        Content::Value(v) => Some(Cow::Borrowed(v)),
+        Content::Block(b) => Some(Cow::Owned(Value::Uint(u64::from(b.count)))),
+        _ => None,
+    }
+}
+
 /// Whether the value read at `n` passes `f` (already checked to apply).
 pub fn passes(b: &Build, n: &Node<'_>, f: &FieldFilter) -> bool {
-    let h5_meta::Content::Value(v) = &n.content else { return false };
+    let Some(v) = row_value(n) else { return false };
     match f {
-        FieldFilter::IsSet => !holds_nothing(v),
-        FieldFilter::IsEmpty => holds_nothing(v),
-        FieldFilter::Compare { op, value } => compares(b, n, v, *op, value),
+        FieldFilter::IsSet => !holds_nothing(&v),
+        FieldFilter::IsEmpty => holds_nothing(&v),
+        FieldFilter::Compare { op, value } => compares(b, n, &v, *op, value),
     }
+}
+
+/// D75: each `[*]` of an `also` path must be one `path` has, with the same
+/// steps up to it, so that a row's `also` value comes from the row's entries.
+pub fn check_also(also: &FieldPath, path: &FieldPath, fields: &[Field]) -> Result<(), QueryError> {
+    for (k, s) in also.steps.iter().enumerate() {
+        if s.select != Some(Select::Every) || path.steps.get(..=k) == Some(&also.steps[..=k]) {
+            continue;
+        }
+        let mut steps = also.steps[..=k].to_vec();
+        steps[k].select = Some(Select::Entry(0));
+        return Err(QueryError::AlsoNotAligned {
+            also: also.display(fields),
+            path: path.display(fields),
+            example: FieldPath { steps }.display(fields),
+        });
+    }
+    Ok(())
+}
+
+/// `also` (checked by [`check_also`]) at the entries of a row whose concrete
+/// path is `row`.
+pub fn also_at(also: &FieldPath, row: &FieldPath) -> FieldPath {
+    let mut at = also.clone();
+    for (k, s) in at.steps.iter_mut().enumerate() {
+        if s.select == Some(Select::Every) {
+            s.select = row.steps[k].select;
+        }
+    }
+    at
 }
 
 /// `<op> <value>` on the value `v` read at `n`.
@@ -404,11 +452,11 @@ pub enum SortKey {
 
 impl SortKey {
     pub fn of(b: &Build, n: &Node<'_>) -> Option<SortKey> {
-        let h5_meta::Content::Value(v) = &n.content else { return None };
-        match ValueKind::of(v) {
-            ValueKind::Number | ValueKind::Flags => number(v).map(SortKey::Number),
+        let v = row_value(n)?;
+        match ValueKind::of(&v) {
+            ValueKind::Number | ValueKind::Flags => number(&v).map(SortKey::Number),
             ValueKind::Enum => Some(SortKey::Text(label(n).unwrap_or_default().to_ascii_lowercase())),
-            ValueKind::Text => Some(SortKey::Text(text(b, v).unwrap_or_default().to_ascii_lowercase())),
+            ValueKind::Text => Some(SortKey::Text(text(b, &v).unwrap_or_default().to_ascii_lowercase())),
             ValueKind::Multi | ValueKind::Data | ValueKind::Padding => None,
         }
     }

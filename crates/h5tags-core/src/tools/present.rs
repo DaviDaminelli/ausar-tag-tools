@@ -347,6 +347,16 @@ pub fn gap_text(kind: &crate::def_check::GapKind) -> String {
     }
 }
 
+/// A `query_field` `also` path that reaches no value in a row's tag (D75):
+/// what stopped it, as a marker.
+pub fn missing_value(e: &PathError) -> &'static str {
+    match e {
+        PathError::Empty { .. } => marker::EMPTY,
+        PathError::OutOfRange { .. } => marker::NO_ENTRY,
+        _ => marker::NOT_READ,
+    }
+}
+
 /// `list_classes(query=)` found nothing.
 pub fn no_class_matches(query: &str) -> String {
     format!("no class code or name contains '{query}'; list_classes without query lists every class")
@@ -365,8 +375,15 @@ const MAX_OPTIONS: usize = 12;
 pub fn query_error(e: crate::field_query::QueryError) -> ToolError {
     use crate::field_query::QueryError;
     let hint = match &e {
+        // A struct, array, curve or tag block entry (D75: a block without an index is a value).
+        QueryError::NotAValue { field, .. } if field.is_empty() => {
+            Some("query one field: its path (outline or get_definition lists them)".into())
+        }
         QueryError::NotAValue { field, .. } => {
-            Some(format!("query one of its fields: {field}[*].<field> (outline or get_definition lists them)"))
+            Some(format!("query one of its fields: {field}.<field> (outline or get_definition lists them)"))
+        }
+        QueryError::AlsoNotAligned { example, .. } => {
+            Some(format!("give it an index ({example}), or put the same [*] in path"))
         }
         QueryError::Unsupported { kind, .. } => Some(format!("for {}: {}", kind.name(), kind.operators())),
         QueryError::NotANumber { .. } => None,

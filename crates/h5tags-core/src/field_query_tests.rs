@@ -185,3 +185,34 @@ fn values_pass_filters_by_number_label_and_flag() {
         assert_eq!(SortKey::of(b, rounds), Some(SortKey::Number(36.0)));
     });
 }
+
+/// D75: an `also` path's `[*]` takes the row's entry, at any depth; a `[*]`
+/// the main path doesn't have (or has as an index) is refused.
+#[test]
+fn also_paths_take_the_rows_entries() {
+    let xml = r#"<plugin>
+	<_field_block_64 name="barrels">
+		<_field_block_64 name="shots"><_field_real name="x" /></_field_block_64>
+		<_field_real name="heat" />
+	</_field_block_64>
+	<_field_long_integer name="count" />
+</plugin>"#;
+    let def = Definition::parse(xml).unwrap();
+    let p = |t: &str| h5_meta::parse_path(&def.fields, t).unwrap();
+    let path = p("barrels[*].shots[*].x");
+    let row = p("barrels[1].shots[2].x");
+    for (also, at) in
+        [("barrels[*].heat", "barrels[1].heat"), ("barrels[*].shots[*].x", "barrels[1].shots[2].x"), ("count", "count")]
+    {
+        assert_eq!(check_also(&p(also), &path, &def.fields), Ok(()), "{also}");
+        assert_eq!(also_at(&p(also), &row).display(&def.fields), at);
+    }
+    assert_eq!(
+        check_also(&p("barrels[*].heat"), &p("barrels[0].shots[*].x"), &def.fields),
+        Err(QueryError::AlsoNotAligned {
+            also: "barrels[*].heat".into(),
+            path: "barrels[0].shots[*].x".into(),
+            example: "barrels[0]".into()
+        })
+    );
+}
