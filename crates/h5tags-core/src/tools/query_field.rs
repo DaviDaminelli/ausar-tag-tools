@@ -17,15 +17,16 @@ use crate::view::{ViewNode, value_column};
 /// The same field in every tag of a class: one row per tag (path with [*]:
 /// one per entry), from each tag's copy in the latest layer. filter: '<op> <value>' with
 /// == != > >= < <= contains (enums by label, flags: contains <option>, tag
-/// references by name). sort: none, asc, desc. Tags that can't be read are
-/// listed as skipped. Next: read_tag on a row's tag.
+/// references by name), or 'is set' / 'is empty' ('== (none)' = a null
+/// reference). sort: none, asc, desc. Tags that can't be read are listed as
+/// skipped. Next: read_tag on a row's tag.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct QueryField {
     /// Class code or name (weap or weapon).
     pub class: String,
     /// The field: `magazines[0].rounds loaded maximum`, `barrels[*].rounds per second`.
     pub path: String,
-    /// Keep only rows whose value passes: '>= 30', '== latch', 'contains plasma'.
+    /// Keep only rows whose value passes: '>= 30', '== latch', 'contains plasma', 'is set'.
     #[arg(long)]
     pub filter: Option<String>,
     /// none (tag path order), asc or desc (by value).

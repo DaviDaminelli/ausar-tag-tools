@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 
 use h5_defs::definition::{Definition, Field, FieldKind};
 use h5_defs::field_type::FieldType;
+use h5_defs::name::Name;
 use h5_meta::{Content, EnumOption, FieldPath, Node, PathError, Value, select};
 use h5_module::FourCc;
 
@@ -50,11 +51,15 @@ impl Op {
     }
 }
 
-/// `<op> <value>`, as the user wrote the value.
+/// A `query_field` filter (PRD §6.6, decisions D69).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FieldFilter {
-    pub op: Op,
-    pub value: String,
+pub enum FieldFilter {
+    /// `<op> <value>`, as the user wrote the value.
+    Compare { op: Op, value: String },
+    /// `is set` (or `!= (none)`): the value isn't [`holds_nothing`].
+    IsSet,
+    /// `is empty` (or `== (none)`).
+    IsEmpty,
 }
 
 /// What a value is, for filtering and sorting.
@@ -70,8 +75,10 @@ pub enum ValueKind {
     Text,
     /// Bounds, points, vectors, colors: several numbers in one value.
     Multi,
-    /// Data, resources, padding.
-    Other,
+    /// Data and resources: only whether there is any.
+    Data,
+    /// Bytes with no meaning: no filter.
+    Padding,
 }
 
 impl ValueKind {
@@ -82,18 +89,32 @@ impl ValueKind {
             Value::Flags(_) => ValueKind::Flags,
             Value::String(_) | Value::StringId(_) | Value::TagRef(_) | Value::Tag(_) => ValueKind::Text,
             Value::Ints(_) | Value::Reals(_) | Value::Color(_) => ValueKind::Multi,
-            Value::Data(_) | Value::Resource(_) | Value::Padding => ValueKind::Other,
+            Value::Data(_) | Value::Resource(_) => ValueKind::Data,
+            Value::Padding => ValueKind::Padding,
         }
     }
 
-    fn name(self) -> &'static str {
+    pub fn name(self) -> &'static str {
         match self {
             ValueKind::Number => "a number",
             ValueKind::Enum => "an enum",
             ValueKind::Flags => "flags",
             ValueKind::Text => "text",
             ValueKind::Multi => "several numbers (bounds, a point, a vector or a color)",
-            ValueKind::Other => "data, a resource or padding",
+            ValueKind::Data => "data or a resource",
+            ValueKind::Padding => "padding",
+        }
+    }
+
+    /// The filters [`check_filter`] accepts for this kind, as error hints list them.
+    pub fn operators(self) -> &'static str {
+        match self {
+            ValueKind::Number => "== != > >= < <= <number>, is set, is empty",
+            ValueKind::Enum => "== != <option label or number>, > >= < <= <number>",
+            ValueKind::Flags => "contains <option label>, is set, is empty",
+            ValueKind::Text => "== != contains <text>, is set, is empty",
+            ValueKind::Multi | ValueKind::Data => "is set, is empty",
+            ValueKind::Padding => "none",
         }
     }
 }
@@ -193,7 +214,7 @@ pub fn query_field<'b>(
             if !checked {
                 let kind = ValueKind::of(v);
                 if let Some(f) = filter {
-                    check_filter(shown, kind, f)?;
+                    check_filter(shown, kind, &s.node.field.options, f)?;
                 }
                 if sort != Sort::None {
                     check_sort(shown, kind)?;
@@ -228,33 +249,77 @@ pub enum QueryError {
     Unsupported { field: String, kind: ValueKind, what: &'static str },
     #[error("'{value}' isn't a number")]
     NotANumber { value: String },
+    /// An enum or flags label the definition doesn't have: `!= <typo>` would
+    /// keep every tag, `contains <typo>` none (D69).
+    #[error("'{value}' isn't an option of {field}")]
+    NotAnOption { field: String, value: String, options: Vec<String> },
 }
 
-/// Whether `f` can apply to values of `kind` (`field` names it in the error).
-pub fn check_filter(field: &str, kind: ValueKind, f: &FieldFilter) -> Result<(), QueryError> {
+/// Whether `f` can apply to values of `kind` whose definition field has
+/// `options` (`field` names it in the error).
+pub fn check_filter(field: &str, kind: ValueKind, options: &[Name], f: &FieldFilter) -> Result<(), QueryError> {
     let unsupported = |what| Err(QueryError::Unsupported { field: field.to_owned(), kind, what });
-    let number = || f.value.parse::<f64>().map(|_| ()).map_err(|_| QueryError::NotANumber { value: f.value.clone() });
-    match (kind, f.op) {
+    let FieldFilter::Compare { op, value } = f else {
+        return match kind {
+            ValueKind::Enum => unsupported("is set or is empty"),
+            ValueKind::Padding => unsupported("a filter"),
+            _ => Ok(()),
+        };
+    };
+    let number = || value.parse::<f64>().map(|_| ()).map_err(|_| QueryError::NotANumber { value: value.clone() });
+    let option = || {
+        if options.iter().any(|o| o.display.eq_ignore_ascii_case(value)) {
+            return Ok(());
+        }
+        let options = options.iter().map(|o| o.display.clone()).collect();
+        Err(QueryError::NotAnOption { field: field.to_owned(), value: value.clone(), options })
+    };
+    match (kind, op) {
         (ValueKind::Number, Op::Contains) => unsupported("contains"),
         (ValueKind::Number, _) => number(),
-        (ValueKind::Enum, Op::Eq | Op::Ne) => Ok(()),
+        (ValueKind::Enum, Op::Eq | Op::Ne) => number().or_else(|_| option()),
         (ValueKind::Enum, Op::Contains) => unsupported("contains"),
         (ValueKind::Enum, _) => number(),
-        (ValueKind::Flags, Op::Contains) => Ok(()),
-        (ValueKind::Flags, _) => unsupported("a comparison (use contains <option>)"),
+        (ValueKind::Flags, Op::Contains) => option(),
+        (ValueKind::Flags, _) => unsupported("a comparison"),
         (ValueKind::Text, Op::Eq | Op::Ne | Op::Contains) => Ok(()),
         (ValueKind::Text, _) => unsupported("an ordering comparison"),
-        (ValueKind::Multi | ValueKind::Other, _) => unsupported("a filter"),
+        (ValueKind::Multi | ValueKind::Data, _) => unsupported("a comparison"),
+        (ValueKind::Padding, _) => unsupported("a filter"),
     }
 }
 
 /// Whether values of `kind` can be sorted.
 pub fn check_sort(field: &str, kind: ValueKind) -> Result<(), QueryError> {
     match kind {
-        ValueKind::Multi | ValueKind::Other => {
+        ValueKind::Multi | ValueKind::Data | ValueKind::Padding => {
             Err(QueryError::Unsupported { field: field.to_owned(), kind, what: "sort" })
         }
         _ => Ok(()),
+    }
+}
+
+/// Whether a value holds nothing (`is empty`, D69): what the view writes as
+/// `(none)`, `(empty)` or `(none set)` (a null tag reference or string_id,
+/// block index -1, no data, no resource, no flag set), an empty string, a
+/// class code of -1, or zero (every number of it; a color's every channel).
+/// Enums are never asked: their option 0 is a value.
+pub fn holds_nothing(v: &Value) -> bool {
+    match v {
+        Value::Int(i) | Value::Enum(i) => *i == 0,
+        Value::Uint(u) | Value::Flags(u) => *u == 0,
+        Value::Real(r) => *r == 0.0,
+        Value::Ints(xs) => xs.iter().all(|&x| x == 0),
+        Value::Reals(xs) => xs.iter().all(|&x| x == 0.0),
+        Value::BlockIndex(i) => *i < 0,
+        Value::Color(c) => *c == 0,
+        Value::String(s) => s.is_empty(),
+        Value::StringId(s) => s.hash == 0,
+        Value::Tag(code) => code.is_none(),
+        Value::TagRef(r) => r.field.is_null(),
+        Value::Data(d) => d.size == 0,
+        Value::Resource(r) => r.index.is_none(),
+        Value::Padding => true,
     }
 }
 
@@ -293,32 +358,40 @@ fn label<'n>(n: &Node<'n>) -> Option<&'n str> {
 /// Whether the value read at `n` passes `f` (already checked to apply).
 pub fn passes(b: &Build, n: &Node<'_>, f: &FieldFilter) -> bool {
     let h5_meta::Content::Value(v) = &n.content else { return false };
-    let q = f.value.as_bytes();
+    match f {
+        FieldFilter::IsSet => !holds_nothing(v),
+        FieldFilter::IsEmpty => holds_nothing(v),
+        FieldFilter::Compare { op, value } => compares(b, n, v, *op, value),
+    }
+}
+
+/// `<op> <value>` on the value `v` read at `n`.
+fn compares(b: &Build, n: &Node<'_>, v: &Value, op: Op, value: &str) -> bool {
     match ValueKind::of(v) {
         ValueKind::Number => {
-            let (Some(x), Ok(y)) = (number(v), f.value.parse::<f64>()) else { return false };
-            f.op.holds(x.total_cmp(&y))
+            let (Some(x), Ok(y)) = (number(v), value.parse::<f64>()) else { return false };
+            op.holds(x.total_cmp(&y))
         }
-        ValueKind::Enum => match (f.op, f.value.parse::<f64>()) {
-            (_, Ok(y)) => number(v).is_some_and(|x| f.op.holds(x.total_cmp(&y))),
+        ValueKind::Enum => match (op, value.parse::<f64>()) {
+            (_, Ok(y)) => number(v).is_some_and(|x| op.holds(x.total_cmp(&y))),
             (Op::Eq | Op::Ne, Err(_)) => {
-                let same = label(n).is_some_and(|l| l.eq_ignore_ascii_case(&f.value));
-                (f.op == Op::Eq) == same
+                let same = label(n).is_some_and(|l| l.eq_ignore_ascii_case(value));
+                (op == Op::Eq) == same
             }
             _ => false,
         },
-        ValueKind::Flags => n
-            .flag_bits()
-            .is_some_and(|bits| bits.set.iter().any(|(_, name)| name.display.eq_ignore_ascii_case(&f.value))),
+        ValueKind::Flags => {
+            n.flag_bits().is_some_and(|bits| bits.set.iter().any(|(_, name)| name.display.eq_ignore_ascii_case(value)))
+        }
         ValueKind::Text => {
             let t = text(b, v).unwrap_or_default();
-            match f.op {
-                Op::Contains => ascii_matches(t.as_bytes(), q).next().is_some(),
-                Op::Ne => !t.eq_ignore_ascii_case(&f.value),
-                _ => t.eq_ignore_ascii_case(&f.value),
+            match op {
+                Op::Contains => ascii_matches(t.as_bytes(), value.as_bytes()).next().is_some(),
+                Op::Ne => !t.eq_ignore_ascii_case(value),
+                _ => t.eq_ignore_ascii_case(value),
             }
         }
-        ValueKind::Multi | ValueKind::Other => false,
+        ValueKind::Multi | ValueKind::Data | ValueKind::Padding => false,
     }
 }
 
@@ -336,7 +409,7 @@ impl SortKey {
             ValueKind::Number | ValueKind::Flags => number(v).map(SortKey::Number),
             ValueKind::Enum => Some(SortKey::Text(label(n).unwrap_or_default().to_ascii_lowercase())),
             ValueKind::Text => Some(SortKey::Text(text(b, v).unwrap_or_default().to_ascii_lowercase())),
-            ValueKind::Multi | ValueKind::Other => None,
+            ValueKind::Multi | ValueKind::Data | ValueKind::Padding => None,
         }
     }
 

@@ -60,6 +60,38 @@ fn filters_and_sorting() {
     );
     let err = query(&mut d, "count", |t| t.filter = Some("contains 3".into())).unwrap_err();
     assert_eq!(err.message, "count is a number: contains doesn't apply to it");
+    assert_eq!(err.hint.as_deref(), Some("for a number: == != > >= < <= <number>, is set, is empty"));
+}
+
+/// D68 step 1: `!= (none)` on a tag reference kept every row (a null
+/// reference has no name, so it differs from any text). Each test weapon's
+/// `entries[0].target` is null, `entries[1].target` isn't.
+#[test]
+fn none_is_a_null_reference() {
+    let mut d = deploy("query-none");
+    let set = query(&mut d, "entries[*].target", |t| t.filter = Some("!= (none)".into())).unwrap();
+    assert!(set.starts_with("total: 4\n"), "{set}");
+    assert!(rows(&set).iter().all(|r| r.contains("\tentries[1].target\t")), "{set}");
+    assert_eq!(query(&mut d, "entries[*].target", |t| t.filter = Some("is set".into())).unwrap(), set);
+    let null = query(&mut d, "entries[*].target", |t| t.filter = Some("== (none)".into())).unwrap();
+    assert!(null.starts_with("total: 4\n"), "{null}");
+    assert!(rows(&null).iter().all(|r| r.contains("\tentries[0].target\t")), "{null}");
+}
+
+/// D69: `is set` / `is empty` on a number (zero is empty) and on data.
+#[test]
+fn is_set_and_is_empty() {
+    let mut d = deploy("query-set");
+    let empty = query(&mut d, "count", |t| t.filter = Some("is empty".into())).unwrap();
+    assert_eq!(rows(&empty), [format!("{WEAPON}\t0")]);
+    let set = query(&mut d, "count", |t| t.filter = Some("is set".into())).unwrap();
+    assert!(set.starts_with("total: 3\n"), "{set}");
+    let data = query(&mut d, "data", |t| t.filter = Some("is set".into())).unwrap();
+    assert!(data.starts_with("total: 4\n"), "{data}");
+    let none = query(&mut d, "data", |t| t.filter = Some("is empty".into())).unwrap();
+    assert!(none.starts_with("total: 0\n"), "{none}");
+    let err = query(&mut d, "pad", |t| t.filter = Some("is set".into())).unwrap_err();
+    assert_eq!(err.message, "pad is padding: a filter doesn't apply to it");
 }
 
 /// `[*]`: one row per entry, with its field path; tag references by name.

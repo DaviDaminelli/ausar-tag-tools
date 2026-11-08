@@ -390,3 +390,12 @@ From a third, consolidated report (three agent sessions on the full Xbox build: 
 **Not done, and why:** repeating the marker legend in every result (the always-loaded instructions carry it; rare markers already have a `hint:`); merging tools (`find()`, `map_tags` + `which_maps`, `tag_copies` into a field history): they rename tools for an uncertain gain, and steps 3 and 8 fix the practical gaps; `shipped_evidence` as a tool (the guide recipe first, as the report advises); `which_variants` (map variant files need format research: backlog).
 
 **Kept as they are** (the report's "don't regress"): the marker legend, nested `[*]` and its field path column, the provenance header, the error hints, outline before reading large tags.
+
+## D69. `query_field` filters: `(none)`, `is set` / `is empty`, labels checked (2026-11-08, M5d step 1)
+- **The bug:** a null tag reference has no name, so `!= (none)` compared `""` with `(none)` and kept every tag (all 118 Forge weapons for `prototype script`, every one `(none)`). Nothing said so.
+- **`is set` / `is empty`** (input: `args::field_filter`; domain: `FieldFilter::IsSet` / `IsEmpty`, `field_query::holds_nothing`). Empty = what the view writes as `(none)`, `(empty)` or `(none set)` (a null tag reference or string_id, block index -1, no data, no resource, no flag set), an empty string, a class code of -1, or zero (every number of a bound, point, vector or color). Enums are refused: their option 0 is a value, and calling it empty would be false. Padding takes no filter.
+- **`(none)` is a synonym**, parsed in the input layer: `== (none)` is `is empty`, `!= (none)` is `is set`, any other operator with it is an error. Only `(none)` with the parentheses, as the view writes it: `none` stays text, since enums have options called `none` (`weap.water density`).
+- **Labels are checked:** an enum (`== !=` with text) or flags (`contains`) label the field's definition doesn't have is an error listing its options (12 named, the rest counted). Before, `!= <typo>` kept every tag and `contains <typo>` none. A number needs no label.
+- **The hint names what the field takes** (`ValueKind::operators`, next to `check_filter`; a test checks that the two agree), instead of one list for every type.
+- **`ValueKind::Other` split** into `Data` (data, resources: `is set` / `is empty` only) and `Padding` (nothing).
+- Not changed: an unresolved string_id compares as `""` (`!= x` keeps it); rare, and its text is unknown either way.

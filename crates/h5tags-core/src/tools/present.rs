@@ -345,6 +345,9 @@ pub fn unchecked_modules_hint(failed: &[(String, String)]) -> String {
     format!("{} module(s) couldn't be checked; their tags aren't counted: {}", failed.len(), named.join("; "))
 }
 
+/// Options named in a `query_field` label error; more are counted.
+const MAX_OPTIONS: usize = 12;
+
 /// `query_field` errors, with the next step where there is one.
 pub fn query_error(e: crate::field_query::QueryError) -> ToolError {
     use crate::field_query::QueryError;
@@ -352,10 +355,16 @@ pub fn query_error(e: crate::field_query::QueryError) -> ToolError {
         QueryError::NotAValue { field, .. } => {
             Some(format!("query one of its fields: {field}[*].<field> (outline or get_definition lists them)"))
         }
-        QueryError::Unsupported { .. } => Some(
-            "numbers: == != > >= < <=; enums: == != by label; flags: contains <option>; text: == != contains".into(),
-        ),
+        QueryError::Unsupported { kind, .. } => Some(format!("for {}: {}", kind.name(), kind.operators())),
         QueryError::NotANumber { .. } => None,
+        QueryError::NotAnOption { options, .. } if options.is_empty() => {
+            Some("its definition names no options: compare it as a number (e.g. '== 2')".into())
+        }
+        QueryError::NotAnOption { options, .. } => {
+            let more = options.len().saturating_sub(MAX_OPTIONS);
+            let more = if more > 0 { format!(" (+{more} more)") } else { String::new() };
+            Some(format!("options: {}{more}", options[..options.len().min(MAX_OPTIONS)].join(", ")))
+        }
     };
     let err = ToolError::new(e.to_string());
     match hint {
