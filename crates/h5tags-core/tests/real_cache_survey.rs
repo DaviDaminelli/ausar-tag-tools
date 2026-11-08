@@ -71,6 +71,10 @@ fn full_builds_from_their_caches() {
             t.len(),
             index.failed.len()
         );
+        // M5d step 9: may `/` stand for `\` in a typed path? Only if no name holds one.
+        let slash_entries = index.modules.iter().flat_map(|m| &m.entries).filter(|e| e.name.contains('/')).count();
+        let slash_modules = index.modules.iter().filter(|m| m.rel_path.contains('/')).count();
+        println!("entry names with '/': {slash_entries}; module paths with '/': {slash_modules}");
         let by_class: BTreeMap<FourCc, usize> = t.values().fold(BTreeMap::new(), |mut m, s| {
             *m.entry(s.class).or_default() += 1;
             m
