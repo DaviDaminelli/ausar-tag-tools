@@ -63,6 +63,7 @@ fn definition_title(code: &str, name: &str, view: &mut TagView) {
 /// The schema of a class from its definition alone: fields, types, units,
 /// ranges, help, options, nesting, offsets (`detail=full`). No tag data. The
 /// field dictionary: read it once instead of repeating it in every read_tag.
+/// For the tree alone (sections, structs, tag blocks), outline(class=) is shorter.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct GetDefinition {
     /// Class code or name (weap or weapon).
@@ -140,7 +141,8 @@ impl Tool for GetDefinition {
 /// The section tree of a tag or a class: class sections, headings, structs,
 /// arrays and tag blocks, each with its field path and number of direct fields;
 /// for a tag, also entry counts and labels. No values. The first call for any
-/// large tag. Pass exactly one of tag or class.
+/// large tag; class= is the short form of get_definition. Pass exactly one of
+/// tag or class.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct Outline {
     /// The tag: global ID, tag path or display name.

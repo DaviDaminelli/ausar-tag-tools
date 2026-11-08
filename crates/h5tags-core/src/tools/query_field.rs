@@ -15,11 +15,12 @@ use crate::tag_view::{BuildLookup, Detail, Options, ViewSettings, view_selection
 use crate::view::{ViewNode, value_column};
 
 /// The same field in every tag of a class: one row per tag (path with [*]:
-/// one per entry), from each tag's copy in the latest layer. filter: '<op> <value>' with
-/// == != > >= < <= contains (enums by label, flags: contains <option>, tag
-/// references by name), or 'is set' / 'is empty' ('== (none)' = a null
-/// reference). sort: none, asc, desc. Tags that can't be read are listed as
-/// skipped. Next: read_tag on a row's tag.
+/// one per entry, nested too: node graphs[*].nodes[*].screen wrapper), from
+/// each tag's copy in the latest layer. filter: '<op> <value>' with
+/// == != > >= < <= contains (enums by option label: '== none' is the option
+/// named none; flags: contains <option>; tag references by name), or 'is set'
+/// / 'is empty' ('== (none)' = a null reference). sort: none, asc, desc. Tags
+/// that can't be read are listed as skipped. Next: read_tag on a row's tag.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct QueryField {
     /// Class code or name (weap or weapon).

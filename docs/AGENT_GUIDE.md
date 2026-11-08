@@ -16,12 +16,17 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 
 ## 2. Workflow
 
-1. **Find** the tag: `search_tags` if you know part of a name; `browse` to explore a folder; `search_definitions` if you know what you want but not which class controls it.
-2. **Orient**: `outline(tag)` before reading anything large. It's cheap and shows sections, field paths and entry counts.
-3. **Read** only what you need: `read_tag(tag, section=...)` or `read_tag(tag, path=...)`.
-4. **Follow references** when the answer isn't in this tag: `find_references(tag)`, optionally `recursive=true`.
-5. **Compare** with `query_field` (one field across a class) or `diff_tags` (two tags of the same class); both write values as `detail=brief` does.
-6. **Look up meaning** with `get_definition(class, path=..., detail=full)` when a field's name isn't self-explanatory.
+1. **Ask the build first** when the question is about many tags. One call answers what reading tags one by one would take dozens of calls for:
+   - `query_field`: one field in every tag of a class. `[*]` gives one row per entry, nested too: `barrels[*].firing effects[*].firing effect`.
+   - `find_references(tag, direction=in)`: every tag that uses a tag.
+   - `search_values`: tags by text they hold (string_id names, names of referenced tags).
+   - `which_maps(tag)`: the maps that load a tag, of any class (scripts too); `map_tags(module=…)`: the tags a map loads.
+2. **Find** the tag: `search_tags` by part of its path or by class; `browse` for a folder's shape; `list_entries` for assets by kind or size; `search_definitions` if you know what you want but not which class controls it.
+3. **Orient**: `outline(tag)` before reading anything large. It's cheap and shows sections, field paths and entry counts.
+4. **Read** only what you need: `read_tag(tag, section=...)` or `read_tag(tag, path=...)`.
+5. **Follow references** when the answer isn't in this tag: `find_references(tag)`, optionally `recursive=true`. References are what tag fields hold: objects a map variant places on a map aren't tags, and no tool sees them.
+6. **Compare** with `query_field` (one field across a class) or `diff_tags` (two tags of the same class); both write values as `detail=brief` does.
+7. **Look up meaning** with `get_definition(class, path=..., detail=full)` when a field's name isn't self-explanatory; `outline(class=)` gives only the definition's tree, much shorter.
 
 ### Which tool
 | Question | Tool |
@@ -36,9 +41,11 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "What uses this projectile?" | `find_references(tag, direction=in)` |
 | "Magazine size of every weapon" | `query_field("weap", "magazines[0].rounds loaded maximum")`; add `filter=">= 30"`, `sort=desc` |
 | "Which weapons have no projectile" | `query_field("weap", "barrels[*].projectile", filter="is empty")` (`is set` for the others) |
+| "Every firing effect of every weapon" | `query_field("weap", "barrels[*].firing effects[*].firing effect")` (one row per entry, nested) |
 | "One field's value in one tag" | `read_tag(tag, path=…, depth=0)` (there is no separate field tool) |
 | "Assault rifle vs SMG" | `diff_tags(a, b)`; `path="barrels"` for one part |
-| "Which maps load this?" | `which_maps(tag)` |
+| "Which maps load this?" (any tag, scripts too) | `which_maps(tag)` |
+| "Is this used in the game / did it ship?" | §2.2 below |
 | "Which weapons does this map load?" | `map_tags(module="mainmenu", class="weap")` |
 | "Older versions of this tag (before the latest update)" | `tag_copies(tag)`, then `read_tag(tag, module=…)` with an earlier layer's module |
 | "What assets does this tag have, and how big are they?" | `list_entries(tag=...)` |
@@ -66,6 +73,17 @@ When the user asks what it would take to change a tag, or what a change would al
 5. **Search the definitions for the behaviour's words** (`search_definitions("velocity")`, `"gravity"`, `"range"`) to find fields elsewhere that take part, in the weapon, the damage effect or the globals.
 6. **Separate what the tags say from what the engine does.** Tags hold settings; the game's code decides what happens with them at runtime. How hit detection treats a faster bullet, how a value syncs online, or how the AI adapts to it may not be stored in any tag. Show the related fields and what other tags set, say clearly that the conclusion is inference, and suggest testing it in game.
 7. **Answer with a change list:** for each tag, the field path, the current value → the proposed one, and why (which comparison shows it); then what else may be affected, and what stays unknown. h5tags only reads tags; say that the change itself is made with a tag editor.
+
+### 2.2 Is this used in the game?
+
+The tools can show evidence that a tag is used; none of them can prove that it isn't. Gather the evidence, report each piece, and give no verdict beyond it:
+
+1. **`which_maps(tag)`**: the maps whose load manifest lists it. Listed = that map loads the tag.
+2. **`find_references(tag, direction=in)`**: the tags that use it: scenarios, game types, Forge palettes, other tags. Repeat on those to see whether the chain reaches a map, a palette or a game type.
+3. **`tag_copies(tag)`**: a copy in an update layer means an update changed or added the tag.
+4. **Its path**: words like `test`, `tuning` or `old` are hints, not proof.
+
+Then say what these checks can't see: modules that aren't indexed (`list_modules`), objects a map variant places (not tags), and what the game's code does at runtime. "No map lists it and no tag references it" is a finding about the indexed tags; say it that way, not "unused".
 
 ## 3. Budget rules
 
@@ -289,7 +307,7 @@ Every tag stores, besides its field values, a few lists that say what its fields
 ## 6. Arguments
 
 - **Tag:** `[build:]<tag>`, where `<tag>` is a global ID (`0x00A1B2C3`), a tag path, or a display name. Examples: `0x00A1B2C3`, `xbox:objects\...\assault_rifle`, `...\assault_rifle.weapon`. If several tags match, the tool returns candidates: pick one, or ask the user.
-- **Field path:** names joined by `.`, case-insensitive, spaces kept. `[i]` = tag block entry `i` (from 0); `[*]` = every entry; structs and arrays have no index. A tag block passed through **without** an index means entry 0 only (`barrels.firing` = `barrels[0].firing`): use `[*]` to get every entry. Names can contain dots and brackets (`peg threshold [0,1]`); copy them as `outline` shows them. Example: `barrels[0].firing noise`. On a typo, the error lists close names.
+- **Field path:** names joined by `.`, case-insensitive, spaces kept. `[i]` = tag block entry `i` (from 0); `[*]` = every entry; structs and arrays have no index. A tag block passed through **without** an index means entry 0 only (`barrels.firing` = `barrels[0].firing`): use `[*]` to get every entry. Names can contain dots and brackets (`peg threshold [0,1]`); copy them as `outline` shows them. Example: `barrels[0].firing noise`. `name#2`, `name#3` are other fields that share a name with an earlier sibling (`weap` has `flags`, `flags#2` and `flags#3`), each with its own meaning: not entries of a list. On a typo, the error lists close names.
 - **Section:** `section="EXPOSURE"` selects a section by heading. If the heading occurs more than once, you get the list of matches to choose from.
 - **depth:** how many nested struct/array/tag block levels to expand (default 2; `outline` too). Raise it only for small sections.
 - **confirm_large** (`read_tag`, `get_definition`): `true` = return a whole read even above the size limit (§3). Default `false`.

@@ -34,7 +34,8 @@ fn default_max_depth() -> u32 {
 /// references it (in), or both; a change to the tag reaches every tag listed
 /// under in. recursive=true follows references out up to
 /// max_depth levels; with class=, only tags of that class are listed (the walk
-/// still follows every class). The first call may build the header scan.
+/// still follows every class). References are what tag fields hold: objects a
+/// map variant places aren't seen. The first call may build the header scan.
 /// Next: read_tag or outline on a listed tag.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct FindReferences {

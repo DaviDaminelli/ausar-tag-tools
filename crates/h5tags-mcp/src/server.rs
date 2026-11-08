@@ -19,9 +19,12 @@ use serde_json::{Value, json};
 /// Sent once per connection (PRD §9a, exact text).
 pub const INSTRUCTIONS: &str = "\
 h5tags reads Halo 5 .module tags (builds: see list_modules / the build parameter). Values come only from these tools; never fill them in from memory.
-Guide: AGENT_GUIDE.md, resource h5tags://guide. Read it before a task that needs more context about the tool or the game: what a change would affect, tag internals (dependencies, string tables, resources), or a result these lines don't explain. Simple lookups don't need it.
-Workflow: find (search_tags / browse / search_definitions) → outline(tag) → read_tag(section= or path=) → find_references → compare (query_field / diff_tags).
+Guide: AGENT_GUIDE.md, resource h5tags://guide. Read it before a task that needs more context about the tool or the game: what a change would affect, whether something is used in the game (§2.2), tag internals (dependencies, string tables, resources), or a result these lines don't explain. Simple lookups don't need it.
+Questions about many tags: ask the build, not tag by tag. query_field (one field in every tag of a class; nested [*] works: barrels[*].firing effects[*].firing effect), find_references direction=in (every tag that uses a tag), search_values (tags by text they hold), which_maps (the maps that load a tag, scripts too) / map_tags (a map's tags).
+Find a tag: search_tags (by path or class), browse (a folder's shape), list_entries (assets by kind or size), search_definitions (which class and field control something).
+One tag: outline(tag) → read_tag(section= or path=) → diff_tags against another. outline(class=) is the short get_definition.
 Never read a whole large tag (scnr, effe, vehi, bipd, char, gint, unit, weap): call outline first.
+name#2 = another field with the same name (flags, flags#2), not an entry. References are tag fields only: objects a map variant places aren't seen.
 detail: brief for many tags, normal by default, full only for fields you explain or change.
 Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks, indented lines = fields (name, type, value, units, extras).
 '→ path=...' = not expanded; call again with that path. '… N more (offset=X)' = next page.

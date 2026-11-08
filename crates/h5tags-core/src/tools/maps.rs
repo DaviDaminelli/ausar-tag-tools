@@ -71,9 +71,9 @@ impl Tool for MapTags {
     }
 }
 
-/// The maps that load a tag: the maps whose load manifest in effect (each
-/// map's latest layer) lists it, with each manifest's tag count. Next:
-/// map_tags(module=...) for a map's other tags.
+/// The maps that load a tag, of any class (scripts too): the maps whose load
+/// manifest in effect (each map's latest layer) lists it, with each
+/// manifest's tag count. Next: map_tags(module=...) for a map's other tags.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct WhichMaps {
     /// The tag: global ID, tag path or display name.
