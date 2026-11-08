@@ -158,7 +158,7 @@ impl Tool for ReadTag {
             (None, Some(heading)) => view.nodes = section(&def, &read.root, heading, settings, &lookup)?,
             (None, None) => {
                 if let Some(p) = &read.root.problem {
-                    view.title_lines.push(present::main_struct_problem(p));
+                    view.title_lines.push(present::main_struct_problem(p, t.tag.class));
                 }
                 view.nodes = view_body(&read.root, &def.fields, "", settings, &lookup);
                 let outline = || outline_tag(&read.root, &def.fields, GUARD_OUTLINE_DEPTH);
@@ -236,6 +236,29 @@ mod tests {
         assert_eq!(lines[1], "## WEAPON");
         assert!(lines.contains(&format!("projectile  tagref  {BULLET}  0x00401000 [proj]").as_str()), "{text}");
         assert!(lines.contains(&"count  int32  0"), "{text}");
+    }
+
+    /// D70: a definition one field longer than the tag reads up to its last
+    /// anchor the header confirms (`data`); the `!!` line says how far, and
+    /// where to look next.
+    #[test]
+    fn a_size_mismatch_reads_up_to_the_last_confirmed_anchor() {
+        use crate::testdeploy::WEAPON_DEFINITION;
+        let xml = WEAPON_DEFINITION.replace("</plugin>", "\t<_field_long_integer name=\"extra\" />\n</plugin>");
+        let mut d = TestDeploy::with_definition("read-size", &xml);
+        let text = read(&mut d, |_| {}).unwrap();
+        assert!(
+            text.contains(
+                "\n  !! definition size mismatch at (main struct) (definition 100 bytes, tag 96 bytes): read up to data \
+                 (the first 92 bytes, which the tag header confirms); the fields after it are (not read); \
+                 definition_status(class=weap) lists the class's gaps\n"
+            ),
+            "{text}"
+        );
+        assert!(text.contains(&format!("\nprojectile  tagref  {BULLET}  0x00401000 [proj]\n")), "{text}");
+        assert!(!text.contains("\ncount "), "after the last anchor: {text}");
+        let err = read(&mut d, |t| t.path = Some("count".into())).unwrap_err();
+        assert_eq!(err.message, "!! the field wasn't read: the read of the main struct stopped before it");
     }
 
     #[test]

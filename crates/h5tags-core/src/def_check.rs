@@ -57,8 +57,9 @@ pub struct DefinitionCheck {
     pub failed: Vec<(String, String)>,
 }
 
-/// Bump `format` when the check's types change shape.
-const CACHE: CacheFile = CacheFile { magic: b"H5TAGCHK", format: 1, what: "definition check" };
+/// Bump `format` when the check's types change shape, or what a read finds
+/// (2: main structs of another size are read in part, D70).
+const CACHE: CacheFile = CacheFile { magic: b"H5TAGCHK", format: 2, what: "definition check" };
 
 /// The definition files of the build's classes, as they are now.
 fn current_definitions(b: &Build) -> HashMap<&Path, FileStamp> {
@@ -75,7 +76,8 @@ fn note(problem: Option<&Problem>, guid: Option<[u8; 16]>, path: &str, t: &mut T
         Some(Problem::SizeMismatch { .. }) if !t.size_mismatches.iter().any(|p| p == path) => {
             t.size_mismatches.push(path.to_owned());
         }
-        Some(Problem::SizeMismatch { .. }) | None => {}
+        // Past the last confirmed anchor: part of the main struct's size mismatch (D70).
+        Some(Problem::SizeMismatch { .. } | Problem::Unconfirmed { .. }) | None => {}
         Some(_) => t.other_problems += 1,
     }
     if let Some(g) = guid

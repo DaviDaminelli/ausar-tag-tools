@@ -2,7 +2,7 @@
 //! Every marker comes from `output::marker`; every one is explained in
 //! `docs/AGENT_GUIDE.md` (PRD §9a).
 
-use h5_module::ModuleError;
+use h5_module::{FourCc, ModuleError};
 
 use crate::catalog::{Build, ClassLookup, Tag};
 use crate::filters::Mode;
@@ -198,8 +198,13 @@ pub fn divergences(found: &[Divergence]) -> Option<String> {
     ))
 }
 
-pub fn main_struct_problem(p: &Problem) -> String {
-    crate::tag_view::problem_text(p, "(main struct)")
+pub fn main_struct_problem(p: &Problem, class: FourCc) -> String {
+    let text = crate::tag_view::problem_text(p, "(main struct)");
+    match p {
+        // D68 step 2: where to look next.
+        Problem::SizeMismatch { .. } => format!("{text}; definition_status(class={class}) lists the class's gaps"),
+        _ => text,
+    }
 }
 
 pub fn path_error(e: PathError) -> ToolError {
@@ -225,8 +230,11 @@ pub fn path_error(e: PathError) -> ToolError {
         PathError::Empty { at } => {
             ToolError::new(format!("'{at}' has no entries (empty)")).hint("the block is empty in this tag")
         }
-        PathError::NotRead { at } => ToolError::new(format!("!! '{at}' wasn't read"))
-            .hint("a problem earlier in the tag stopped the read; read_tag without path= shows it"),
+        // `at`: the struct holding the field, where the read stopped.
+        PathError::NotRead { at } => {
+            ToolError::new(format!("!! the field wasn't read: the read of {} stopped before it", level(&at)))
+                .hint("a problem earlier in the tag stopped the read; read_tag without path= shows it")
+        }
     }
 }
 

@@ -1,7 +1,9 @@
 //! Reading a tag's data with its definition (PRD §6.4). Structs and arrays are
 //! inline; a tag block's entries live in the data block the header's tag
 //! struct list gives for the block field's (data block, offset). Sizes are
-//! always checked; a struct that doesn't fit isn't read, the rest still is.
+//! always checked; a struct that doesn't fit isn't read, the rest still is,
+//! and a main struct that doesn't fit is read up to its last anchor the tag
+//! header confirms (decisions D70).
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -14,7 +16,8 @@ use h5_module::tag::{StringIdNames, StructKind, TagHeader, TagReference};
 use h5_module::text::decode_cp1252;
 
 use crate::tree::{
-    Block, Body, Content, DataRef, Divergence, Node, Problem, ReadTag, ResourceRef, StringIdValue, TagRef, Value,
+    Block, Body, Content, DataRef, Divergence, Node, Problem, ReadTag, ReadUpTo, ResourceRef, StringIdValue, TagRef,
+    Value,
 };
 
 /// Reads the whole tag: the main struct and everything below it.
@@ -47,6 +50,9 @@ struct Walker<'h> {
     /// Data blocks whose contents were read: list entries in them must be reached.
     read_blocks: HashSet<u32>,
     not_in_list: Vec<Divergence>,
+    /// D70: a main struct of another size is read only up to (data block,
+    /// offset), the end of its last anchor the header confirms.
+    limit: Option<(u32, u32)>,
 }
 
 /// Where a struct starts: its data block, that block's bytes, and the offset in them.
@@ -145,6 +151,7 @@ impl<'h> Walker<'h> {
             seen_structs: vec![false; h.tag_structs.len()],
             read_blocks: HashSet::new(),
             not_in_list: Vec::new(),
+            limit: None,
         }
     }
 
@@ -153,14 +160,53 @@ impl<'h> Walker<'h> {
         let Some((t, bytes)) = target.and_then(|t| Some((t, self.header.block_data(self.tag_data, t)?))) else {
             return Body { problem: Some(Problem::NoDataBlock), ..Body::default() };
         };
-        if let Some(size) = def.size()
-            && size as usize != bytes.len()
-        {
-            let problem = Problem::SizeMismatch { definition: size, tag: bytes.len() as u32 };
-            return Body { problem: Some(problem), ..Body::default() };
-        }
+        let tag = bytes.len() as u32;
+        let Some(definition) = def.size().filter(|&size| size != tag) else {
+            self.read_blocks.insert(t);
+            return self.body(&def.fields, Place { block: t, bytes, at: 0 }, &ROOT);
+        };
+        let read_up_to = self.confirmed(&def.fields, t, tag);
+        let Some(end) = read_up_to.as_ref().map(|r| r.bytes) else {
+            return Body { problem: Some(Problem::SizeMismatch { definition, tag, read_up_to }), ..Body::default() };
+        };
+        self.limit = Some((t, end));
         self.read_blocks.insert(t);
-        self.body(&def.fields, Place { block: t, bytes, at: 0 }, &ROOT)
+        let mut body = self.body(&def.fields, Place { block: t, bytes, at: 0 }, &ROOT);
+        body.problem = Some(Problem::SizeMismatch { definition, tag, read_up_to });
+        body
+    }
+
+    /// D70: how much of a main struct (data block `t`, `len` bytes) of another
+    /// size than its definition can be read: up to the end of the last anchor
+    /// (tag block, tag reference, data reference, resource), in field order,
+    /// that the header lists at its offset with no header entry before it that
+    /// no anchor took. A field missing before an anchor would move it, so a
+    /// confirmed anchor shows the fields before it are in place.
+    fn confirmed(&self, fields: &[Field], t: u32, len: u32) -> Option<ReadUpTo> {
+        let h = self.header;
+        let anchor_structs = self
+            .structs
+            .iter()
+            .filter(|(_, i)| matches!(h.tag_structs[**i].kind, StructKind::TagBlock | StructKind::Resource));
+        let mut listed: Vec<u32> = self
+            .tag_refs
+            .keys()
+            .chain(self.data_refs.keys())
+            .chain(anchor_structs.map(|(place, _)| place))
+            .filter(|(block, _)| *block == t)
+            .map(|&(_, offset)| offset)
+            .collect();
+        listed.sort_unstable();
+        let mut anchors = Anchors { walker: self, block: t, len, listed: &listed, next: 0, last: None };
+        anchors.fields(fields, 0, &ROOT);
+        anchors.last
+    }
+
+    /// Whether a field at `here` of `size` bytes lies past the limit (D70); a
+    /// struct or array (`container`) is read up to it.
+    fn past_limit(&self, here: Place<'_>, size: u32, container: bool) -> bool {
+        self.limit
+            .is_some_and(|(block, end)| here.block == block && (here.at >= end || (!container && here.at + size > end)))
     }
 
     /// The fields `fields` of one struct, starting at `start`.
@@ -188,9 +234,19 @@ impl<'h> Walker<'h> {
                 }
                 break;
             };
-            let Some(field) = here.bytes.get(here.at as usize..(here.at + size) as usize) else {
-                body.problem = Some(Problem::OutOfBounds { at: field_path.to_string() });
+            let container = matches!(t, FieldType::Struct | FieldType::Array);
+            if self.past_limit(here, size, container) {
+                body.problem = Some(Problem::Unconfirmed { at: field_path.to_string() });
                 break;
+            }
+            let field = match here.bytes.get(here.at as usize..(here.at + size) as usize) {
+                Some(field) => field,
+                // A struct across the limit (D70) is read field by field, each within it.
+                None if container && self.past_limit(here, size, false) => &[],
+                None => {
+                    body.problem = Some(Problem::OutOfBounds { at: field_path.to_string() });
+                    break;
+                }
             };
             let content = self.content(f, *t, here, field, &field_path);
             body.children.push(Node { field: f, name, offset, content });
@@ -335,7 +391,8 @@ impl<'h> Walker<'h> {
         };
         let want = count as u64 * entry_size as u64;
         if want != bytes.len() as u64 {
-            out.problem = Some(Problem::SizeMismatch { definition: want as u32, tag: bytes.len() as u32 });
+            let (definition, tag) = (want as u32, bytes.len() as u32);
+            out.problem = Some(Problem::SizeMismatch { definition, tag, read_up_to: None });
             return out;
         }
         self.read_blocks.insert(t);
@@ -363,8 +420,10 @@ impl<'h> Walker<'h> {
     fn divergences(self) -> Vec<Divergence> {
         let h = self.header;
         let mut out = self.not_in_list;
+        // Past the limit (D70), entries are expected to be unreached.
+        let read = |b: u32, offset: u32| self.limit.is_none_or(|(block, end)| b != block || offset < end);
         let mut unreached = |what: &'static str, index: usize, block: Option<u32>, offset: u32| {
-            if let Some(b) = block.filter(|b| self.read_blocks.contains(b)) {
+            if let Some(b) = block.filter(|&b| self.read_blocks.contains(&b) && read(b, offset)) {
                 out.push(Divergence::Unreached { what, index: index as u32, block: b, offset });
             }
         };
@@ -385,5 +444,67 @@ impl<'h> Walker<'h> {
             unreached("tag reference", i, r.field_block, r.field_offset);
         }
         out
+    }
+}
+
+/// [`Walker::confirmed`]'s walk over a main struct's definition fields
+/// (into inline structs and arrays), in offset order.
+struct Anchors<'w, 'h> {
+    walker: &'w Walker<'h>,
+    /// The main struct's data block, and its size.
+    block: u32,
+    len: u32,
+    /// Offsets of the header's anchor entries in that block, sorted.
+    listed: &'w [u32],
+    /// The first of `listed` no anchor has taken yet.
+    next: usize,
+    last: Option<ReadUpTo>,
+}
+
+impl Anchors<'_, '_> {
+    /// `false` once an anchor isn't confirmed or an offset is unknown: the walk stops.
+    fn fields(&mut self, fields: &[Field], start: u32, path: &Path<'_>) -> bool {
+        let mut offset = start;
+        for f in fields {
+            let (FieldKind::Known(t), Some(size)) = (&f.kind, f.size()) else { return false };
+            let field_path = path.child(f.step.as_deref().unwrap_or(&f.name.display));
+            let ok = match t {
+                FieldType::Struct | FieldType::Array => self.fields(&f.children, offset, &field_path),
+                FieldType::Block64 | FieldType::TagReference64 | FieldType::Data64 | FieldType::PageableResource64 => {
+                    self.anchor(*t, offset, size, &field_path)
+                }
+                _ => true,
+            };
+            if !ok {
+                return false;
+            }
+            offset += size;
+        }
+        true
+    }
+
+    fn anchor(&mut self, t: FieldType, at: u32, size: u32, path: &Path<'_>) -> bool {
+        // A header entry before this anchor that no anchor took: a field the
+        // definition lacks.
+        if self.listed.get(self.next).is_some_and(|&o| o < at) {
+            return false;
+        }
+        let w = self.walker;
+        let place = (self.block, at);
+        let struct_kind = |kind| w.structs.get(&place).is_some_and(|&i| w.header.tag_structs[i].kind == kind);
+        let listed = match t {
+            FieldType::Block64 => struct_kind(StructKind::TagBlock),
+            FieldType::PageableResource64 => struct_kind(StructKind::Resource),
+            FieldType::TagReference64 => w.tag_refs.contains_key(&place),
+            _ => w.data_refs.contains_key(&place),
+        };
+        if !listed || at + size > self.len {
+            return false;
+        }
+        while self.listed.get(self.next).is_some_and(|&o| o <= at) {
+            self.next += 1;
+        }
+        self.last = Some(ReadUpTo { bytes: at + size, last_anchor: path.to_string() });
+        true
     }
 }

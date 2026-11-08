@@ -35,9 +35,11 @@ struct Found {
 
 fn problem_kind(p: &Problem) -> String {
     match p {
-        Problem::SizeMismatch { definition, tag } => {
-            format!("size mismatch ({} bytes)", *tag as i64 - *definition as i64)
+        Problem::SizeMismatch { definition, tag, read_up_to } => {
+            let read = read_up_to.as_ref().map_or(String::new(), |r| format!(", read up to {}", r.last_anchor));
+            format!("size mismatch ({} bytes{read})", *tag as i64 - *definition as i64)
         }
+        Problem::Unconfirmed { .. } => "past the last confirmed anchor".into(),
         Problem::UnknownType { type_name, .. } => format!("unknown type {type_name}"),
         Problem::UnknownSize { .. } => "unknown size".into(),
         Problem::NoDataBlock => "no data block".into(),

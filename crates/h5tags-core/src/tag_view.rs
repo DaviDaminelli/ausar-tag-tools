@@ -199,8 +199,24 @@ fn file_name(display: &str) -> &str {
 /// Why a struct or block isn't (fully) shown (PRD §8).
 pub fn problem_text(p: &Problem, path: &str) -> String {
     match p {
-        Problem::SizeMismatch { definition, tag } => {
-            format!("!! definition size mismatch at {path} (definition {definition} bytes, tag {tag} bytes)")
+        Problem::SizeMismatch { definition, tag, read_up_to } => {
+            let mut text =
+                format!("!! definition size mismatch at {path} (definition {definition} bytes, tag {tag} bytes)");
+            if let Some(r) = read_up_to {
+                text.push_str(&format!(
+                    ": read up to {} (the first {} bytes, which the tag header confirms); the fields after it are {}",
+                    r.last_anchor,
+                    r.bytes,
+                    marker::NOT_READ
+                ));
+            }
+            text
+        }
+        Problem::Unconfirmed { at } => {
+            format!(
+                "!! read stopped at {at}: past the last field the tag header confirms; the rest is {}",
+                marker::NOT_READ
+            )
         }
         Problem::UnknownType { at, type_name } => format!("!! read stopped at {at}: unknown field type {type_name}"),
         Problem::UnknownSize { at } => format!("!! read stopped at {at}: the field's size is unknown"),

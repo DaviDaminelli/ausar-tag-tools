@@ -178,7 +178,7 @@ impl Tool for Outline {
                 let stored = read_stored_tag(t.build, t.copy).map_err(present::read_error)?;
                 let read = read_tag(&def, &stored.header, &stored.tag_data);
                 if let Some(p) = &read.root.problem {
-                    view.title_lines.push(present::main_struct_problem(p));
+                    view.title_lines.push(present::main_struct_problem(p, t.tag.class));
                 }
                 view.nodes = outline_tag(&read.root, &def.fields, self.depth);
             }

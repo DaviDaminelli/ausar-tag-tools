@@ -10,7 +10,7 @@ pub use path::{FieldPath, PathError, Section, SectionKind, Select, Selected, Ste
 
 pub use read::read_tag;
 pub use tree::{
-    Block, Body, Content, DataRef, Divergence, EnumOption, FlagBits, Node, Problem, ReadTag, ResourceRef,
+    Block, Body, Content, DataRef, Divergence, EnumOption, FlagBits, Node, Problem, ReadTag, ReadUpTo, ResourceRef,
     StringIdValue, TagRef, Value, target_block,
 };
 

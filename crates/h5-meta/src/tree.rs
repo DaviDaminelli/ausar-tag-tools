@@ -57,8 +57,13 @@ pub struct Block<'d> {
 /// Why something wasn't read (PRD §8, category 3: the tool's problem).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Problem {
-    /// PRD §6.4.5: the definition's size doesn't match the tag's data.
-    SizeMismatch { definition: u32, tag: u32 },
+    /// PRD §6.4.5: the definition's size doesn't match the tag's data. For
+    /// the main struct, the fields up to the last anchor the tag header
+    /// confirms are read (decisions D70): `read_up_to`.
+    SizeMismatch { definition: u32, tag: u32, read_up_to: Option<ReadUpTo> },
+    /// D70: a field past the last anchor the tag header confirms (a struct
+    /// across that point stops here).
+    Unconfirmed { at: String },
     /// PRD §6.4.4: reading stopped at a field type the table doesn't know.
     UnknownType { at: String, type_name: String },
     /// A field whose size can't be computed (padding without a length).
@@ -67,6 +72,14 @@ pub enum Problem {
     NoDataBlock,
     /// The data the definition describes lies outside its data block.
     OutOfBounds { at: String },
+}
+
+/// How much of a main struct of another size was read (D70): its first
+/// `bytes`, which end with the anchor at `last_anchor` (a field path).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReadUpTo {
+    pub bytes: u32,
+    pub last_anchor: String,
 }
 
 /// A field's value as stored. Labels (enum options, flag names, block entry

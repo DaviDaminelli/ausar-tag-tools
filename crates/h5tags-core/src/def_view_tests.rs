@@ -100,6 +100,31 @@ fn a_tag_outline_has_entry_counts_and_labels() {
     assert!(t.contains("### entries  block[2]  {0, bullet_hit}  (1 field)  path=entries\n"), "{t}");
 }
 
+/// D70: the outline comes from the definition; what wasn't read (here the
+/// fields after `data`, past the last anchor the header confirms, since the
+/// definition has one more block than the tag) says `(not read)`.
+#[test]
+fn a_tag_outline_shows_every_container_read_or_not() {
+    let later = r#"<_field_block_64 name="later"><_field_real name="x" /></_field_block_64>"#;
+    let xml = SAMPLE.replace("</plugin>", &format!("{later}</plugin>"));
+    let d = Definition::parse(&xml).unwrap();
+    let (h, data) = build_tag(&sample_tag());
+    let r = read_tag(&d, &TagHeader::parse(&h).unwrap(), &data);
+    assert!(r.root.problem.is_some(), "the definition is 0x1C bytes longer");
+    let t = text(outline_tag(&r.root, &d.fields, 3));
+    assert!(t.contains("### entries  block[2]  {0, bullet_hit}  (1 field)  path=entries\n"), "{t}");
+    assert!(t.contains("### later  block  (not read)  (1 field)  path=later\n"), "{t}");
+
+    // Nothing read (no anchor confirmed): the whole tree, every container not read.
+    let xml = xml.replace("<plugin>", r#"<plugin><_field_long_integer name="first" />"#);
+    let d = Definition::parse(&xml).unwrap();
+    let r = read_tag(&d, &TagHeader::parse(&h).unwrap(), &data);
+    assert!(r.root.children.is_empty());
+    let t = text(outline_tag(&r.root, &d.fields, 3));
+    assert!(t.contains("### entries  block  (not read)  (1 field)  path=entries\n"), "{t}");
+    assert!(t.contains("### later  block  (not read)  (1 field)  path=later\n"), "{t}");
+}
+
 #[test]
 fn a_path_narrows_the_definition() {
     let d = Definition::parse(DEFINITION).unwrap();

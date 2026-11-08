@@ -140,20 +140,99 @@ fn a_block_that_does_not_fit_is_not_read() {
     let (def, header, data) = read(&tag(), &xml);
     let r = read_tag(&def, &header, &data);
     let Content::Block(b) = &child(&r.root, "entries").content else { panic!() };
-    assert_eq!(b.problem, Some(Problem::SizeMismatch { definition: 2 * 0x24, tag: 0x40 }));
+    assert_eq!(b.problem, Some(Problem::SizeMismatch { definition: 2 * 0x24, tag: 0x40, read_up_to: None }));
     assert!(b.entries.is_empty());
     assert!(matches!(child(&r.root, "projectile").content, Content::Value(Value::TagRef(_))));
     // Entries inside a block that wasn't read aren't divergences.
     assert_eq!(r.divergences, []);
 }
 
-#[test]
-fn a_main_struct_that_does_not_fit_is_not_read() {
-    let xml = DEFINITION.replace(r#"<_field_long_integer name="count" />"#, "");
+/// What `read_tag` makes of the sample tag (main struct 0x60 bytes; the
+/// header lists a tag block at 0x00, a tag reference at 0x20 and a data
+/// reference at 0x40) with `DEFINITION` changed by `edit`.
+fn read_with(edit: impl FnOnce(String) -> String) -> (Option<Problem>, Vec<String>, Vec<Divergence>) {
+    let xml = edit(DEFINITION.to_owned());
     let (def, header, data) = read(&tag(), &xml);
     let r = read_tag(&def, &header, &data);
-    assert_eq!(r.root.problem, Some(Problem::SizeMismatch { definition: 0x5C, tag: 0x60 }));
-    assert!(r.root.children.is_empty());
+    (r.root.problem.clone(), names(&r.root).into_iter().map(str::to_owned).collect(), r.divergences)
+}
+
+fn mismatch(definition: u32, read_up_to: Option<(u32, &str)>) -> Option<Problem> {
+    let read_up_to = read_up_to.map(|(bytes, last_anchor)| ReadUpTo { bytes, last_anchor: last_anchor.into() });
+    Some(Problem::SizeMismatch { definition, tag: 0x60, read_up_to })
+}
+
+const COUNT: &str = r#"<_field_long_integer name="count" />"#;
+
+/// D67/D70: a main struct of another size is read up to the end of its last
+/// anchor (tag block, tag reference, data reference) the header confirms.
+/// Here the definition lacks the last field, `count`: everything before is read.
+#[test]
+fn a_main_struct_that_does_not_fit_is_read_up_to_its_last_confirmed_anchor() {
+    let (problem, names, divergences) = read_with(|x| x.replace(COUNT, ""));
+    assert_eq!(problem, mismatch(0x5C, Some((0x5C, "data"))));
+    assert_eq!(names, ["entries", "pad", "projectile", "data"]);
+    assert_eq!(divergences, [], "header entries are all reached");
+}
+
+/// A field after the last anchor isn't read, even if it would fit: nothing
+/// confirms where it is.
+#[test]
+fn fields_after_the_last_anchor_are_not_read() {
+    let (problem, names, _) =
+        read_with(|x| x.replace(COUNT, &format!(r#"{COUNT}<_field_long_integer name="more" />"#)));
+    assert_eq!(problem, mismatch(0x64, Some((0x5C, "data"))));
+    assert_eq!(names, ["entries", "pad", "projectile", "data"]);
+}
+
+/// A field missing mid-struct moves the anchors after it: reading stops at
+/// the last anchor before it (here the definition lacks the 4-byte pad, so
+/// `projectile` lands at 0x1C, where the header lists nothing).
+#[test]
+fn a_field_missing_mid_struct_stops_the_read_before_it() {
+    let (problem, names, divergences) = read_with(|x| x.replace(r#"<_field_pad name="pad!" length="4" />"#, ""));
+    assert_eq!(problem, mismatch(0x5C, Some((0x1C, "entries"))));
+    assert_eq!(names, ["entries"]);
+    assert_eq!(divergences, [], "entries past the last anchor aren't reported as unreached");
+}
+
+/// A header entry the definition has no field for (here the tag reference at
+/// 0x20, read as padding) means a field the definition lacks: reading stops
+/// at the anchor before it.
+#[test]
+fn a_header_entry_the_definition_lacks_stops_the_read() {
+    let (problem, names, _) = read_with(|x| {
+        x.replace(
+            r#"<_field_tag_reference_64 name="projectile" validtags="proj" />"#,
+            r#"<_field_pad name="was a reference" length="32" />"#,
+        )
+        .replace(COUNT, "")
+    });
+    assert_eq!(problem, mismatch(0x5C, Some((0x1C, "entries"))));
+    assert_eq!(names, ["entries"]);
+}
+
+/// No anchor confirmed: nothing is read, as before.
+#[test]
+fn a_main_struct_with_no_confirmed_anchor_is_not_read() {
+    let (problem, names, _) = read_with(|x| x.replace("<plugin>", r#"<plugin><_field_long_integer name="first" />"#));
+    assert_eq!(problem, mismatch(0x64, None));
+    assert!(names.is_empty());
+}
+
+/// A struct that spans the end of what is confirmed is read up to it; its
+/// fields after it are not.
+#[test]
+fn a_struct_across_the_last_anchor_is_read_up_to_it() {
+    let tail = r#"<_field_struct name="tail"><_field_data_64 name="data" /><_field_long_integer name="rounds" /><_field_long_integer name="more" /></_field_struct>"#;
+    let xml = DEFINITION.replace(r#"<_field_data_64 name="data" />"#, tail).replace(COUNT, "");
+    let (def, header, data) = read(&tag(), &xml);
+    let r = read_tag(&def, &header, &data);
+    assert_eq!(r.root.problem, mismatch(0x64, Some((0x5C, "tail.data"))));
+    assert_eq!(names(&r.root), ["entries", "pad", "projectile", "tail"]);
+    let Content::Struct(t) = &child(&r.root, "tail").content else { panic!("not a struct") };
+    assert_eq!(names(t), ["data"]);
+    assert_eq!(t.problem, Some(Problem::Unconfirmed { at: "tail.rounds".into() }));
 }
 
 /// PRD §6.4.4: an unknown field type stops its struct; what came before stays.

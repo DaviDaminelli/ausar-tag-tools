@@ -6,6 +6,7 @@ use h5_defs::definition::{Field, FieldKind};
 use h5_defs::field_type::FieldType;
 use h5_meta::{Body, Content, FieldPath, PathError, Section, parse_path};
 
+use crate::output::marker;
 use crate::tag_view::{
     Detail, Options, Role, ViewSettings, entry_labels, is_hidden, join, label_list, role, short_type,
 };
@@ -231,22 +232,7 @@ fn outline_heading(fields: &[Field], i: usize, top: bool) -> Option<ViewNode> {
 
 /// `outline(class=)`: the section tree of a definition, `depth` levels deep.
 pub fn outline_definition(fields: &[Field], depth: u32) -> Vec<ViewNode> {
-    fn visit(fields: &[Field], path: &str, depth: u32, level: u32) -> Vec<ViewNode> {
-        let mut out = Vec::new();
-        for (i, f) in fields.iter().enumerate() {
-            if let Some(h) = outline_heading(fields, i, level == 0) {
-                out.push(h);
-            } else if is_container(f) && !f.is_internal() && !is_hidden(f) {
-                let p = join(path, f.step.as_deref().unwrap_or_default());
-                let children = if level + 1 < depth { visit(&f.children, &p, depth, level + 1) } else { Vec::new() };
-                let short =
-                    if f.kind == FieldKind::Known(FieldType::Block64) { "block".into() } else { short_type_of(f) };
-                out.push(outline_node(f, &p, short, None, children));
-            }
-        }
-        out
-    }
-    visit(fields, "", depth, 0)
+    Outliner { depth, of_tag: false }.visit(fields, None, "", 0)
 }
 
 fn short_type_of(f: &Field) -> String {
@@ -256,13 +242,27 @@ fn short_type_of(f: &Field) -> String {
     }
 }
 
-/// `outline(tag=)`: the section tree of a read tag, with entry counts and labels
-/// (nested blocks as entry 0 holds them).
+/// `outline(tag=)`: the section tree of a tag, from its definition (D70): entry
+/// counts and labels where the tag was read (nested blocks as entry 0 holds
+/// them), `(not read)` where it wasn't.
 pub fn outline_tag(body: &Body<'_>, fields: &[Field], depth: u32) -> Vec<ViewNode> {
-    fn visit(body: &Body<'_>, fields: &[Field], path: &str, depth: u32, level: u32) -> Vec<ViewNode> {
+    Outliner { depth, of_tag: true }.visit(fields, Some(body), "", 0)
+}
+
+/// One walk for both outlines: the definition's containers, with what a read
+/// found in them.
+struct Outliner {
+    depth: u32,
+    /// A tag's outline: containers with nothing read say `(not read)`.
+    of_tag: bool,
+}
+
+impl Outliner {
+    /// `read`: what was read of `fields` (its children line up with them, up
+    /// to where the read stopped); `None` when nothing was, or for a class.
+    fn visit(&self, fields: &[Field], read: Option<&Body<'_>>, path: &str, level: u32) -> Vec<ViewNode> {
         let mut out = Vec::new();
-        for (i, n) in body.children.iter().enumerate() {
-            let f = n.field;
+        for (i, f) in fields.iter().enumerate() {
             if let Some(h) = outline_heading(fields, i, level == 0) {
                 out.push(h);
                 continue;
@@ -270,28 +270,34 @@ pub fn outline_tag(body: &Body<'_>, fields: &[Field], depth: u32) -> Vec<ViewNod
             if !is_container(f) || f.is_internal() || is_hidden(f) {
                 continue;
             }
-            let p = join(path, n.name.unwrap_or_default());
-            let deeper = level + 1 < depth;
-            let node = match &n.content {
-                Content::Block(b) => {
+            let p = join(path, f.step.as_deref().unwrap_or_default());
+            let deeper = level + 1 < self.depth;
+            let below = |read: Option<&Body<'_>>, at: &str| {
+                if deeper { self.visit(&f.children, read, at, level + 1) } else { Vec::new() }
+            };
+            let node = match read.and_then(|b| b.children.get(i)).map(|n| &n.content) {
+                Some(Content::Block(b)) => {
                     let extra = label_list(&entry_labels(&b.entries));
                     let children = match b.entries.first() {
-                        Some(e) if deeper => visit(e, &f.children, &format!("{p}[0]"), depth, level + 1),
-                        _ => Vec::new(),
+                        Some(e) => below(Some(e), &format!("{p}[0]")),
+                        None => Vec::new(),
                     };
                     outline_node(f, &p, format!("block[{}]", b.count), extra, children)
                 }
-                Content::Struct(b) | Content::Array(b) => {
-                    let children = if deeper { visit(b, &f.children, &p, depth, level + 1) } else { Vec::new() };
-                    outline_node(f, &p, short_type_of(f), None, children)
+                Some(Content::Struct(b) | Content::Array(b)) => {
+                    outline_node(f, &p, short_type_of(f), None, below(Some(b), &p))
                 }
-                _ => continue,
+                _ => {
+                    let short =
+                        if f.kind == FieldKind::Known(FieldType::Block64) { "block".into() } else { short_type_of(f) };
+                    let not_read = self.of_tag.then(|| marker::NOT_READ.to_owned());
+                    outline_node(f, &p, short, not_read, below(None, &p))
+                }
             };
             out.push(node);
         }
         out
     }
-    visit(body, fields, "", depth, 0)
 }
 
 #[cfg(test)]

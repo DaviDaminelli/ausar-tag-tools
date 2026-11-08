@@ -291,7 +291,7 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
 
 Two checks run for every struct field, tag block field and the main struct:
 
-1. **Size check (always enforced):** the definition's computed size must equal the actual size. For a tag block field: target data block size = entry count × entry size. For the main struct: main data block size = summed size of the definition's top-level fields. On mismatch, **do not show values** from that struct; report `!! definition size mismatch (definition N bytes, tag M bytes)` (§8).
+1. **Size check (always enforced):** the definition's computed size must equal the actual size. For a tag block field: target data block size = entry count × entry size. For the main struct: main data block size = summed size of the definition's top-level fields. On mismatch, **do not show values** from that struct; report `!! definition size mismatch (definition N bytes, tag M bytes)` (§8). Exception, the main struct (decisions D70): its fields are shown up to the end of the last anchor the tag header confirms (tag blocks, tag references, data references and resources, in field order, each listed by the header at the definition's offset, with no header entry before it that no anchor took); the rest is `(not read)`, and the `!!` line says how far it read and names `definition_status`. `outline` shows the definition's whole tree either way, with `(not read)` on parts the read didn't reach.
 2. **GUID check:** compare the definition's `srcguid` with the tag struct entry's type GUID for the same field. Config `guid_check = "off" | "warn" | "enforce"`, **default `warn`**. Q3 is answered (`srcguid` is a Windows GUID, §12), but about 0.2% of real tag blocks carry a GUID found in no definition while their size fits, so `warn` stays the default (decisions D32). `warn` adds a warning and keeps the values; `enforce` treats a mismatch like a size mismatch.
 
 - Class with no definition: return tag info (global ID, path, class, copies, dependency list) and `(no definition for class 'xxxx')`.
@@ -503,7 +503,8 @@ A read failure in one struct MUST NOT stop the rest of the tag from being read (
 | Module file incomplete / damaged / unreadable (D14) | `!! incomplete file: …` / `!! damaged: …` / `!! not indexed: …` (`list_modules` status) | `status` |
 | No tags of a class in the indexed modules (D18)  | empty result + `hint:` (says whether the class has a definition)          | `hints`               |
 | Unknown field type                               | `!! read stopped at <field path>: unknown field type _field_xyz`          | `error` + `reason`    |
-| Size mismatch (§6.4.5)                           | `!! definition size mismatch at <path> (definition N bytes, tag M bytes)` | `error`               |
+| Size mismatch (§6.4.5)                           | `!! definition size mismatch at <path> (definition N bytes, tag M bytes)`; the main struct adds `: read up to <path> (the first N bytes, …)` | `error`               |
+| Past the last confirmed anchor (D70)             | `!! read stopped at <field path>: past the last field the tag header confirms; the rest is (not read)` | `error`               |
 | GUID mismatch, `warn` mode                       | value shown + `warning: definition GUID mismatch`                         | `warning` key         |
 | GUID mismatch, `enforce` mode                    | `!! definition GUID mismatch at <path>`                                   | `error`               |
 | Any other read error                             | `!! read failed at <path>: <reason>`                                      | `error`               |
