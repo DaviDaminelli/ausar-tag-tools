@@ -26,6 +26,51 @@ struct Found {
     fields: usize,
 }
 
+/// Does the header list empty tag blocks? (M5d step 2: whether a tag block
+/// can be an anchor when it has no entries.) A listed entry with no data
+/// block can only be an empty one; the block field's stored count says.
+#[test]
+#[ignore]
+fn are_empty_tag_blocks_listed() {
+    use h5_module::tag::StructKind;
+    let config = PathBuf::from(std::env::var("H5_CONFIG").expect("set H5_CONFIG"));
+    let s = Session::open(Config::load(&config).unwrap()).unwrap();
+    for b in s.builds() {
+        let (mut tags, mut listed, mut no_data, mut with_data, mut empty_with_data) = (0usize, 0, 0, 0, 0);
+        let mut count_of_no_data: std::collections::BTreeMap<i32, usize> = Default::default();
+        for tag in &b.tags {
+            let Some(copy) = choose_copy(b, tag, None) else { continue };
+            let Ok(stored) = read_stored_tag(b, copy) else { continue };
+            tags += 1;
+            let h = &stored.header;
+            for st in h.tag_structs.iter().filter(|st| st.kind == StructKind::TagBlock) {
+                listed += 1;
+                // The block field's entry count (+0x10), where the header places the field.
+                let count = st
+                    .field_block
+                    .and_then(|fb| h.block_data(&stored.tag_data, fb))
+                    .and_then(|d| d.get(st.field_offset as usize + 0x10..st.field_offset as usize + 0x14))
+                    .map(|c| i32::from_le_bytes(c.try_into().unwrap()));
+                match st.target {
+                    None => {
+                        no_data += 1;
+                        *count_of_no_data.entry(count.unwrap_or(-999)).or_default() += 1;
+                    }
+                    Some(_) => {
+                        with_data += 1;
+                        empty_with_data += usize::from(count == Some(0));
+                    }
+                }
+            }
+        }
+        println!(
+            "\n== {}: {tags} tags; tag block entries listed {listed}: with a data block {with_data} (count 0: {empty_with_data}), without {no_data}",
+            b.name
+        );
+        println!("   counts stored in the fields of entries without a data block: {count_of_no_data:?}");
+    }
+}
+
 #[test]
 #[ignore]
 fn references_to_a_class_from_the_headers() {

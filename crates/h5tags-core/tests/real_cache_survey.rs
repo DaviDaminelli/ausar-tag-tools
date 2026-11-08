@@ -108,6 +108,16 @@ fn full_builds_from_their_caches() {
                 size.len(),
                 top(size, 12)
             );
+            // Where the mismatches are: the main struct (an empty path) or a tag block.
+            let mut paths: BTreeMap<(FourCc, &str), usize> = BTreeMap::new();
+            for t in &all_tags {
+                for p in &t.size_mismatches {
+                    *paths.entry((t.class, p.as_str())).or_default() += 1;
+                }
+            }
+            for ((class, p), n) in &paths {
+                println!("  size mismatch {class} {}: {n} copies", if p.is_empty() { "(main struct)" } else { p });
+            }
         } else {
             println!("definition check: missing or another format");
         }
