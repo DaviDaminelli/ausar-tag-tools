@@ -352,3 +352,41 @@ In the fresh rerun the agent neither read the guide nor checked a candidate on a
 - **Hash:** GitHub computes and shows a SHA-256 for every attached release file (since June 2025); the script prints the same hash for the release notes.
 - **Linux:** a manually started workflow (`Linux zip`, with the tag) builds the Linux zip and adds it to the existing release.
 - **CI:** started by hand only (Linux and Windows); the same checks (fmt, clippy, tests) run locally before each commit.
+
+## D66. A build's own definitions, for a layout only it has (2026-11-08; the user's `wigl` for Xbox 97230)
+When one build's layout differs from the definitions another build fits (`wigl`: Xbox 97230 lacks fields Forge has), the definition isn't replaced in Lord Zedd's folder, which both builds read: that would break the other build. That build gets its own definitions folder (a copy of Lord Zedd's, with the changed files), set as its `defs` in the config. Locally: `reference\H5Tags-xbox-97230\tags` for the `xbox` build (git-ignored, like all of `reference\`). No code change: per-build `defs` already exists (PRD §6.1). A copy has to be updated by hand when Lord Zedd's definitions change.
+
+## D67. M5d: improvements from agent feedback (2026-11-08, approved by the user; before M6)
+Source: two reports by agents using the preview (0.1.0-alpha.1) on a full Xbox build: one on the `wigl` tag, one on the HUD. Each item: what changes, why (the report's receipt), and what it touches.
+
+1. **Read through definition size mismatches.** Today a struct whose stored size isn't the definition's size is not read at all (`!! definition size mismatch`): the `wigl` main struct (definition 1,128 bytes, tag 1,056) hid the HUD's whole colour system, though only its tail differs. New rule: the fields up to the **last anchor the tag header confirms** are read. Anchors are the fields the header lists by position: tag blocks, tag references, data references. A field missing before an anchor would move it, so a confirmed anchor proves everything before it is in place. Fields after the last confirmed anchor are `(not read)` (the user's choice over showing them with a warning: a mid-struct change would misplace them). If an anchor doesn't match, nothing changes: the struct stays `!!`. The `!!` line says how far it read. Touches: `h5-meta` (the reader), the view's markers, AGENT_GUIDE §4.5, PRD §6.4.5. `query_field`, `diff_tags` and `definition_status` use the same reader and need no change.
+2. **`outline` on any tag.** It fails with the same `!!` today, though it shows no values. It shows the whole tree from the definition, with entry counts and labels where they could be read. Touches: `def_view` / `outline`.
+3. **Instructions and tool descriptions** (the HUD report: the agent followed the workflow line literally and never loaded `search_values`, `map_tags`, `which_maps`, `list_entries`; it didn't know nested `[*]` works): the instructions lead with the build-wide tools (`query_field` with nested `[*]`, `find_references`, `search_values`, `which_maps` / `map_tags`), then single-tag reading (`outline` → `read_tag`); `query_field`'s description shows a nested `[*]` example (`node graphs[*].nodes[*].screen wrapper`) and says enum filters match option labels. Touches: the instructions (PRD §9a text and its test), tool descriptions, AGENT_GUIDE §2.
+4. **`diff_tags` matches labelled block entries by label** (receipt: two HUD tags gave 185 differences, almost all from one extra entry shifting the rest). When every entry of a tag block has a label (PRD §6.4.4) and the labels are unique within each tag, entries are matched by label: an entry only one tag has is `present`/`(no entry)` as now, and matched entries are compared field by field. Otherwise, by position as today. A row's path is tag a's index, with b's in brackets when it differs: `resources[1] (b: [2]).value` (the user's choice; still usable as `path=` for tag a). Touches: the `diff` domain, `diff_tags`, AGENT_GUIDE §2.1 and §4.6, PRD §6.6.
+5. **`find_references(direction=in)` shows the referring field paths** (receipt: "from where" took a second call, `out` on the referrer). For the rows shown (D26), each referrer's copy is read to name its fields that point at the target, as `out` already does. Touches: `references`, `find_references`, AGENT_GUIDE §4.6, PRD §6.6.
+6. **`list_classes(query=)`** (the 230-row list was the HUD session's most expensive call): a filter by class code or name. Touches: `list_classes`, PRD §6.3.
+7. **`query_field(also=<path>)`**: a second field shown per row, for correlating without a read per tag. Filter and sort stay on `path`. Touches: `field_query`, `query_field`, AGENT_GUIDE §4.6/§4.7, PRD §6.6.
+
+Order: 1 and 2, then 3, then 4, 5, 6, 7. Each test-first, with the guide in the same commit, its checks in progress. Open, for M6 (from the full-build caches, format-notes): 15,759 shared IDs whose path differs between the builds, and 32 copies with "other problems" the samples never had.
+
+## D68. M5d widened, and the milestones after M6 (2026-11-08, approved by the user)
+From a third, consolidated report (three agent sessions on the full Xbox build: ordnance and scripts, HUD, `wigl`), merged with D67. Two claims checked on the Forge sample first: `query_field weap "prototype script" --filter "!= (none)"` returns all 118 weapons, every one `(none)` (a null reference has no name, so `!=` is true for each: no error, no warning); a tag path written with `/` isn't found.
+
+**M5d steps, in order** (each test-first, guide in the same commit, checks in progress):
+1. **Filters never match everything silently:** `(none)` means a null reference; `is set` / `is empty` for every field type; a filter a field type can't honour is rejected, naming the supported operators. (New; the only item that makes an agent state a falsehood confidently.)
+2. **Size mismatches** read up to the last anchor the tag header confirms (D67 item 1); **`outline`** builds its tree from the definition and never needs the tag's bytes to fit (D67 item 2; the report's "keep separate" fork); the `!!` line says how far it read and names `definition_status`.
+3. **Instructions and descriptions:** build-wide tools first; nested `[*]` (and that `name#2` fields are separate fields, not an array); enum filters match labels; a one-line rule for the four finders (`search_tags` by path or class, `list_entries` by asset kind or size, `browse` for a folder's shape, `search_values` by text a tag holds); references are tag-to-tag only (map variant placements aren't visible); `which_maps` covers scripts; `outline(class=)` is the short form of `get_definition`; a "is this shipped?" recipe in the guide (the evidence, not a verdict).
+4. **`diff_tags` by label** (D67 item 4; 1-vs-0 entries already work).
+5. **Field paths in `find_references(direction=in)`** (D67 item 5).
+6. **`list_classes(query=)`**, and classes with a definition but no tags listed as `tags 0 (definition only)` (a published error: "there is no `dspn` class").
+7. **`query_field(also=…)`** with several extra paths (D67 item 7, widened); a block path gives each tag's entry count instead of an error.
+8. **`which_maps`** gets `class=` and paging (non-breaking; the merge with `map_tags` isn't done).
+9. **`/` accepted** in tag names and paths; reading a block with a single field shows its entries' values directly.
+
+**Into M6:** the tag line says when a tag differs between builds (with M6's data fingerprint).
+
+**After M6, in order:** M7 Scripts, M8 Text and reference resolution, M9 Research composites, M10 Bitmaps (was M7). See the PRD §9 table.
+
+**Not done, and why:** repeating the marker legend in every result (the always-loaded instructions carry it; rare markers already have a `hint:`); merging tools (`find()`, `map_tags` + `which_maps`, `tag_copies` into a field history): they rename tools for an uncertain gain, and steps 3 and 8 fix the practical gaps; `shipped_evidence` as a tool (the guide recipe first, as the report advises); `which_variants` (map variant files need format research: backlog).
+
+**Kept as they are** (the report's "don't regress"): the marker legend, nested `[*]` and its field path column, the provenance header, the error hints, outline before reading large tags.
