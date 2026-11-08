@@ -429,3 +429,10 @@ From a third, consolidated report (three agent sessions on the full Xbox build: 
 - **Which copy:** the referrer's copy with the most fields pointing at the target (the one `count` comes from); on a tie, the copy read by default (D58). `Referrer` now keeps it.
 - **Only the rows shown are read (D26):** the referrers are found, counted and paged from the header scan as before; the page's rows are then read (from the tag cache). The `out` path lookup and this one are one helper (`references::path_of`); `references::paths_to` gives one referrer's paths.
 - **Measured** (release CLI, whole call): Forge sample, the DMR's bullet 340 ms (2 referrers), a bullet effect with 13 referrers 391 ms, a crate the scenario places 342 ms (`scnr … crate palette[8].name`); Xbox the same bullet 331 ms.
+
+## D74. `list_classes`: definition-only classes, and `query=` (2026-11-08, M5d step 6)
+- **Definition-only classes are listed** (an agent's published error: "there is no `dspn` class", from a list of the classes with tags only): every definition file no class with tags uses, as a row with `tags` 0 and `definition` yes. A definition "used" by a class with tags is the file that class reads (by code or by name: `(hsc_)lua.xml` is the `hsc*` tags' definition, so it isn't listed again); a definition whose code is already a class with tags isn't listed twice either. All rows by class code.
+- **Not a `(definition only)` text in the cell** (D68's wording): the count stays a number in JSON, and `tags 0` with `definition yes` already says it; the summary line counts them (`definition only: N`, only when N > 0).
+- **`query=`:** part of the code or the name, ASCII case-insensitive (`filters::ascii_matches` on the code's bytes and the name, no copies). No match: a `hint:` naming the query.
+- **Domain:** `query::classes`, `ClassRow`; the tool and `present::no_class_matches` word it.
+- **Measured** (both samples): Forge 210 classes with tags + 79 definition-only = 289 rows, Xbox 215 + 74 = 289, every definition file once; `dspn` (`device_dispenser`) now listed on both; the whole list 9,048 bytes of text, `query=hud` 104.

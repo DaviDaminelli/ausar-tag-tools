@@ -237,7 +237,7 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
   - No hits: a `hint:` says why. If the query matches tags but `class`/`module` removed them all, it says how many the query alone matches; otherwise it lists up to 5 similar folder or file names from tag paths ("did you mean", edit distance, as in §6.4.2), or suggests a shorter query (D22).
   - Always returns the total count.
 - `browse(path="", build?, offset=0, limit=100)`: treats tag paths as folders. `path` is a folder prefix (case-insensitive, `\` separated, no trailing `\` needed). Returns (1) the immediate subfolders, each with the number of tags under it recursively, and (2) the tags directly in that folder. Never the full tree.
-- `list_classes(build?)`: class code, class name, tag count, whether a definition exists.
+- `list_classes(query?, build?)`: class code, class name, tag count, whether a definition exists. Classes with a definition but no tag in the indexed modules are listed too, with tag count 0, and counted above the table (`definition only: N`; decisions D74). `query`: part of the code or the name, ASCII case-insensitive.
 - `list_modules(build?, offset=0, limit=100)`: module path, version, tag count, has load manifest, **status**: `ok`, or `!!` when the module's structural checks (§9, M1) failed or it couldn't be indexed (`docs/decisions.md` D14).
 - `list_entries(tag?, query?, mode=default|regex|exact, kind?, module?, min_size?, max_size?, sort=name|size, build?, offset=0, limit=100)`: file entries (tags, resources, other files) with their kind and size, from the index only (nothing is decompressed). Common filters combine; with none, every entry of the build (paged).
   - `tag`: that tag's entry and its resources (default copy, §6.4.6; `module` chooses another).

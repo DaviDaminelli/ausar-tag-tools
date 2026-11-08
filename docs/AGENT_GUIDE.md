@@ -34,6 +34,7 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "Find the assault rifle" | `search_tags("assault_rifle")` |
 | "What's in this folder?" | `browse(path)` |
 | "Which class controls weapon heat?" | `search_definitions("heat")` |
+| "Is there a class for dispensers / what's its code?" | `list_classes(query="dispenser")` (code or name; classes with no tags here are listed with 0) |
 | "What does this tag contain?" | `outline(tag)` |
 | "Show the firing settings" | `read_tag(tag, section=...)` or `read_tag(tag, path=...)` |
 | "What does field X mean / what values can it take?" | `get_definition(class, path=..., detail=full)` |
@@ -230,6 +231,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `which_maps` rows | Each map whose load manifest in effect (its latest layer) lists the tag: the manifest's module, its layer, and how many tags it lists | Only maps in the indexed modules are checked |
 | `hint: the load manifest(s) in effect of N map(s) don't list this tag; …` (`which_maps`) | None of the indexed maps loads it through its manifest | Don't say no map uses it: maps that aren't indexed weren't checked, and an earlier layer's manifest may have listed it |
 | `hint: no tag's string table contains '…'; …` (`search_values`) | No string_id name or referenced tag name holds the term. Field values (numbers, enums) aren't in string tables | Try `search_definitions` for field names, or `read_tag` for values |
+| `hint: no class code or name contains '…'; …` (`list_classes`) | Neither a class with tags nor a definition has that text in its code or name | Try a shorter part, or `search_definitions` for what the class would hold; don't say the game has no such thing |
 | `compare_builds` `only in A` / `only in B` / `different` | By global ID: tags present in one build only, or in both with different stored data | `different` means the data differs, not necessarily a gameplay change; diff the tags to see what |
 | `find_references` `(see above)` (recursive) | That tag was already listed earlier in this walk; it isn't expanded again | Not a new reference; look it up above |
 | `find_references` rows | `out`: each non-null reference of the tag: its field path (empty without a definition), the target's class, ID and name, grouped by class. `in`: each tag whose copies reference it; `copies` = in how many of its copies (`1 of 2`: the other copy doesn't), `count` = how many of its fields do, `field path` = those fields in that tag (`crate palette[8].name`; three named, then `(+N more)`; empty without a definition for its class, `(not read)` if the tag couldn't be read), from its copy with the most such fields. `recursive`: depth first, in the order the tags list their references; with `class=` only that class is listed, though the walk follows every class. References come from the fields in the tag data, so they include references the tag header has no dependency entry for | The links are real; what they do in game needs reading the tags. A target marked `(not in indexed modules)` exists as a reference, not as a tag you can read here |
@@ -250,7 +252,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `display name` | Tag path + `.` + class name |
 | `name` | Display name, file name or folder (depends on the tool) |
 | `copies` | In how many modules the tag is stored |
-| `tags` | Number of tags (of a class, a module, or under a folder) |
+| `tags` | Number of tags (of a class, a module, or under a folder). `list_classes`: 0 = the class has a definition but no tag in the indexed modules (`definition only: N` above the table counts them); it exists in the game's schema, and its tags may be in modules that aren't indexed |
 | `definition` | Whether a definition exists for the class (`yes`/`no`) |
 | `module` | Module path, relative to the build's deploy folder |
 | `version` | Module format version (27 = Forge PC, 23 = Xbox One) |

@@ -12,8 +12,14 @@ use crate::session::Session;
 
 /// Every class in the build: code, name, tag count, and whether a definition
 /// exists (without one, tags can be listed but not read field by field).
+/// Classes with a definition but no tags in the indexed modules are listed
+/// with tags 0. query= keeps the classes whose code or name contains it
+/// (sound, weap).
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct ListClasses {
+    /// Part of a class code or name, any case.
+    #[arg(long)]
+    pub query: Option<String>,
     #[command(flatten)]
     #[serde(flatten)]
     pub build: BuildArg,
@@ -24,23 +30,31 @@ impl Tool for ListClasses {
 
     fn run(&self, s: &mut Session) -> Result<Output, ToolError> {
         let b = args::build(s, &self.build)?;
-        let rows: Vec<Vec<Cell>> = b
-            .classes
-            .values()
-            .map(|c| {
-                vec![
-                    c.code.to_string().into(),
-                    c.name.clone().into(),
-                    Cell::Int(c.tag_count as i64),
-                    Cell::Bool(c.definition.is_some()),
-                ]
-            })
+        let found = query::classes(b, self.query.as_deref());
+        let definition_only = found.iter().filter(|c| c.tags == 0).count();
+        let rows: Vec<Vec<Cell>> = found
+            .iter()
+            .map(|c| vec![c.code.to_string().into(), c.name.into(), Cell::Int(c.tags as i64), Cell::Bool(c.definition)])
             .collect();
+        let summary = (definition_only > 0)
+            .then_some(Summary {
+                label: "definition only",
+                key: "definition_only",
+                value: Cell::Int(definition_only as i64),
+            })
+            .into_iter()
+            .collect();
+        let hints = match &self.query {
+            Some(q) if rows.is_empty() => vec![present::no_class_matches(q)],
+            _ => Vec::new(),
+        };
         Ok(Output::Table(Table {
             build: s.label(b),
             total: rows.len(),
+            summary,
             columns: vec![col::CLASS, col::CLASS_NAME, col::TAGS, col::DEFINITION],
             rows,
+            hints,
             ..Table::default()
         }))
     }

@@ -65,7 +65,7 @@ fn every_m1_tool_runs() {
     check(&mut s, "search_tags", &search("rifle"));
     check(&mut s, "search_tags regex", &SearchTags { mode: Mode::Regex, ..search(r"magnum|pistol") });
     check(&mut s, "browse top", &Browse { path: String::new(), build: build(), page: page(50) });
-    check(&mut s, "list_classes", &ListClasses { build: build() });
+    check(&mut s, "list_classes", &ListClasses { query: None, build: build() });
     check(&mut s, "list_modules", &ListModules { build: build(), page: page(50) });
     check(&mut s, "list_resource_kinds", &ListResourceKinds { build: build() });
     let entries = ListEntries {

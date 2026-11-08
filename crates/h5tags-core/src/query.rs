@@ -1,7 +1,8 @@
 //! The domain operations behind the tools: typed inputs, typed results. No
 //! text, no hints, no rendering; tools turn the results into tables.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 
 use h5_module::FourCc;
 use h5_module::index::{EntryKind, EntryRecord, ModuleRecord};
@@ -9,7 +10,7 @@ use h5_module::names::module_layer;
 use serde::Deserialize;
 
 use crate::catalog::{Build, Copy, Tag};
-use crate::filters::{Filters, ModuleFilter, resource_kind};
+use crate::filters::{Filters, ModuleFilter, ascii_matches, resource_kind};
 
 /// Tags matching `filters`, in tag path order (PRD §6.3).
 pub fn search_tags<'b>(build: &'b Build, filters: &Filters) -> Vec<&'b Tag> {
@@ -17,6 +18,44 @@ pub fn search_tags<'b>(build: &'b Build, filters: &Filters) -> Vec<&'b Tag> {
 }
 
 /// How often each class occurs in `classes`, most first (ties by class code).
+/// A class as `list_classes` lists it (decisions D74).
+pub struct ClassRow<'b> {
+    pub code: FourCc,
+    pub name: &'b str,
+    /// 0 for a class with only a definition.
+    pub tags: usize,
+    pub definition: bool,
+}
+
+/// The build's classes by code: those with tags, and those with only a
+/// definition (no tag of theirs in the indexed modules, D74); with `query`,
+/// only those whose code or name contains it (ASCII case-insensitive).
+pub fn classes<'b>(build: &'b Build, query: Option<&str>) -> Vec<ClassRow<'b>> {
+    // A definition a class with tags uses (by code or by name) is that class's.
+    let used: HashSet<&Path> = build.classes.values().filter_map(|c| c.definition.as_deref()).collect();
+    let with_tags = build.classes.values().map(|c| ClassRow {
+        code: c.code,
+        name: &c.name,
+        tags: c.tag_count,
+        definition: c.definition.is_some(),
+    });
+    let only_definition = build
+        .defs
+        .files()
+        .iter()
+        .filter(|d| !used.contains(d.path.as_path()))
+        .filter_map(|d| {
+            Some(ClassRow { code: FourCc::from_code(&d.file_code)?, name: &d.class_name, tags: 0, definition: true })
+        })
+        .filter(|r| !build.classes.contains_key(&r.code));
+    let contains = |text: &[u8], q: &str| ascii_matches(text, q.as_bytes()).next().is_some();
+    let wanted =
+        |r: &ClassRow<'_>| query.is_none_or(|q| contains(&r.code.bytes(), q) || contains(r.name.as_bytes(), q));
+    let mut out: Vec<ClassRow<'b>> = with_tags.chain(only_definition).filter(wanted).collect();
+    out.sort_by_key(|r| r.code);
+    out
+}
+
 pub fn count_by_class(classes: impl IntoIterator<Item = FourCc>) -> Vec<(FourCc, usize)> {
     let mut counts: BTreeMap<FourCc, usize> = BTreeMap::new();
     for c in classes {

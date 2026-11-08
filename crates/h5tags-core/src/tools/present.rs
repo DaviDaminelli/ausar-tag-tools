@@ -347,6 +347,11 @@ pub fn gap_text(kind: &crate::def_check::GapKind) -> String {
     }
 }
 
+/// `list_classes(query=)` found nothing.
+pub fn no_class_matches(query: &str) -> String {
+    format!("no class code or name contains '{query}'; list_classes without query lists every class")
+}
+
 /// Modules the definition check couldn't read: their tags aren't counted.
 pub fn unchecked_modules_hint(failed: &[(String, String)]) -> String {
     let named: Vec<String> = failed.iter().take(3).map(|(m, e)| format!("{m} ({e})")).collect();

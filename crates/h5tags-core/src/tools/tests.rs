@@ -231,16 +231,46 @@ fn browse_folders_and_tags() {
     assert!(run(&browse("nowhere"))["error"].is_string());
 }
 
+fn list_classes(query: Option<&str>) -> ListClasses {
+    ListClasses { query: query.map(Into::into), build: BuildArg::default() }
+}
+
 #[test]
 fn list_classes_and_modules() {
-    let v = run(&ListClasses { build: BuildArg::default() });
+    let v = run(&list_classes(None));
     let rows = v["rows"].as_array().unwrap();
-    assert_eq!(v["total"], 3);
+    // D74: bitm, hsc*, weap with tags, and snd! with only a definition (hsc_
+    // is hsc*'s definition, so it isn't listed again).
+    assert_eq!(v["total"], 4);
     let weap = rows.iter().find(|r| r["class"] == "weap").unwrap();
     assert_eq!(
         (weap["class_name"].as_str(), weap["tags"].as_i64(), weap["definition"].as_bool()),
         (Some("weapon"), Some(3), Some(true))
     );
+    let sound = rows.iter().find(|r| r["class"] == "snd!").unwrap();
+    assert_eq!(
+        (sound["class_name"].as_str(), sound["tags"].as_i64(), sound["definition"].as_bool()),
+        (Some("sound"), Some(0), Some(true))
+    );
+    assert_eq!(v["definition_only"], 1);
+    let t = text(&list_classes(None));
+    assert!(t.starts_with("total: 4  definition only: 1\n"), "{t}");
+    assert!(t.contains("\nsnd!\tsound\t0\tyes\n"), "{t}");
+
+    // query=: part of the code or the name, any case.
+    let classes = |q| -> Vec<String> {
+        run(&list_classes(Some(q)))["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| r["class"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(classes("WEAP"), ["weap"]);
+    assert_eq!(classes("lua"), ["hsc*"]);
+    assert_eq!(classes("so"), ["snd!"]);
+    let none = text(&list_classes(Some("zzz")));
+    assert!(none.starts_with("total: 0\n") && none.contains("hint: no class code or name contains 'zzz'"), "{none}");
 
     let v = run(&ListModules { build: BuildArg::default(), page: PageArgs::default() });
     assert_eq!(v["total"], 4);
