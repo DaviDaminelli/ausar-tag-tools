@@ -72,7 +72,8 @@ fn join(at: &str, step: &str) -> String {
     if at.is_empty() { step.to_owned() } else { format!("{at}.{step}") }
 }
 
-fn suffix(select: Option<Select>) -> String {
+/// How a step's selection is written: `[2]`, `[*]`, or nothing.
+pub fn suffix(select: Option<Select>) -> String {
     match select {
         Some(Select::Entry(i)) => format!("[{i}]"),
         Some(Select::Every) => "[*]".into(),
@@ -142,12 +143,17 @@ pub fn parse_path(fields: &[Field], text: &str) -> Result<FieldPath, PathError> 
 impl FieldPath {
     /// The path as text, with the definition's names (`barrels[1].rounds per second`).
     pub fn display(&self, fields: &[Field]) -> String {
+        self.display_with(fields, |_, select| suffix(select))
+    }
+
+    /// The same, with each step's index written by `index(step number, selection)`.
+    pub fn display_with(&self, fields: &[Field], mut index: impl FnMut(usize, Option<Select>) -> String) -> String {
         let mut level = fields;
         let mut out = String::new();
-        for s in &self.steps {
+        for (k, s) in self.steps.iter().enumerate() {
             let f = &level[s.field];
             out = join(&out, f.step.as_deref().unwrap_or_default());
-            out.push_str(&suffix(s.select));
+            out.push_str(&index(k, s.select));
             level = &f.children;
         }
         out

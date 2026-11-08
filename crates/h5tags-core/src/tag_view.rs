@@ -191,11 +191,6 @@ fn plain(text: String, json: serde_json::Value) -> Shown {
     Shown { text, json: Map::from_iter([("value".into(), json)]) }
 }
 
-/// The tag-local name of a reference's target: the tag file name without folders.
-fn file_name(display: &str) -> &str {
-    display.rsplit('\\').next().unwrap_or(display)
-}
-
 /// Why a struct or block isn't (fully) shown (PRD §8).
 pub fn problem_text(p: &Problem, path: &str) -> String {
     match p {
@@ -727,15 +722,7 @@ impl<'s> Converter<'s, '_> {
 /// by file name (decisions D36). `None` when it has none: text then shows
 /// nothing, JSON the entry index (D40).
 pub(crate) fn entry_label(e: &Body<'_>) -> Option<String> {
-    let text = e.label.and_then(|l| match &e.children[l].content {
-        Content::Value(Value::StringId(s)) => s.text.clone(),
-        Content::Value(Value::String(s)) => Some(s.clone()),
-        Content::Value(Value::TagRef(r)) if !r.field.is_null() => {
-            r.listed_name.as_deref().map(|n| file_name(n).to_owned())
-        }
-        _ => None,
-    });
-    text.filter(|t| !t.is_empty())
+    e.label_text().map(str::to_owned)
 }
 
 /// Every entry's label (`None` where it has none).

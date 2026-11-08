@@ -44,6 +44,24 @@ pub struct Body<'d> {
     pub label: Option<usize>,
 }
 
+impl Body<'_> {
+    /// A tag block entry's label as text (PRD §6.4.4): its labelling field's
+    /// string_id or string, or the file name of the tag it references
+    /// (decisions D36). `None` when it has none, or the text is empty or
+    /// unresolved.
+    pub fn label_text(&self) -> Option<&str> {
+        let text = match &self.children.get(self.label?)?.content {
+            Content::Value(Value::StringId(s)) => s.text.as_deref(),
+            Content::Value(Value::String(s)) => Some(s.as_str()),
+            Content::Value(Value::TagRef(r)) if !r.field.is_null() => {
+                r.listed_name.as_deref().map(|n| n.rsplit('\\').next().unwrap_or(n))
+            }
+            _ => None,
+        };
+        text.filter(|t| !t.is_empty())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Block<'d> {
     /// Entry count stored in the tag block field.

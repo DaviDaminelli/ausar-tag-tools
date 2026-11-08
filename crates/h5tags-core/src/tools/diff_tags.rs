@@ -1,6 +1,7 @@
 //! `diff_tags` (PRD §6.6): where two tags of one class differ.
 
-use h5_meta::{Body, Content, FieldPath, ReadTag, find_sections, parse_path, select};
+use h5_defs::definition::Field;
+use h5_meta::{Body, Content, FieldPath, ReadTag, find_sections, parse_path, select, suffix};
 use serde::Deserialize;
 
 use super::args::{self, BuildArg, PageArgs};
@@ -49,6 +50,24 @@ fn entry_at<'r, 'd>(read: &'r ReadTag<'d>, path: &FieldPath) -> Option<&'r Body<
     }
 }
 
+/// A row's field path (D72): tag a's entry indices, with b's after them where
+/// they differ (`resources[1] (b: [2]).value`); an entry only b has, b's
+/// alone (`resources (b: [2])`).
+fn path_text(d: &Difference, fields: &[Field]) -> String {
+    let b = d.path_in(Side::B);
+    let last = d.path.steps.len().saturating_sub(1);
+    d.path.display_with(fields, |k, select| {
+        let in_b = b.steps.get(k).map_or(select, |s| s.select);
+        if d.kind == Kind::OnlyIn(Side::B) && k == last {
+            return format!(" (b: {})", suffix(in_b));
+        }
+        match in_b {
+            other if other != select => format!("{} (b: {})", suffix(select), suffix(other)),
+            _ => suffix(select),
+        }
+    })
+}
+
 /// One side's cell for a difference: its value as `read_tag` writes it (brief).
 fn side_text(
     read: &ReadTag<'_>,
@@ -58,7 +77,7 @@ fn side_text(
     lookup: &dyn Lookup,
     settings: ViewSettings,
 ) -> Cell {
-    let (path, kind) = (&d.path, d.kind);
+    let (path, kind) = (d.path_in(side), d.kind);
     let count = |a: u32, z: u32| if side == Side::A { a } else { z };
     match kind {
         Kind::NotRead => marker::NOT_READ.into(),
@@ -149,7 +168,7 @@ impl Tool for DiffTags {
             .page(&found, DEFAULT_LIMIT)
             .iter()
             .map(|d| {
-                let shown = d.path.display(&def.fields);
+                let shown = path_text(d, &def.fields);
                 vec![
                     shown.clone().into(),
                     side_text(&ra, d, &shown, Side::A, &la, settings),

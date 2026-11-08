@@ -60,6 +60,24 @@ fn only_the_differing_fields() {
     assert!(diff(&mut d, MORE_0, MORE_1, Some("entries[9]")).is_err());
 }
 
+/// D72: a row's path has tag a's indices, and b's where they differ (entries
+/// matched by label); an entry only b has shows b's index alone.
+#[test]
+fn a_path_shows_bs_index_where_it_differs() {
+    use h5_meta::{Select, Step};
+    let def = h5_defs::definition::Definition::parse(crate::testdeploy::WEAPON_DEFINITION).unwrap();
+    // Field 1 is the tag block `entries`, its field 0 `target`.
+    let path = |e: u32| FieldPath {
+        steps: vec![Step { field: 1, select: Some(Select::Entry(e)) }, Step { field: 0, select: None }],
+    };
+    let entry = |e: u32| FieldPath { steps: vec![Step { field: 1, select: Some(Select::Entry(e)) }] };
+    let d = |path, in_b, kind| Difference { path, in_b, kind };
+    assert_eq!(path_text(&d(path(2), Some(path(3)), Kind::Changed), &def.fields), "entries[2] (b: [3]).target");
+    assert_eq!(path_text(&d(path(2), None, Kind::Changed), &def.fields), "entries[2].target");
+    assert_eq!(path_text(&d(entry(1), None, Kind::OnlyIn(Side::B)), &def.fields), "entries (b: [1])");
+    assert_eq!(path_text(&d(entry(1), None, Kind::OnlyIn(Side::A)), &def.fields), "entries[1]");
+}
+
 #[test]
 fn both_tags_must_have_one_class() {
     let mut d = TestDeploy::new("diff-classes");

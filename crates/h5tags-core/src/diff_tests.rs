@@ -148,6 +148,87 @@ fn a_curve_is_one_value() {
     assert_eq!(diffs_at(&xml, &a, &b, ""), [("curve".into(), Kind::Changed)]);
 }
 
+/// `DEFINITION` with a string first in each barrel: it labels the entries (PRD §6.4.4).
+const LABELLED: &str = r#"<plugin>
+	<_field_real name="speed" />
+	<_field_block_64 name="barrels" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_string name="name" />
+		<_field_long_integer name="rounds" />
+	</_field_block_64>
+	<_field_long_integer name="count" />
+</plugin>"#;
+
+/// A tag whose barrels are `(name, rounds)`.
+fn labelled(barrels: &[(&str, i32)]) -> TestTag {
+    let mut t = tag(10.0, 7, &vec![0; barrels.len()]);
+    t.blocks[1] = barrels
+        .iter()
+        .flat_map(|(name, rounds)| {
+            let mut entry = [0u8; 0x24];
+            entry[..name.len()].copy_from_slice(name.as_bytes());
+            entry[0x20..].copy_from_slice(&rounds.to_le_bytes());
+            entry
+        })
+        .collect();
+    t
+}
+
+/// (path in a, path in b when it differs, kind) under `path`.
+fn labelled_diffs(a: &TestTag, b: &TestTag, path: &str) -> Vec<(String, Option<String>, Kind)> {
+    let def = Definition::parse(LABELLED).unwrap();
+    let (ha, da) = build_tag(a);
+    let (hb, db) = build_tag(b);
+    let (ha, hb) = (TagHeader::parse(&ha).unwrap(), TagHeader::parse(&hb).unwrap());
+    let (ra, rb) = (read_tag(&def, &ha, &da), read_tag(&def, &hb, &db));
+    let at = if path.is_empty() { FieldPath::default() } else { parse_path(&def.fields, path).unwrap() };
+    diff_at(&ra.root, &rb.root, &at)
+        .into_iter()
+        .map(|d| (d.path.display(&def.fields), d.in_b.map(|p| p.display(&def.fields)), d.kind))
+        .collect()
+}
+
+/// D72: entries labelled in both tags (every one, no label twice in a block,
+/// at least one label shared) are matched by label, so one extra entry in b
+/// doesn't make every later entry differ. A matched entry's row has a's
+/// index, and b's when it differs; an entry only b has, b's.
+#[test]
+fn labelled_entries_are_matched_by_label() {
+    let a = labelled(&[("alpha", 1), ("beta", 2), ("gamma", 3)]);
+    let b = labelled(&[("alpha", 1), ("extra", 9), ("beta", 2), ("gamma", 4)]);
+    let s = |t: &str| t.to_owned();
+    assert_eq!(
+        labelled_diffs(&a, &b, ""),
+        [
+            (s("barrels"), None, Kind::Count { a: 3, b: 4 }),
+            (s("barrels[2].rounds"), Some(s("barrels[3].rounds")), Kind::Changed),
+            (s("barrels[1]"), None, Kind::OnlyIn(Side::B)),
+        ]
+    );
+    // path= picks a's entry, and b's entry with its label.
+    assert_eq!(
+        labelled_diffs(&a, &b, "barrels[2]"),
+        [(s("barrels[2].rounds"), Some(s("barrels[3].rounds")), Kind::Changed)]
+    );
+    assert_eq!(
+        labelled_diffs(&a, &b, "barrels[*].rounds"),
+        [
+            (s("barrels[2].rounds"), Some(s("barrels[3].rounds")), Kind::Changed),
+            (s("barrels[1]"), None, Kind::OnlyIn(Side::B)),
+        ]
+    );
+}
+
+/// By position otherwise: a label used twice, or no label in common.
+#[test]
+fn entries_without_usable_labels_are_matched_by_position() {
+    let s = |t: &str| t.to_owned();
+    let twice = labelled(&[("alpha", 1), ("alpha", 2)]);
+    let other = labelled(&[("alpha", 1), ("beta", 2)]);
+    assert_eq!(labelled_diffs(&twice, &other, ""), [(s("barrels[1].name"), None, Kind::Changed)]);
+    let (one, two) = (labelled(&[("one", 1)]), labelled(&[("two", 1)]));
+    assert_eq!(labelled_diffs(&one, &two, ""), [(s("barrels[0].name"), None, Kind::Changed)]);
+}
+
 /// NaN is the same as NaN (the stored bits), unlike `==` on floats.
 #[test]
 fn equal_bits_are_the_same_value() {

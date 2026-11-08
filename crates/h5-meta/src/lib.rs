@@ -6,7 +6,9 @@ mod path;
 mod read;
 mod tree;
 
-pub use path::{FieldPath, PathError, Section, SectionKind, Select, Selected, Step, find_sections, parse_path, select};
+pub use path::{
+    FieldPath, PathError, Section, SectionKind, Select, Selected, Step, find_sections, parse_path, select, suffix,
+};
 
 pub use read::read_tag;
 pub use tree::{
