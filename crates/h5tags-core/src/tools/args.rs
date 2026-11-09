@@ -177,11 +177,13 @@ pub fn module_filter(text: Option<&str>) -> Option<ModuleFilter> {
 }
 
 /// A tool as MCP lists it (PRD §9a): its name, its description (the
-/// parameter struct's doc comment, also the CLI help) and its input schema.
+/// parameter struct's doc comment, also the CLI help), its input schema, and
+/// whether it changes nothing ([`super::Tool::READ_ONLY`]).
 pub struct ToolSpec {
     pub name: &'static str,
     pub description: String,
     pub input_schema: Map<String, Value>,
+    pub read_only: bool,
 }
 
 fn schema<T: schemars::JsonSchema>() -> Map<String, Value> {
@@ -196,7 +198,9 @@ pub(super) fn spec<T: super::Tool + schemars::JsonSchema>() -> ToolSpec {
     for key in ["$schema", "title"] {
         input_schema.remove(key);
     }
-    ToolSpec { name: T::NAME, description: description.unwrap_or_default(), input_schema }
+    // D78: the schema says what `from_json` enforces: no other parameters.
+    input_schema.insert("additionalProperties".into(), Value::Bool(false));
+    ToolSpec { name: T::NAME, description: description.unwrap_or_default(), input_schema, read_only: T::READ_ONLY }
 }
 
 /// Parses `args` into tool `name`'s parameters. Unknown keys are refused

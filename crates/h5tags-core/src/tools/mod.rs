@@ -50,6 +50,10 @@ use args::{from_json, spec};
 pub trait Tool {
     /// The MCP tool name. The CLI command is the same with `-` for `_`.
     const NAME: &'static str;
+    /// Whether the tool changes nothing (D78): it reads the game files and
+    /// keeps derived caches for itself. `reindex`, which exists to rebuild
+    /// them, says false.
+    const READ_ONLY: bool = true;
     fn run(&self, session: &mut Session) -> Result<Output, ToolError>;
 }
 

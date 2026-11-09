@@ -599,7 +599,7 @@ Tags hold settings; the engine decides what happens at runtime: say when a concl
 ```
 
 2. **MCP resource `h5tags://guide`**: serves `docs/AGENT_GUIDE.md`.
-3. **Tool descriptions**: one or two sentences each: what it does, when to use it, and the usual next call. Parameter descriptions list valid values (e.g. `detail: brief|normal|full`).
+3. **Tool descriptions**: one or two sentences each: what it does, when to use it, and the usual next call. Parameter descriptions list valid values (e.g. `detail: brief|normal|full`). Each tool also has MCP annotations (read-only, except `reindex`; no open world), and its input schema allows no other parameters; an unknown tool or resource is a protocol error, Invalid Params (decisions D78).
 
 **Self-explanatory results (MUST).** The agent must be able to understand everything a tool returns:
 - Every column, marker, state, summary line and status a tool can output is explained in `docs/AGENT_GUIDE.md` (and briefly in the tool's description when it's specific to that tool), including what the agent may and may not conclude from it.

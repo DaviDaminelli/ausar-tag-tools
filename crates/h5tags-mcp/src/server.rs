@@ -10,7 +10,7 @@ use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation, InitializeRequestParams,
     InitializeResult, JsonObject, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
     ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource, ResourceContents,
-    ServerCapabilities, ServerConfig, Tool,
+    ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
@@ -60,9 +60,38 @@ pub fn tools() -> Vec<Tool> {
                             "description": "text (default: compact, what the guide describes) or json" }),
                 );
             }
-            Tool::new(spec.name, spec.description, Arc::new(schema))
+            // D78: every tool reads local files only; reindex rebuilds derived caches.
+            let mut annotations = ToolAnnotations::new().read_only(spec.read_only).open_world(false);
+            if !spec.read_only {
+                annotations = annotations.destructive(false).idempotent(true);
+            }
+            Tool::new(spec.name, spec.description, Arc::new(schema)).annotate(annotations)
         })
         .collect()
+}
+
+/// D78 (MCP spec, tools): a name `tools/list` doesn't have is a protocol
+/// error, Invalid Params; a listed tool's own failure is a result with `isError`.
+fn check_tool(tools: &[Tool], name: &str) -> Result<(), McpError> {
+    if tools.iter().any(|t| t.name == name) {
+        return Ok(());
+    }
+    Err(McpError::invalid_params(format!("unknown tool '{name}'; tools/list lists them"), None))
+}
+
+/// The guide resource; another URI is a protocol error, Invalid Params (D78,
+/// MCP spec, resources: -32602).
+fn read_guide(uri: &str) -> Result<ReadResourceResult, McpError> {
+    if uri != GUIDE_URI {
+        return Err(McpError::invalid_params(format!("no resource {uri}; the guide is {GUIDE_URI}"), None));
+    }
+    let guide = ResourceContents::TextResourceContents {
+        uri: GUIDE_URI.into(),
+        mime_type: Some(GUIDE_MIME.into()),
+        text: GUIDE.into(),
+        meta: None,
+    };
+    Ok(ReadResourceResult::new(vec![guide]))
 }
 
 /// `format`, taken out of the arguments (the tool's own parameters stay).
@@ -142,6 +171,7 @@ impl ServerHandler for Server {
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, McpError> {
+        check_tool(&self.tools, &request.name)?;
         let slot = self.session.clone();
         let name = request.name.to_string();
         let args = request.arguments.unwrap_or_default();
@@ -172,19 +202,7 @@ impl ServerHandler for Server {
         request: ReadResourceRequestParams,
         _context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
-        if request.uri != GUIDE_URI {
-            return Err(McpError::resource_not_found(
-                format!("no resource {}; the guide is {GUIDE_URI}", request.uri),
-                None,
-            ));
-        }
-        let guide = ResourceContents::TextResourceContents {
-            uri: GUIDE_URI.into(),
-            mime_type: Some(GUIDE_MIME.into()),
-            text: GUIDE.into(),
-            meta: None,
-        };
-        Ok(ReadResourceResult::new(vec![guide]).into())
+        Ok(read_guide(&request.uri)?.into())
     }
 }
 
@@ -241,5 +259,42 @@ mod tests {
         assert!(text.starts_with("!! error: read_tag has no parameter 'paths'\nhint: parameters: "), "{text}");
         let (text, error) = call(&mut d.session, "read_tag", args(json!({ "tag": WEAPON, "format": "xml" })));
         assert!(error && text.contains("format can't be \"xml\""), "{text}");
+    }
+
+    /// D78 (MCP spec, tools): annotations say what a tool does to its
+    /// environment. Every tool reads local files only; `reindex` rebuilds the
+    /// tool's own caches (derived, so not destructive; the same each time).
+    #[test]
+    fn every_tool_says_what_it_changes() {
+        for t in tools() {
+            let a = t.annotations.as_ref().unwrap_or_else(|| panic!("{} has no annotations", t.name));
+            let reindex = t.name == "reindex";
+            assert_eq!(a.read_only_hint, Some(!reindex), "{}", t.name);
+            assert_eq!(a.open_world_hint, Some(false), "{}", t.name);
+            if reindex {
+                assert_eq!((a.destructive_hint, a.idempotent_hint), (Some(false), Some(true)));
+            }
+        }
+    }
+
+    /// D78: the schema says what the server enforces: no other parameters.
+    #[test]
+    fn every_schema_refuses_other_parameters() {
+        for t in tools() {
+            assert_eq!(t.input_schema.get("additionalProperties"), Some(&json!(false)), "{}", t.name);
+        }
+    }
+
+    /// D78 (MCP spec): an unknown tool and an unknown resource are protocol
+    /// errors, code -32602 (Invalid Params); a tool's own failure stays a result.
+    #[test]
+    fn unknown_tools_and_resources_are_protocol_errors() {
+        let err = check_tool(&tools(), "read_tags").unwrap_err();
+        assert_eq!(err.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        assert!(err.message.contains("read_tags"), "{}", err.message);
+        assert!(check_tool(&tools(), "read_tag").is_ok());
+        let err = read_guide("h5tags://nothing").unwrap_err();
+        assert_eq!(err.code, rmcp::model::ErrorCode::INVALID_PARAMS);
+        assert!(read_guide(GUIDE_URI).is_ok());
     }
 }

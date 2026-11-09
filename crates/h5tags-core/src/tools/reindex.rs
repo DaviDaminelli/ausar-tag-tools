@@ -42,6 +42,8 @@ pub struct Reindex {
 
 impl Tool for Reindex {
     const NAME: &'static str = "reindex";
+    // It rewrites the index and caches (D78).
+    const READ_ONLY: bool = false;
 
     fn run(&self, s: &mut Session) -> Result<Output, ToolError> {
         let b = args::build_index(s, &self.build)?;
