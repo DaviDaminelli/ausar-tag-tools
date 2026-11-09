@@ -61,7 +61,7 @@ Measured on the two samples this was developed with, release build, Windows 11 (
 
 **Checks behind "reliable"**
 
-- Every tag copy of both samples read with its definition: all 62,976 Forge copies read completely (some with the harmless GUID label warning); of 58,846 Xbox copies, 19 in 5 classes don't fit their definitions, and those are reported as such, never misread.
+- Every tag copy of both samples read with its definition: all 62,976 Forge copies read completely (some with the harmless GUID label warning); of 58,846 Xbox copies, 19 in 5 classes don't fit their definitions: they are read only up to the last field their tag header confirms, the rest reported as not read, never misread. Where a fitting definition exists to compare (`wigl`), every value read that way matches it: 19,634 of 19,634.
 - "What references this tag" matches an independent pass over every target: 76,724 (Forge) and 68,184 (Xbox).
 - Values match what a player knows: the magazine sizes of the battle rifle, assault rifle, carbine and railgun, the battle rifle's 3-round burst, and the grenade limit (5 of 5). The answers in the table above were re-checked value by value against the tools.
 
@@ -192,7 +192,7 @@ The assistant and the command line have the same tools: over MCP they're named w
 | --------------------- | ---------------------------------------------------------------------------------------- |
 | `search-tags`         | Tags by part of their path, class or module                                              |
 | `browse`              | Tag paths as folders: subfolders and the tags in each                                    |
-| `list-classes`        | Every class, its tag count, and whether it has a definition                              |
+| `list-classes`        | Every class (also those with only a definition), its tag count; `query=` by code or name |
 | `list-modules`        | Every module and its status; the build's formats and latest game version                 |
 | `list-entries`        | File entries (tags, assets, other files) by kind and size, from the index only           |
 | `list-resource-kinds` | Every asset kind, with counts and total size                                             |
@@ -201,13 +201,13 @@ The assistant and the command line have the same tools: over MCP they're named w
 | `outline`             | The section tree of a tag or a class, with field paths and entry counts                  |
 | `search-definitions`  | Which classes and fields deal with something, across every definition                    |
 | `definition-status`   | How well the definitions fit each class's tags; the gap list for a class                 |
-| `find-references`     | What a tag references, and what references it (recursively if asked)                     |
+| `find-references`     | What a tag references, and what references it, with the fields (recursively if asked)    |
 | `tag-copies`          | Every copy of a tag across modules and update layers                                     |
 | `search-values`       | Tags holding a string_id name or a referenced tag's name                                 |
-| `query-field`         | One field across every tag of a class, with `filter=` and `sort=`                        |
-| `diff-tags`           | The fields that differ between two tags of a class                                       |
+| `query-field`         | One field across every tag of a class, with `filter=`, `sort=` and more fields (`also=`) |
+| `diff-tags`           | The fields that differ between two tags of a class; block entries matched by label       |
 | `map-tags`            | The tags a map loads (its load manifest)                                                 |
-| `which-maps`          | The maps that load a tag                                                                 |
+| `which-maps`          | The maps that load a tag (`module=` for some of them)                                    |
 | `reindex`             | Rebuilds the index or the caches (rarely needed: they update themselves)                 |
 | `identify`            | Command line only: what a folder of modules is, and a build name for it; needs no config |
 | `header-dump`         | Command line only: a tag's header lists as stored (for development)                      |

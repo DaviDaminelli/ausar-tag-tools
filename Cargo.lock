@@ -380,7 +380,7 @@ dependencies = [
 
 [[package]]
 name = "h5-defs"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "h5-module",
  "quick-xml",
@@ -389,7 +389,7 @@ dependencies = [
 
 [[package]]
 name = "h5-meta"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "h5-defs",
  "h5-module",
@@ -398,7 +398,7 @@ dependencies = [
 
 [[package]]
 name = "h5-module"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "flate2",
  "memmap2",
@@ -410,7 +410,7 @@ dependencies = [
 
 [[package]]
 name = "h5tags-cli"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "anstream",
  "clap",
@@ -422,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "h5tags-core"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "anstream",
  "anstyle",
@@ -443,7 +443,7 @@ dependencies = [
 
 [[package]]
 name = "h5tags-mcp"
-version = "0.1.0-alpha.1"
+version = "0.1.0-alpha.2"
 dependencies = [
  "clap",
  "h5tags-core",
