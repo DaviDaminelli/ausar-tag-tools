@@ -218,10 +218,16 @@ mod tests {
         o
     }
 
-    /// PRD §9a gives the exact text; the server sends exactly that.
+    /// PRD §9a gives the exact text; the server sends exactly that. Read at
+    /// run time: the release repository has no PRD (D79), and there the test
+    /// says so and checks nothing.
     #[test]
     fn the_instructions_are_the_prd_text() {
-        let prd = include_str!("../../../docs/PRD.md");
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/PRD.md");
+        let Ok(prd) = std::fs::read_to_string(path) else {
+            eprintln!("docs/PRD.md isn't here (a release repository): the instructions aren't compared");
+            return;
+        };
         let start = prd.find("1. **MCP server `instructions`**").unwrap();
         let block = &prd[start..];
         let open = block.find("```\n").unwrap() + 4;

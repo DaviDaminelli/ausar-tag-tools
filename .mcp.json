@@ -2,7 +2,7 @@
   "mcpServers": {
     "h5tags": {
       "command": "cargo",
-      "args": ["run", "-q", "--bin", "h5tags-mcp", "--", "--config", "h5tags.toml"]
+      "args": ["run", "-q", "--bin", "ausar-tag-mcp", "--", "--config", "h5tags.toml"]
     }
   }
 }
