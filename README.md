@@ -19,6 +19,28 @@ For reliability, results explain both the tags and their fields, so the agent do
 - **Tags:** what a tag stores besides its values (references to other tags, string IDs, data, resources, copies in update layers, load manifests) is shown and explained in plain words in the guide (`docs/AGENT_GUIDE.md`, built into the server).
 - **Limits:** every empty, missing or unreadable value is marked as such (`(empty)`, `(not in indexed modules)`, `!!`), and the server's instructions tell the agent not to report a failed read as a fact and to say when a conclusion is inference.
 
+## Guidelines followed
+
+Two references shaped the server: the [Model Context Protocol specification](https://modelcontextprotocol.io/specification/latest) and Anthropic's article [Writing effective tools for AI agents — with agents](https://www.anthropic.com/engineering/writing-tools-for-agents) (2025). What each asks, and what the tools do:
+
+**MCP specification**
+
+- **Instructions and resources:** a short text sent once per connection (19 lines: which tool for which question, and what the markers mean), and the full guide as a resource (`h5tags://guide`, Markdown).
+- **Tool schemas:** one JSON Schema per tool, generated from the same parameter types as the command line; a parameter the tool doesn't have is refused (`additionalProperties: false`), not ignored.
+- **Annotations:** every tool is marked as reading local files only (`readOnlyHint`, `openWorldHint: false`), except `reindex`, which rebuilds the tools' own index and caches.
+- **Errors:** a call that fails is a result with `isError` and a hint for the next step, so the agent can correct itself; an unknown tool or resource is a protocol error (Invalid Params).
+- **Not used:** structured output (`outputSchema`); `format=json` returns JSON as text.
+
+**Tool design (Anthropic's article)**
+
+- **Tools for questions, not one per operation:** `query_field` answers "this field in every tag of a class" and `diff_tags` "where do these two tags differ" in one call each, where reading tags one by one would take dozens; `find_references` follows references level by level with `recursive=true`.
+- **Meaningful context:** tag names next to global IDs, labels for tag block entries, block indices resolved to the entry they point to, and every marker explained in the guide.
+- **Token efficiency:** `offset` / `limit` on long lists, filters, `path=` and `section=` for one part of a tag, `depth=` and `detail=brief|normal|full`. A whole read above about 3,000 tokens returns the tag's outline instead and says what to read next.
+- **Errors that say what to do:** each error comes with a hint: the closest field names, a field's valid options, the filters it takes.
+- **Descriptions written for the agent:** what the tool does, an example, the usual next call; parameters list their valid values.
+- **Evaluation:** agent sessions on real questions (see Benchmarks); their transcripts and written reports were read point by point, and each change was checked on the game files ([docs/progress.md](docs/progress.md)).
+- **Not done:** a name prefix such as `h5tags_` (clients already put the server's name in front of each tool); evaluation run as a program over held-out task sets.
+
 ## Benchmarks
 
 Measured on the two samples this was developed with, release build, Windows 11 (no full game install measured yet):
