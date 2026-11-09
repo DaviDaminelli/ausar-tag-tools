@@ -63,8 +63,8 @@ Write-Host "Exported $($kept.Count) files of commit $commit (version $version) t
 Write-Host "Left out: $($excluded -join ', ')"
 if ($removed.Count -gt 0) { Write-Host "Deleted there: $($removed -join ', ')" }
 Write-Host ""
-Write-Host "Next, in $to :"
+Write-Host "Next, in $to (only files there: nothing is built in it):"
 Write-Host "  1. git status, and look at what changed"
 Write-Host "  2. git add -A; git commit -m `"Ausar Tag Tools $version`""
 Write-Host "  3. git tag v$version; git push; git push origin v$version"
-Write-Host "  4. .\dist\release.ps1 (builds the zip from that commit)"
+Write-Host "Then here: git tag v$version $commit; .\dist\release.ps1 (builds the zip; the code is the same)"
