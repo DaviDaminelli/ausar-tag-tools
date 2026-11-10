@@ -645,6 +645,9 @@ After the rerun (D64): `diff_tags` results with differences end with the candida
   - Not exercised on the full builds: cross-build `diff_tags` on a weapon (none differs); on `wigl` (definitions differ) 686 rows with the definitions hint (2,768 on the samples).
 - **M6 done** (steps 1–7, D81–D84). Open: how many of the 6,126 different tags are platform variants (D82).
 
+## M7: scripts (survey only, 2026-11-10; the milestone itself not started)
+- Survey `real_scripts_survey` (Forge and Xbox samples, debug, 1.4 s for every script copy of both builds, read through the definitions): `hsc*` 70 + 77 copies, all Lua source text (one trailing NUL, CRLF); `luas` 286 + 336 copies, all compiled, one 16-byte header in every copy; 0 unreadable. Tag names: source literals Forge 124 of 174 path-like resolve to one tag, Xbox 135 of 186 (the rest mostly campaign scenarios the samples lack); compiled strings (8-byte big-endian length, bytes, NUL) Forge 330 of 331, Xbox 471 of 472. Every script tag with several copies differs between them. Details in format-notes "Scripts".
+
 ## M5d: improvements from agent feedback (planned 2026-11-08, D67)
 Planned from two agent reports on the full Xbox build: reading through size mismatches (anchors), `outline` on any tag, instructions leading with the build-wide tools, `diff_tags` by label, field paths in `find_references(in)`, `list_classes(query=)`, `query_field(also=)`.
 - M5d widened (2026-11-08, D68) from a third report: 9 steps, starting with `query_field` filters (checked: `--filter "!= (none)"` on `weap.prototype script` returned all 118 weapons, every one `(none)`; a `/` tag path isn't found). Milestones after M6: M7 Scripts, M8 Text and reference resolution, M9 Research composites, M10 Bitmaps.
