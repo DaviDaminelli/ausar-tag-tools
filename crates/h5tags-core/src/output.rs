@@ -74,6 +74,8 @@ pub mod col {
     pub const GAP: Column = Column { header: "gap", key: "gap" };
     pub const GUID: Column = Column { header: "GUID", key: "guid" };
     pub const EXAMPLE: Column = Column { header: "example", key: "example" };
+    pub const LINE: Column = Column { header: "line", key: "line" };
+    pub const TEXT: Column = Column { header: "text", key: "text" };
 
     pub const ALL: &[Column] = &[
         GLOBAL_ID,
@@ -114,6 +116,8 @@ pub mod col {
         GAP,
         GUID,
         EXAMPLE,
+        LINE,
+        TEXT,
     ];
 }
 
@@ -312,6 +316,12 @@ pub enum Output {
     },
     /// A tag or definition read field by field (`read_tag`, PRD §7.2–§7.7).
     Tag(crate::view::TagView),
+    /// A tag line (and the lines under it), then one table of rows from that
+    /// tag (`read_script`): in JSON, the tag line's keys and the table's together.
+    Tagged {
+        tag: Box<crate::view::TagView>,
+        table: Table,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -641,6 +651,21 @@ impl Output {
             (Output::Tag(v), Format::Text) => v.render_lines(false),
             (Output::Tag(v), Format::Table) => v.render_lines(true),
             (Output::Tag(v), Format::Json) => pretty(&v.render_json()),
+            (Output::Tagged { tag, table }, Format::Text | Format::Table) => {
+                let mut out = tag.render_lines(false);
+                out.push_str(&match format {
+                    Format::Table => table.render_table(color),
+                    _ => table.render_text(),
+                });
+                out
+            }
+            (Output::Tagged { tag, table }, Format::Json) => {
+                let mut obj = tag.title_json.clone();
+                if let Value::Object(rows) = table.render_json() {
+                    obj.extend(rows);
+                }
+                pretty(&Value::Object(obj))
+            }
             (Output::Parts { build, parts }, Format::Json) => {
                 let mut obj = Map::new();
                 if let Some(b) = build {

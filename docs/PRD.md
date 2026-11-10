@@ -303,6 +303,10 @@ Two checks run for every struct field, tag block field and the main struct:
 - If all copies are identical: read any one; output says `copies: N (identical)`.
 - If copies differ: read the copy in the **latest layer**: the module whose name has the highest version (`…-rtx-<version>-<revision>.module`; the base `…-rtx-1.module` is the lowest). Between modules of the same version, the first by module path sorted ascending (ordinal, case-insensitive). Output says `copies: N (differ; reading <module>, the latest layer; use module= to choose)`; when `module=` chose another copy, without `, the latest layer`. Every tool uses this rule (§12 Q5, D58).
 
+#### 6.4.7 Scripts (M7, decisions D85, D86)
+
+- `read_script(tag, module?, build?, offset=0, limit=100)`: the script of an `hsc*` (`lua`) or `luas` (`lua_script`) tag, from its data field (`source file.source`, `luaFileData`; format-notes "Scripts"). The tag line as in §7.3, then a table: for source text (`hsc*`), one row per line (`line`, `text`), `total` = lines, trailing NULs removed, a line under the tag line when the text isn't UTF-8; for compiled Havok Script (`luas`), its 16 header bytes in the summary and one row per string it holds (`text`), with a hint that the code isn't decompiled. Another class is an error naming the script classes. Copy choice as §6.4.6; `module=` reads another layer.
+
 ### 6.5 Definitions and outline (`FR-4`)
 
 - `get_definition(class, path?, section?, depth=2, detail=normal, options=auto, show_hidden=false, confirm_large=false, format=text, build?)`: the schema from the definition only: fields, types, units, ranges, help, options, nesting, computed offsets (help and offsets at `detail=full`, decisions D37). No tag data. Whole reads have the same size guard as `read_tag` (§6.4.1), with the class's outline instead. Paths use §6.4.2 syntax; tag block fields are stepped into without an index (`[i]`/`[*]` are accepted and ignored). This is the **field dictionary**: definitions are not repeated inside `read_tag` output beyond what `detail` asks for.

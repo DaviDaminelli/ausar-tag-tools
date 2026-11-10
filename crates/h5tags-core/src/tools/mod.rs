@@ -18,6 +18,7 @@ mod lists;
 mod maps;
 pub mod present;
 mod query_field;
+mod read_script;
 mod read_tag;
 mod reindex;
 mod search;
@@ -36,6 +37,7 @@ pub use identify::Identify;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
 pub use maps::{MapTags, WhichMaps};
 pub use query_field::QueryField;
+pub use read_script::ReadScript;
 pub use read_tag::ReadTag;
 pub use reindex::{Reindex, What};
 pub use search::{Browse, SearchTags};
@@ -104,6 +106,7 @@ tools!(
     ListEntries,
     ListResourceKinds,
     ReadTag,
+    ReadScript,
     GetDefinition,
     Outline,
     SearchDefinitions,

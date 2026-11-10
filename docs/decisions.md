@@ -520,3 +520,11 @@ From the script survey (format-notes "Scripts"): `hsc*` holds Lua source text, `
 - **No decompiler in M7:** compiled scripts show their strings, which are enough for the tag names and the search. A decompiler, if the user brings one with a license that allows it, would be an optional external tool configured per build, its output marked as decompiled; not planned.
 - **Not in M7:** names without a path separator (often the last part of several tags; format-notes), plain `.lua` files outside the modules, bulk `find_references`.
 - **Done-when:** on both samples every `hsc*` and `luas` copy reads with no `!!`; `search_scripts` over every script under 1 s (release); the tag-name counts equal the survey's; a script that differs between layers shows its line diff; on the full Xbox build, `wargamesterminal.lua` names 21 tags that aren't indexed (the user's earlier research); a fresh agent session answers "which script handles X?" and "what changed in script Y between updates?".
+
+## D86. `read_script` (2026-11-10, M7 step 3)
+- **Output: the tag line, then one table** (a new output form, `Tagged`: `read_tag`'s tag line and the lines under it, then rows; in JSON the tag line's keys and the table's in one object). The tag line is `read_tag`'s own (copies, `in <build>:`), so a script's layer and build are visible as for any tag.
+- **Source:** one row per line, `line` (from 1) and `text`; `total` = lines; `str::lines` splits CRLF and LF alike. Only the page's lines are kept (D26). Default `limit` 100, as for other lists: about 550–900 tokens on the samples' scripts.
+- **Not UTF-8** (3 sample scripts per build): the text is shown with U+FFFD for the bytes that aren't UTF-8, and a line under the tag line says so; the encoding isn't guessed.
+- **Compiled:** `form: compiled`, the 16 header bytes in the summary (the only header length the samples show), one row per string in stored order, and a hint on every result that the code isn't decompiled, so the agent doesn't present strings as logic.
+- **Columns `line` and `text`**; both explained in the guide (§4.7), with the result, the encoding line and the hint (§4.6).
+- **No `path=`/`section=`:** paging by line is the only narrowing; `search_scripts` (step 5) finds the line.

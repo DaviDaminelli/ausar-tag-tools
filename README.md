@@ -219,6 +219,7 @@ The assistant and the command line have the same tools: over MCP they're named w
 | `list-entries`        | File entries (tags, assets, other files) by kind and size, from the index only           |
 | `list-resource-kinds` | Every asset kind, with counts and total size                                             |
 | `read-tag`            | A tag's fields: values, units, options; whole, or one `path=` or `section=`              |
+| `read-script`         | A script tag's script: Lua source by line, or the strings of compiled Havok Script       |
 | `get-definition`      | A class's fields from its definition: types, units, ranges, options, help                |
 | `outline`             | The section tree of a tag or a class, with field paths and entry counts                  |
 | `search-definitions`  | Which classes and fields deal with something, across every definition                    |

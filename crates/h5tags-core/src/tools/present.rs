@@ -117,6 +117,28 @@ pub fn other_copies_hint(modules: &[&str], shown: &str) -> String {
 }
 
 /// A tag copy that can't be read from its module file.
+/// `read_script`: a script that couldn't be read (D85).
+pub fn script_error(e: crate::script::ScriptError) -> ToolError {
+    use crate::script::ScriptError;
+    match e {
+        ScriptError::NotAScript => ToolError::new(e.to_string())
+            .hint("search_tags(class='hsc*') or search_tags(class='luas') lists the script tags"),
+        ScriptError::Read(r) => read_error(r),
+        ScriptError::Definition(d) => definition_error(d),
+        ScriptError::NoDefinition(class) => ToolError::new(no_definition(&class)),
+        ScriptError::Field { .. } => {
+            ToolError::new(e.to_string()).hint("definition_status(class=…) lists the class's gaps")
+        }
+    }
+}
+
+/// `read_script`: under the tag line of source that isn't UTF-8.
+pub const NOT_UTF8_LINE: &str = "encoding: not UTF-8 (other bytes shown as \u{fffd})";
+
+/// `read_script` on compiled code: what its rows are, and what they aren't.
+pub const COMPILED_HINT: &str = "compiled Havok Script: these are the strings it holds, in order (names, text, \
+     paths of other scripts and tags); its code isn't decompiled, so what it does with them isn't shown";
+
 pub fn read_error(e: ReadError) -> ToolError {
     let hint = match &e {
         ReadError::Open { .. } => "check the build's deploy folder; run reindex if modules were moved or removed",
