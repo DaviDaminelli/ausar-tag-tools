@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use super::args::{self, BuildArg, PageArgs};
 use super::{Tool, present};
-use crate::def_check::{GapKind, class_gaps, class_statuses, definition_check, known_guids};
+use crate::def_check::{GapKind, class_gaps, class_layouts, class_statuses, definition_check, known_guids};
 use crate::output::{Cell, Output, Summary, Table, ToolError, col};
 use crate::session::Session;
 
@@ -35,7 +35,7 @@ impl Tool for DefinitionStatus {
         let class = self.class.as_deref().map(|c| args::class_code(b, c)).transpose()?;
         let (check, built) = definition_check(b);
         let known = known_guids(b).map_err(present::definition_error)?;
-        let statuses = class_statuses(b, check, &known);
+        let statuses = class_statuses(b, &check, &known);
         let checked: usize =
             statuses.iter().filter(|st| class.is_none_or(|c| st.class.code == c)).map(|st| st.checked).sum();
         let mut summary =
@@ -94,28 +94,40 @@ impl Tool for DefinitionStatus {
                         code, info.name
                     ));
                 }
-                let gaps = class_gaps(check, code, &known);
+                // D80: the layouts above the table, not as gaps.
+                let layouts = class_layouts(&check, code);
+                if !layouts.is_empty() {
+                    summary.push(Summary {
+                        label: "layouts",
+                        key: "layouts",
+                        value: present::layouts_text(&layouts).into(),
+                    });
+                }
+                let gaps = class_gaps(b, &check, code, &known);
+                if gaps.is_empty() && info.definition.is_some() && checked > 0 {
+                    hints.push(format!("no gaps: every tag copy of {} read with its definition", info.name));
+                }
                 let rows: Vec<Vec<Cell>> = self
                     .page
                     .page(&gaps, 100)
                     .iter()
                     .map(|g| {
                         let guid = match g.kind {
-                            GapKind::Guid { guid, .. } | GapKind::MainStruct(guid) => guid_text(&guid).into(),
+                            GapKind::Guid { guid, .. } => guid_text(&guid).into(),
                             _ => Cell::Empty,
                         };
                         let example =
                             b.tag_by_id(g.example).map_or_else(|| g.example.to_string(), |t| b.display_name(t));
                         vec![
-                            present::gap_text(&g.kind).into(),
+                            present::gap_text(g).into(),
                             g.path.clone().into(),
                             guid,
-                            Cell::Int(g.tags as i64),
+                            format!("{} of {checked}", g.tags).into(),
                             example.into(),
                         ]
                     })
                     .collect();
-                (gaps.len(), vec![col::GAP, col::FIELD_PATH, col::GUID, col::TAGS, col::EXAMPLE], rows)
+                (gaps.len(), vec![col::GAP, col::FIELD_PATH, col::GUID, col::COPIES, col::EXAMPLE], rows)
             }
         };
         summary.extend(present::check_built(built));

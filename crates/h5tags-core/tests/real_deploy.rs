@@ -87,6 +87,6 @@ fn every_m1_tool_runs() {
         ListEntries { tag: Some(id.clone()), min_size: None, ..entries.clone() }.run(&mut s).unwrap();
     }
     println!("--- list_entries(tag) on {} sampled tags: ok", ids.len());
-    check(&mut s, "reindex index", &Reindex { what: What::Index, module: None, class: None, build: build() });
+    check(&mut s, "reindex index", &Reindex { what: What::Index, module: None, build: build() });
     std::fs::remove_dir_all(s.cache_dir()).unwrap();
 }

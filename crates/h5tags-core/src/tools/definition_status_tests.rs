@@ -1,6 +1,6 @@
 use super::*;
 use crate::output::Format;
-use crate::testdeploy::{TestDeploy, WEAPON, WEAPON_DEFINITION};
+use crate::testdeploy::{SecondCopy, TestDeploy, WEAPON, WEAPON_DEFINITION};
 
 fn status(d: &mut TestDeploy, class: Option<&str>) -> String {
     let t = DefinitionStatus { class: class.map(Into::into), build: BuildArg::default(), page: PageArgs::default() };
@@ -29,20 +29,39 @@ fn every_class_with_what_the_check_found() {
     assert!(status(&mut d, None).starts_with("total: 2  tag copies checked: 1  classes without a definition: 1\n"));
 }
 
-/// D33: with class=, the gap list: each mismatch with its field path, GUID,
-/// tag count and an example tag; then the main struct GUIDs.
+/// D33, D80: with class=, the gap list: each mismatch with its field path,
+/// GUID, how many of the class's copies have it, and an example tag; the
+/// class's layouts (main struct GUIDs) above, not as gaps.
 #[test]
 fn a_class_lists_its_gaps() {
     let xml = WEAPON_DEFINITION.replace("02020202-0202-0202-0202-020202020202", "03030303-0303-0303-0303-030303030303");
     let mut d = TestDeploy::with_definition("status-class", &xml);
     let text = status(&mut d, Some("weap"));
     let lines: Vec<&str> = text.lines().collect();
-    assert!(lines[0].starts_with("total: 2  tag copies checked: 1"), "{text}");
-    assert_eq!(lines[1], "gap\tfield path\tGUID\ttags\texample");
-    let guid = h5_defs::definition::guid_text(&[2; 16]);
-    assert_eq!(lines[2], format!("GUID (in no definition)\tentries\t{guid}\t1\t{WEAPON}"));
     let main = h5_defs::definition::guid_text(&[1; 16]);
-    assert_eq!(lines[3], format!("main struct\t\t{main}\t1\t{WEAPON}"));
+    assert!(lines[0].starts_with(&format!("total: 1  tag copies checked: 1  layouts: {main} (1 copy)")), "{text}");
+    assert_eq!(lines[1], "gap\tfield path\tGUID\tcopies\texample");
+    let guid = h5_defs::definition::guid_text(&[2; 16]);
+    assert_eq!(lines[2], format!("GUID (in no definition)\tentries\t{guid}\t1 of 1\t{WEAPON}"));
+    assert_eq!(lines.len(), 3, "{text}");
+}
+
+/// D80: a class with nothing wrong says so, instead of a one-row table.
+#[test]
+fn a_class_without_gaps_says_so() {
+    let mut d = TestDeploy::new("status-clean");
+    let text = status(&mut d, Some("weap"));
+    assert!(text.starts_with("total: 0  tag copies checked: 1  layouts: "), "{text}");
+    assert!(text.contains("\nhint: no gaps: every tag copy of weapon read with its definition\n"), "{text}");
+}
+
+/// D80: a gap no copy read by default has (an older layer's) says so.
+#[test]
+fn a_gap_in_older_layers_only_says_so() {
+    let xml = WEAPON_DEFINITION.replace("</plugin>", "\t<_field_long_integer name=\"extra\" />\n</plugin>");
+    let mut d = TestDeploy::with_layers_and_definition("status-layers", SecondCopy::Grown, &xml);
+    let text = status(&mut d, Some("weap"));
+    assert!(text.contains(&format!("\nsize (older layers only)\t\t\t1 of 2\t{WEAPON}\n")), "{text}");
 }
 
 /// A class without a definition has nothing checked: said, not an error.

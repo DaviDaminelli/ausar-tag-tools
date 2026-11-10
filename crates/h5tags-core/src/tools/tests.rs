@@ -375,8 +375,7 @@ fn tag_arguments() {
 #[test]
 fn reindex_reports_text_and_json_from_one_report() {
     let mut s = session();
-    let out =
-        Reindex { what: What::Results, module: None, class: None, build: BuildArg::default() }.run(&mut s).unwrap();
+    let out = Reindex { what: What::Results, module: None, build: BuildArg::default() }.run(&mut s).unwrap();
     let Output::Report { items, .. } = &out else { panic!("expected a report") };
     assert_eq!(items[0].key, "results");
     // Both renderings come from the same items (no cache file here: nothing dropped).

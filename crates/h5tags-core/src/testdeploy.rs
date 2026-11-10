@@ -49,6 +49,9 @@ pub enum SecondCopy {
     Identical,
     /// Its `count` differs.
     Changed,
+    /// Its main struct is 4 bytes longer (zeros after `count`): a layout
+    /// that changed in an update.
+    Grown,
 }
 
 pub struct TestDeploy {
@@ -120,6 +123,11 @@ impl TestDeploy {
         TestDeploy::build(name, Options { definition, ..Options::default() })
     }
 
+    /// Both: a second copy, and `definition`.
+    pub fn with_layers_and_definition(name: &str, second: SecondCopy, definition: &str) -> TestDeploy {
+        TestDeploy::build(name, Options { second, definition, ..Options::default() })
+    }
+
     fn build(name: &str, o: Options<'_>) -> TestDeploy {
         let Options { second, tag_cache_bytes, counts, map, definition } = o;
         let dir = TempDir::new(&format!("core-{name}"));
@@ -154,6 +162,9 @@ impl TestDeploy {
         if second != SecondCopy::None {
             if second == SecondCopy::Changed {
                 tag.blocks[0][0x5C..0x60].copy_from_slice(&9i32.to_le_bytes());
+            }
+            if second == SecondCopy::Grown {
+                tag.blocks[0].extend([0u8; 4]);
             }
             let (header, tag_data) = build_tag(&tag);
             let mut copy = TestEntry::tag(WEAPON, WEAPON_ID, "weap", &tag_data);

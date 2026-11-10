@@ -6,11 +6,11 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use h5_defs::definition::{Definition, Field};
-use h5_meta::{Body, Content, Problem};
+use h5_meta::{Body, Content, Divergence, Problem};
 use h5_module::cache::{CacheFile, in_parallel};
 use h5_module::index::{EntryKind, FileStamp, UpdateReport};
 use h5_module::tag::{StructKind, TagHeader};
@@ -18,6 +18,7 @@ use h5_module::{FourCc, GlobalId, Module, ModuleError, Section, map_file};
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{Build, ClassInfo};
+use crate::query::choose_copy;
 use crate::stored::DefinitionLoadError;
 
 /// What reading one tag copy with its class's definition found.
@@ -33,10 +34,59 @@ pub struct TagCheck {
     /// (field path, the tag's GUID) where it isn't the definition's. Each once.
     pub guid_mismatches: Vec<(String, [u8; 16])>,
     /// Other places reading stopped, and places the definition and the
-    /// header's lists disagree (PRD §9 check 1).
-    pub other_problems: u32,
+    /// header's lists disagree (PRD §9 check 1), named (D80). Each once.
+    pub other: Vec<OtherProblem>,
     /// Why the tag couldn't be read at all.
     pub unreadable: Option<String>,
+}
+
+/// D80: where a definition and a tag disagree other than in size or GUID.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct OtherProblem {
+    /// Field path (`[*]` for entries); empty for the main struct, or for a
+    /// header list entry no field reaches (it has no field).
+    pub path: String,
+    pub kind: OtherKind,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum OtherKind {
+    /// Reading stopped at a field type the reader doesn't know (its name).
+    UnknownType(String),
+    /// Reading stopped at a field whose size can't be computed.
+    UnknownSize,
+    /// A tag block with entries, but no data block in the header.
+    NoDataBlock,
+    /// The definition places data past the end of its data block.
+    OutOfBounds,
+    /// The definition places a tag reference, tag block or data reference
+    /// (which) where the header lists none.
+    NotInList(String),
+    /// The header lists one (which) that no field of the definition reaches.
+    Unreached(String),
+}
+
+/// `path` with its entry indices as `[*]` (`entries[1].target` → `entries[*].target`),
+/// so a problem in every entry counts once per tag.
+fn every_entry(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut rest = path;
+    while let Some(open) = rest.find('[') {
+        let (before, after) = rest.split_at(open);
+        out.push_str(before);
+        match after.find(']') {
+            Some(close) if after[1..close].bytes().all(|c| c.is_ascii_digit()) && close > 1 => {
+                out.push_str("[*]");
+                rest = &after[close + 1..];
+            }
+            _ => {
+                out.push('[');
+                rest = &after[1..];
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The check of one module's tags.
@@ -58,8 +108,9 @@ pub struct DefinitionCheck {
 }
 
 /// Bump `format` when the check's types change shape, or what a read finds
-/// (2: main structs of another size are read in part, D70).
-const CACHE: CacheFile = CacheFile { magic: b"H5TAGCHK", format: 2, what: "definition check" };
+/// (2: main structs of another size are read in part, D70; 3: other problems
+/// named, D80).
+const CACHE: CacheFile = CacheFile { magic: b"H5TAGCHK", format: 3, what: "definition check" };
 
 /// The definition files of the build's classes, as they are now.
 fn current_definitions(b: &Build) -> HashMap<&Path, FileStamp> {
@@ -78,12 +129,27 @@ fn note(problem: Option<&Problem>, guid: Option<[u8; 16]>, path: &str, t: &mut T
         }
         // Past the last confirmed anchor: part of the main struct's size mismatch (D70).
         Some(Problem::SizeMismatch { .. } | Problem::Unconfirmed { .. }) | None => {}
-        Some(_) => t.other_problems += 1,
+        Some(other) => {
+            let kind = match other {
+                Problem::UnknownType { type_name, .. } => OtherKind::UnknownType(type_name.clone()),
+                Problem::UnknownSize { .. } => OtherKind::UnknownSize,
+                Problem::NoDataBlock => OtherKind::NoDataBlock,
+                _ => OtherKind::OutOfBounds,
+            };
+            add_other(t, path, kind);
+        }
     }
     if let Some(g) = guid
         && !t.guid_mismatches.iter().any(|(p, x)| p == path && *x == g)
     {
         t.guid_mismatches.push((path.to_owned(), g));
+    }
+}
+
+/// Records an other problem at `path`, once per tag (D80).
+fn add_other(t: &mut TagCheck, path: &str, kind: OtherKind) {
+    if !t.other.iter().any(|o| o.path == path && o.kind == kind) {
+        t.other.push(OtherProblem { path: path.to_owned(), kind });
     }
 }
 
@@ -124,7 +190,14 @@ fn check_tag(module: &Module<'_>, entry: u32, t: &mut TagCheck, definition: &Def
     };
     t.main_guid = header.tag_structs.iter().find(|s| s.kind == StructKind::Main).map(|s| s.guid);
     let tag = h5_meta::read_tag(definition, &header, &data);
-    t.other_problems += tag.divergences.len() as u32;
+    for d in &tag.divergences {
+        match d {
+            Divergence::NotInList { what, path } => {
+                add_other(t, &every_entry(path), OtherKind::NotInList((*what).into()))
+            }
+            Divergence::Unreached { what, .. } => add_other(t, "", OtherKind::Unreached((*what).into())),
+        }
+    }
     walk(&tag.root, &mut String::new(), t);
 }
 
@@ -157,7 +230,7 @@ fn check_chunk(b: &Build, chunk: &Chunk) -> Result<Vec<TagCheck>, ModuleError> {
             main_guid: None,
             size_mismatches: Vec::new(),
             guid_mismatches: Vec::new(),
-            other_problems: 0,
+            other: Vec::new(),
             unreadable: None,
         };
         match definition {
@@ -284,11 +357,20 @@ impl DefinitionCheck {
     }
 }
 
-/// A build's definition check: where it is cached, and the check once loaded or built.
+/// A build's definition check: where it is cached, and the check once loaded
+/// or built (kept while the definition files it used are unchanged, D80).
 #[derive(Default)]
 pub struct CheckSlot {
     pub(crate) cache: Option<PathBuf>,
-    check: OnceLock<DefinitionCheck>,
+    check: Mutex<Option<Arc<DefinitionCheck>>>,
+}
+
+impl DefinitionCheck {
+    /// Whether every definition file each module was checked with is unchanged
+    /// (`current`: the build's definition files as they are now).
+    fn fresh(&self, current: &HashMap<&Path, FileStamp>) -> bool {
+        self.modules.iter().all(|m| m.definitions.iter().all(|(p, s)| current.get(p.as_path()) == Some(s)))
+    }
 }
 
 /// What building the check took, when a call had to.
@@ -301,29 +383,38 @@ pub struct CheckBuilt {
 
 /// The definition check of `b`: loaded (and brought up to date) or built on
 /// the first call, then kept; `CheckBuilt` when this call had to check modules.
-pub fn definition_check(b: &Build) -> (&DefinitionCheck, Option<CheckBuilt>) {
+pub fn definition_check(b: &Build) -> (Arc<DefinitionCheck>, Option<CheckBuilt>) {
+    let mut slot = b.check.check.lock().unwrap_or_else(PoisonError::into_inner);
+    // D80: a definition file edited while the session runs is noticed here
+    // (one stat per definition file); only the modules that used it are read again.
+    let current = current_definitions(b);
+    if let Some(check) = slot.as_ref().filter(|c| c.fresh(&current)) {
+        return (check.clone(), None);
+    }
+    let previous = match slot.take() {
+        Some(kept) => Some(Arc::unwrap_or_clone(kept)),
+        None => b.check.cache.as_deref().and_then(DefinitionCheck::load),
+    };
+    let (check, report) = DefinitionCheck::update(b, previous, &|_| false);
     let mut built = None;
-    let check = b.check.check.get_or_init(|| {
-        let previous = b.check.cache.as_deref().and_then(DefinitionCheck::load);
-        let (check, report) = DefinitionCheck::update(b, previous, &|_| false);
-        if report.read > 0 || report.removed > 0 {
-            built = Some(CheckBuilt { tags: check.tags().count(), elapsed: report.elapsed });
-            if let Some(path) = &b.check.cache
-                && let Err(e) = check.save(path)
-            {
-                tracing::warn!(cache = %path.display(), error = %e, "couldn't save the definition check");
-            }
+    if report.read > 0 || report.removed > 0 {
+        built = Some(CheckBuilt { tags: check.tags().count(), elapsed: report.elapsed });
+        if let Some(path) = &b.check.cache
+            && let Err(e) = check.save(path)
+        {
+            tracing::warn!(cache = %path.display(), error = %e, "couldn't save the definition check");
         }
-        tracing::info!(build = %b.name, ?report, "definition check ready");
-        check
-    });
+    }
+    tracing::info!(build = %b.name, ?report, "definition check ready");
+    let check = Arc::new(check);
+    *slot = Some(check.clone());
     (check, built)
 }
 
 /// `reindex(what=results)` (PRD §6.9): drops the check, and the cached checks
 /// of the modules whose path matches `force`. Returns how many were dropped.
 pub fn forget_definition_check(b: &mut Build, force: &dyn Fn(&str) -> bool) -> usize {
-    b.check.check = OnceLock::new();
+    *b.check.check.get_mut().unwrap_or_else(PoisonError::into_inner) = None;
     let Some(path) = b.check.cache.clone() else { return 0 };
     let Some(mut cached) = DefinitionCheck::load(&path) else { return 0 };
     let before = cached.modules.len();
@@ -359,6 +450,9 @@ pub struct ClassStatus<'b> {
     pub unreadable: usize,
     /// Tag copies with a size mismatch, a GUID mismatch, another problem.
     pub size_tags: usize,
+    /// Of `size_tags`, the copies read by default (D58, each tag's latest
+    /// layer): 0 = the size gap is in older layers only (D80).
+    pub size_in_default: usize,
     pub guid_tags: usize,
     pub other_tags: usize,
     /// Distinct mismatching GUIDs that no definition names.
@@ -371,38 +465,71 @@ impl ClassStatus<'_> {
     pub fn has_gaps(&self) -> bool {
         self.class.definition.is_none() || self.unreadable + self.size_tags + self.guid_tags + self.other_tags > 0
     }
+
+    /// The overview's order (D80), by what can be acted on: 0 the definition
+    /// doesn't fit the copies read by default (or a copy can't be read); 1 no
+    /// definition; 2 other problems; 3 GUIDs no definition names; 4 size gaps
+    /// in older layers only; 5 GUID-only differences; 6 nothing.
+    pub fn rank(&self) -> u8 {
+        if self.unreadable + self.size_in_default > 0 {
+            0
+        } else if self.class.definition.is_none() {
+            1
+        } else if self.other_tags > 0 {
+            2
+        } else if self.unknown_guids > 0 {
+            3
+        } else if self.size_tags > 0 {
+            4
+        } else if self.guid_tags > 0 {
+            5
+        } else {
+            6
+        }
+    }
 }
 
-/// Every indexed class, those with gaps first, then by class code.
+/// Whether the copy of tag `id` in module `rel_path` is the one read by
+/// default (D58: the tag's latest layer).
+fn read_by_default(b: &Build, rel_path: &str, id: GlobalId) -> bool {
+    b.tag_by_id(id).and_then(|t| choose_copy(b, t, None)).is_some_and(|c| b.module(c).rel_path == rel_path)
+}
+
+/// Every indexed class, by [`ClassStatus::rank`], then by class code.
 pub fn class_statuses<'b>(b: &'b Build, check: &DefinitionCheck, known: &HashSet<[u8; 16]>) -> Vec<ClassStatus<'b>> {
     #[derive(Default)]
     struct Acc {
-        counts: [usize; 5],
+        counts: [usize; 6],
         layouts: HashSet<[u8; 16]>,
         unknown: HashSet<[u8; 16]>,
     }
     let mut acc: HashMap<FourCc, Acc> = HashMap::new();
-    for t in check.tags() {
-        let a = acc.entry(t.class).or_default();
-        a.counts[0] += 1;
-        a.counts[1] += usize::from(t.unreadable.is_some());
-        a.counts[2] += usize::from(!t.size_mismatches.is_empty());
-        a.counts[3] += usize::from(!t.guid_mismatches.is_empty());
-        a.counts[4] += usize::from(t.other_problems > 0);
-        a.layouts.extend(t.main_guid);
-        a.unknown.extend(t.guid_mismatches.iter().map(|(_, g)| *g).filter(|g| !known.contains(g)));
+    for m in &check.modules {
+        for t in &m.tags {
+            let a = acc.entry(t.class).or_default();
+            let size = !t.size_mismatches.is_empty();
+            a.counts[0] += 1;
+            a.counts[1] += usize::from(t.unreadable.is_some());
+            a.counts[2] += usize::from(size);
+            a.counts[3] += usize::from(size && read_by_default(b, &m.rel_path, t.global_id));
+            a.counts[4] += usize::from(!t.guid_mismatches.is_empty());
+            a.counts[5] += usize::from(!t.other.is_empty());
+            a.layouts.extend(t.main_guid);
+            a.unknown.extend(t.guid_mismatches.iter().map(|(_, g)| *g).filter(|g| !known.contains(g)));
+        }
     }
     let mut out: Vec<ClassStatus<'b>> = b
         .classes
         .values()
         .map(|class| {
             let a = acc.remove(&class.code).unwrap_or_default();
-            let [checked, unreadable, size_tags, guid_tags, other_tags] = a.counts;
+            let [checked, unreadable, size_tags, size_in_default, guid_tags, other_tags] = a.counts;
             ClassStatus {
                 class,
                 checked,
                 unreadable,
                 size_tags,
+                size_in_default,
                 guid_tags,
                 other_tags,
                 unknown_guids: a.unknown.len(),
@@ -410,7 +537,8 @@ pub fn class_statuses<'b>(b: &'b Build, check: &DefinitionCheck, known: &HashSet
             }
         })
         .collect();
-    out.sort_by_key(|s| !s.has_gaps());
+    // Stable: by class code within a rank.
+    out.sort_by_key(ClassStatus::rank);
     out
 }
 
@@ -424,8 +552,9 @@ pub enum GapKind {
         guid: [u8; 16],
         known: bool,
     },
-    /// A main struct GUID of the class (a layout fingerprint, listed for every class).
-    MainStruct([u8; 16]),
+    /// Reading stopped for another reason, or the definition and the tag
+    /// header disagree (D80).
+    Other(OtherKind),
 }
 
 /// One kind of gap at one field path, over a class's tag copies.
@@ -434,48 +563,68 @@ pub struct Gap {
     pub kind: GapKind,
     /// Empty for the main struct.
     pub path: String,
+    /// Tag copies with it.
     pub tags: usize,
+    /// Of those, the copies read by default (each tag's latest layer, D58):
+    /// 0 = only older layers have it (D80).
+    pub default_copies: usize,
     /// The first tag copy found with it.
     pub example: GlobalId,
 }
 
-/// `class`'s gaps: unreadable tags, size mismatches, GUID mismatches (each
-/// by field path), then its main struct GUIDs, most used first.
-pub fn class_gaps<'c>(check: &'c DefinitionCheck, class: FourCc, known: &HashSet<[u8; 16]>) -> Vec<Gap> {
-    // (kind order, path, reason, GUID) → (tags, example), borrowed from the
-    // check: text is copied once per gap, not per tag (D26).
-    type Key<'c> = (u8, &'c str, &'c str, [u8; 16]);
-    let mut found: BTreeMap<Key<'c>, (usize, GlobalId)> = BTreeMap::new();
-    let mut count = |key: Key<'c>, id: GlobalId| found.entry(key).or_insert((0, id)).0 += 1;
-    for t in check.tags().filter(|t| t.class == class) {
-        if let Some(why) = &t.unreadable {
-            count((0, "", why, [0; 16]), t.global_id);
-        }
-        for p in &t.size_mismatches {
-            count((1, p, "", [0; 16]), t.global_id);
-        }
-        for (p, g) in &t.guid_mismatches {
-            count((2, p, "", *g), t.global_id);
-        }
-        if let Some(g) = t.main_guid {
-            count((3, "", "", g), t.global_id);
+/// `class`'s gaps: unreadable tags, size mismatches, other problems, GUID
+/// mismatches, each by field path.
+pub fn class_gaps<'c>(b: &Build, check: &'c DefinitionCheck, class: FourCc, known: &HashSet<[u8; 16]>) -> Vec<Gap> {
+    // (kind order, path, reason, GUID, other kind) → (tags, default copies,
+    // example), borrowed from the check: text is copied once per gap, not per tag (D26).
+    type Key<'c> = (u8, &'c str, &'c str, [u8; 16], Option<&'c OtherKind>);
+    let mut found: BTreeMap<Key<'c>, (usize, usize, GlobalId)> = BTreeMap::new();
+    for m in &check.modules {
+        for t in m.tags.iter().filter(|t| t.class == class) {
+            let default = usize::from(read_by_default(b, &m.rel_path, t.global_id));
+            let mut count = |key: Key<'c>| {
+                let slot = found.entry(key).or_insert((0, 0, t.global_id));
+                slot.0 += 1;
+                slot.1 += default;
+            };
+            if let Some(why) = &t.unreadable {
+                count((0, "", why, [0; 16], None));
+            }
+            for p in &t.size_mismatches {
+                count((1, p, "", [0; 16], None));
+            }
+            for o in &t.other {
+                count((2, &o.path, "", [0; 16], Some(&o.kind)));
+            }
+            for (p, g) in &t.guid_mismatches {
+                count((3, p, "", *g, None));
+            }
         }
     }
-    let mut gaps: Vec<Gap> = found
+    found
         .into_iter()
-        .map(|((order, path, why, guid), (tags, example))| {
-            let kind = match order {
-                0 => GapKind::Unreadable(why.to_owned()),
-                1 => GapKind::Size,
-                2 => GapKind::Guid { guid, known: known.contains(&guid) },
-                _ => GapKind::MainStruct(guid),
+        .map(|((order, path, why, guid, other), (tags, default_copies, example))| {
+            let kind = match (order, other) {
+                (0, _) => GapKind::Unreadable(why.to_owned()),
+                (1, _) => GapKind::Size,
+                (2, Some(o)) => GapKind::Other(o.clone()),
+                _ => GapKind::Guid { guid, known: known.contains(&guid) },
             };
-            Gap { kind, path: path.to_owned(), tags, example }
+            Gap { kind, path: path.to_owned(), tags, default_copies, example }
         })
-        .collect();
-    // Main struct GUIDs: most used first (stable, so the others keep their order).
-    gaps.sort_by_key(|g| if matches!(g.kind, GapKind::MainStruct(_)) { usize::MAX - g.tags } else { 0 });
-    gaps
+        .collect()
+}
+
+/// `class`'s layouts (D80, apart from its gaps): each main struct GUID its
+/// tag copies have, with how many have it, most used first.
+pub fn class_layouts(check: &DefinitionCheck, class: FourCc) -> Vec<([u8; 16], usize)> {
+    let mut counts: HashMap<[u8; 16], usize> = HashMap::new();
+    for g in check.tags().filter(|t| t.class == class).filter_map(|t| t.main_guid) {
+        *counts.entry(g).or_default() += 1;
+    }
+    let mut out: Vec<([u8; 16], usize)> = counts.into_iter().collect();
+    out.sort_by(|a, z| z.1.cmp(&a.1).then(a.0.cmp(&z.0)));
+    out
 }
 
 #[cfg(test)]

@@ -102,7 +102,7 @@ fn full_builds_from_their_caches() {
                     *m.entry(t.class).or_default() += 1;
                     m
                 });
-            let other = all_tags.iter().filter(|t| t.other_problems > 0 || t.unreadable.is_some()).count();
+            let other = all_tags.iter().filter(|t| !t.other.is_empty() || t.unreadable.is_some()).count();
             let guid = all_tags.iter().filter(|t| !t.guid_mismatches.is_empty()).count();
             println!(
                 "definition check: {} modules, {} copies; size mismatches {} copies in {} classes: {}; GUID mismatches {guid}; other problems {other}",

@@ -341,15 +341,33 @@ pub fn check_built(b: Option<crate::def_check::CheckBuilt>) -> Option<crate::out
 }
 
 /// A gap of `definition_status(class=)`, as its `gap` column says it.
-pub fn gap_text(kind: &crate::def_check::GapKind) -> String {
-    use crate::def_check::GapKind;
-    match kind {
+pub fn gap_text(gap: &crate::def_check::Gap) -> String {
+    use crate::def_check::{GapKind, OtherKind};
+    let text = match &gap.kind {
         GapKind::Unreadable(why) => format!("unreadable: {why}"),
         GapKind::Size => "size".into(),
         GapKind::Guid { known: true, .. } => "GUID".into(),
         GapKind::Guid { known: false, .. } => "GUID (in no definition)".into(),
-        GapKind::MainStruct(_) => "main struct".into(),
-    }
+        GapKind::Other(OtherKind::UnknownType(t)) => format!("other: unknown field type {t}"),
+        GapKind::Other(OtherKind::UnknownSize) => "other: field size unknown".into(),
+        GapKind::Other(OtherKind::NoDataBlock) => "other: tag block with entries but no data block".into(),
+        GapKind::Other(OtherKind::OutOfBounds) => "other: data past the end of its data block".into(),
+        GapKind::Other(OtherKind::NotInList(what)) => format!("other: {what} not in the tag header's lists"),
+        GapKind::Other(OtherKind::Unreached(what)) => format!("other: {what} in the tag header reached by no field"),
+    };
+    // D80: no copy read by default has it: only older layers do.
+    if gap.default_copies == 0 { format!("{text} (older layers only)") } else { text }
+}
+
+/// `definition_status(class=)`'s `layouts:` line: each main struct GUID and its copies (D80).
+pub fn layouts_text(layouts: &[([u8; 16], usize)]) -> String {
+    let each: Vec<String> = layouts
+        .iter()
+        .map(|(g, n)| {
+            format!("{} ({n} {})", h5_defs::definition::guid_text(g), if *n == 1 { "copy" } else { "copies" })
+        })
+        .collect();
+    each.join(", ")
 }
 
 /// A `query_field` `also` path that reaches no value in a row's tag (D75):

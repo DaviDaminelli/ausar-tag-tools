@@ -211,7 +211,7 @@ resource_defs = 'C:\...\H5Tags\tag_resources'
 - **Asset data is never read unless a call needs its contents.** Reading a tag decompresses only its header and tag data sections; its resource data section and resource file entries stay untouched (only `view_bitmap` / `export_bitmap` read them, §6.8).
 - Class names come from the tags' own file names (`<tag path>.<class name>`, §5.1; every tag in the sample modules has one, and each class code always has the same name). Fallback if a class's tags have no suffix: the definition file name (§5.3), then the class code. A class's definition is found by code, then by class name (§5.3).
 - **Header scan** (second stage, builds the reverse reference index and the string index): reads every tag copy's header and tag data sections (never resource data) and stores its dependency list, the global ID and class of every non-null tag reference field (from the tag data: the only exact source for references without a dependency entry, Q12), and its string table. Rebuilt per module when a module changes, like the index (decisions D50). Run on the first call that needs it (`find_references` with `in`/`both`, `search_values`, `tag_copies`), then cache it to disk next to the index. That first call MAY take a long time; its result says `(header scan built: N tags, T s)`.
-- `reindex(what=all|index|header_scan|results, module?, class?, build?)`: forces a rebuild, for when the automatic checks aren't enough (e.g. a file was replaced with the same size and time).
+- `reindex(what=all|index|header_scan|results, module?, build?)`: forces a rebuild, for when the automatic checks aren't enough (e.g. a file was replaced with the same size and time).
   - `what`: `index` = module file lists (§6.2 first stage); `header_scan` = the header scan; `results` = the results cache (§6.9); `all` = everything.
   - `module`: only modules whose path contains this (case-insensitive). `class`: only tags of this class (for `header_scan` and `results`).
   - Returns what was rebuilt (modules, tags, cached results dropped) and how long it took. `header_scan` and `results` rebuild lazily: they're dropped now and rebuilt on the next call that needs them.
@@ -314,6 +314,7 @@ Two checks run for every struct field, tag block field and the main struct:
   - struct GUIDs found in no definition, each with its class and field path;
   - each class's main struct GUID (one per class, a layout fingerprint, `docs/format-notes.md` "GUIDs"), so a class whose layout differs between builds shows up.
   The list can be exported with `format=json` for that work.
+  - Since decisions D80: the overview lists classes in the order to fix them (the definition doesn't fit the copies read by default, no definition, other problems, GUIDs in no definition, size gaps in older layers only, GUID-only differences, clean); with `class`, each gap says how many of the class's copies have it (`8 of 9`) and `(older layers only)` when no copy read by default has it; other problems are named with their field path; the main struct GUIDs are a `layouts:` line above the gaps, not gap rows. A definition file changed while the server runs is noticed on the next call, and only the modules that used it are checked again.
 
 ### 6.6 Analysis (`FR-5`)
 
