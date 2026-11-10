@@ -6,9 +6,10 @@
 
 use h5_module::FourCc;
 
-use crate::catalog::{Build, Tag};
+use crate::catalog::{Build, Copy, Tag};
 use crate::query::choose_copy;
 use crate::references::ScanIndex;
+use crate::stored::{ReadError, read_stored_tag};
 
 /// Where a tag stands between build A and build B; also the rows' order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -82,6 +83,19 @@ pub fn compare_builds<'b>(
     }
     out.rows.sort_by_key(|r| (r.status, r.tag.class));
     out
+}
+
+/// One tag (its copy `copy` in build `a`) against build `b` (D84): `Same` or
+/// `Different` by tag data, as [`compare_builds`] compares, with `b`'s copy
+/// read by default; `OnlyInA` if `b` has no tag with its global ID. Both
+/// copies are read (from the tag cache when there), not the header scans:
+/// the tag line doesn't wait for a scan.
+pub fn tag_in_other_build(a: &Build, tag: &Tag, copy: Copy, b: &Build) -> Result<Status, ReadError> {
+    let Some(other) = b.tag_by_id(tag.global_id).and_then(|u| choose_copy(b, u, None)) else {
+        return Ok(Status::OnlyInA);
+    };
+    let (x, y) = (read_stored_tag(a, copy)?, read_stored_tag(b, other)?);
+    Ok(if x.tag_data == y.tag_data { Status::Same } else { Status::Different })
 }
 
 #[cfg(test)]

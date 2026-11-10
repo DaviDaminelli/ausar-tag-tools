@@ -7,11 +7,12 @@ use serde::Deserialize;
 use serde_json::{Map, json};
 
 use super::Tool;
-use super::args::{self, BuildArg};
+use super::args::{self, BuildArg, TagCopy};
 use super::present::{self, GUARD_OUTLINE_DEPTH};
-use crate::catalog::{Build, Copy, Tag};
+use crate::catalog::Build;
+use crate::compare::{Status, tag_in_other_build};
 use crate::def_view::outline_tag;
-use crate::output::{Output, ToolError, format_size};
+use crate::output::{Output, ToolError, format_size, marker};
 use crate::query::choose_copy;
 use crate::session::Session;
 use crate::stored::{Identity, copy_identity, load_definition, read_stored_tag};
@@ -70,8 +71,10 @@ pub struct ReadTag {
     pub build: BuildArg,
 }
 
-/// The tag line (PRD §7.3) and its JSON form.
-pub(super) fn title(b: &Build, tag: &Tag, copy: Copy, identity: Identity, detail: Detail, view: &mut TagView) {
+/// The tag line (PRD §7.3) and its JSON form; `builds`: the session's builds,
+/// each other one compared with the copy read (D84).
+pub(super) fn title(builds: &[Build], t: &TagCopy<'_>, identity: Identity, detail: Detail, view: &mut TagView) {
+    let (b, tag, copy) = (t.build, t.tag, t.copy);
     let name = b.display_name(tag);
     let mut line = format!("# {} {name}  {}  build={}", tag.class, tag.global_id, b.name);
     let mut json = Map::new();
@@ -79,6 +82,20 @@ pub(super) fn title(b: &Build, tag: &Tag, copy: Copy, identity: Identity, detail
     json.insert("name".into(), json!(name));
     json.insert("id".into(), json!(tag.global_id.to_string()));
     json.insert("build".into(), json!(b.name));
+    let mut others = Vec::new();
+    for other in builds.iter().filter(|o| !std::ptr::eq(*o, b)) {
+        let (text, key) = match tag_in_other_build(b, tag, copy, other) {
+            Ok(Status::Same) => ("same", "same"),
+            Ok(Status::Different) => ("different", "different"),
+            Ok(_) => (marker::NOT_IN_INDEX, "not_indexed"),
+            Err(_) => (marker::NOT_READ, "not_read"),
+        };
+        line.push_str(&format!("  in {}: {text}", other.name));
+        others.push(json!({ "build": other.name, "status": key }));
+    }
+    if !others.is_empty() {
+        json.insert("other_builds".into(), json!(others));
+    }
     let module = &b.module(copy).rel_path;
     let n = tag.copies.len();
     // The default copy (D58), unless module= chose another.
@@ -133,7 +150,7 @@ impl Tool for ReadTag {
             guid_check,
         };
         let mut view = TagView { brief: self.detail == Detail::Brief, ..TagView::default() };
-        title(b, t.tag, copy, identity, self.detail, &mut view);
+        title(s.builds(), &t, identity, self.detail, &mut view);
         let Some(def) = load_definition(b, t.tag).map_err(present::definition_error)? else {
             view.title_lines.push(present::no_definition(&b.class_name(t.tag.class)));
             view.title_json.insert("state".into(), json!("no_definition"));
@@ -255,8 +272,8 @@ mod tests {
     use crate::output::Format;
     use crate::testdeploy::{BULLET, SecondCopy, TestDeploy, WEAPON};
 
-    fn read(d: &mut TestDeploy, f: impl FnOnce(&mut ReadTag)) -> Result<String, ToolError> {
-        let mut t = ReadTag {
+    fn read_args() -> ReadTag {
+        ReadTag {
             tag: WEAPON.into(),
             path: None,
             section: None,
@@ -267,7 +284,11 @@ mod tests {
             confirm_large: false,
             module: None,
             build: BuildArg::default(),
-        };
+        }
+    }
+
+    fn read(d: &mut TestDeploy, f: impl FnOnce(&mut ReadTag)) -> Result<String, ToolError> {
+        let mut t = read_args();
         f(&mut t);
         t.run(&mut d.session).map(|o| o.render(Format::Text))
     }
@@ -324,6 +345,25 @@ mod tests {
         // module= reads the other copy.
         let text = read(&mut d, |t| t.module = Some("test-rtx-1.module".into())).unwrap();
         assert!(text.contains("\ncount  int32  0\n"), "{text}");
+    }
+
+    /// D84: with two builds, the tag line says whether the other build's copy
+    /// of the tag (read by default) holds the same tag data as the one read.
+    #[test]
+    fn the_tag_line_says_whether_the_other_build_differs() {
+        let mut d = TestDeploy::two_builds("read-builds", &[Some(36), Some(1)], &[Some(50)]);
+        let mut first_line = |tag: &str| {
+            let t = ReadTag { tag: tag.into(), ..read_args() };
+            let text = t.run(&mut d.session).map(|o| o.render(Format::Text)).unwrap();
+            text.lines().next().unwrap().to_owned()
+        };
+        let line = first_line(r"forge:objects\test\more_0.weapon");
+        assert!(line.ends_with("build=forge  in xbox: different"), "{line}");
+        assert!(first_line(r"xbox:objects\test\more_0.weapon").ends_with("build=xbox  in forge: different"));
+        // The weapon is the same in both; more_1 is only in forge.
+        assert!(first_line(&format!("forge:{WEAPON}")).contains("build=forge  in xbox: same  resources: 1"));
+        let line = first_line(r"forge:objects\test\more_1.weapon");
+        assert!(line.ends_with("build=forge  in xbox: (not in indexed modules)"), "{line}");
     }
 
     #[test]

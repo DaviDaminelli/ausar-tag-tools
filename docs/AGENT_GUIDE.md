@@ -104,7 +104,7 @@ Then say what these checks can't see: modules that aren't indexed (`list_modules
 
 ### 4.1 Layout
 ```
-# weap objects\...\assault_rifle.weapon  0x00A1B2C3  build=forge  copies: 3 (identical)   ← tag line
+# weap objects\...\assault_rifle.weapon  0x00A1B2C3  build=forge  in xbox: different  copies: 3 (identical)   ← tag line
 ## WEAPON                                          ← class section (inherited parent classes come first)
 bounding radius  real  0.1708791                   ← field of the main struct: no indent
 ### barrels  block[2]  {primary, secondary}  showing [0] primary   ← struct / array / tag block heading
@@ -125,6 +125,7 @@ bounding radius  real  0.1708791                   ← field of the main struct:
 - Repeated names among siblings get `#2`, `#3`: `flags#2` is the second field named `flags`.
 - `resources: N (size)` on the tag line = the tag owns N resources (textures, meshes, sounds… stored outside the tag) totalling that size. Their contents are not loaded. `detail=full` lists each one (`resource [i]  <kind>  <size>`). Omitted when the tag has none.
 - `copies: N (identical)` = all copies are the same. `copies: N (differ; reading <module>, the latest layer; use module= to choose)` = they differ, and you got the latest version (§1); without `, the latest layer`, `module=` chose an earlier copy. Say which copy your numbers come from when it matters, e.g. "in the latest update".
+- `in <build>: same` / `in <build>: different` (only with more than one build configured, one per other build) = whether that build's copy of the tag (same global ID; its latest layer) holds the same tag data as the copy you are reading. `different` means the stored data differs, not necessarily a gameplay change: `diff_tags(a="forge:<tag>", b="xbox:<tag>")` shows which fields. `in <build>: (not in indexed modules)` = that build has no tag with this ID in its indexed modules; `in <build>: (not read)` = its copy couldn't be read, so nothing is known.
 
 ### 4.2 Brief format
 `detail=brief` drops headings: each line is `<full field path>  <value>`, e.g. `barrels[0].rounds per second  8.5..8.5`. Two or more lines in a row from one tag block entry (or one entry of a `[*]` read) go under an `in <entry path>:` line, **indented**, with paths relative to it:

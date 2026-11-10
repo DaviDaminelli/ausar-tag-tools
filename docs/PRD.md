@@ -390,7 +390,7 @@ One field per line. In `text` (what the AI reads), columns are separated by exac
 ### 7.3 Text format: headings and sections
 
 - Line 1 of every `read_tag` / `get_definition` / `outline` result is the **tag line** (or definition line), starting with `# `:
-  `# <class code> <display name>  <global ID>  build=<b>  copies: ...  resources: N (<total size>)` (definition line: `# <class code> <class name> (definition)`). `resources:` is omitted when the copy has none. At `detail=full`, one line per resource follows the tag line: `  resource [i]  <kind>  <size>`.
+  `# <class code> <display name>  <global ID>  build=<b>  in <other build>: ...  copies: ...  resources: N (<total size>)` (definition line: `# <class code> <class name> (definition)`). `resources:` is omitted when the copy has none. `in <other build>:` (M6, decisions D84), once per other configured build: `same` or `different` (the tag data of the copy read against that build's copy read by default, the tag matched by global ID), `(not in indexed modules)`, or `(not read)`. At `detail=full`, one line per resource follows the tag line: `  resource [i]  <kind>  <size>`.
 - `## <LABEL>`: a **class section** (top-level section label, §5.3). Only these use `##`.
 - `### ` and deeper: explanations, struct fields, array fields and tag block fields. Level = 3 + nesting depth (a struct inside a struct gets `####`, and so on).
   - Explanation: `### <heading>`, then the first line of its text as `> <text>`, with ` […]` appended if cut. Full text with `detail=full`. Explanation with an empty heading: only the `>` line (at the current indent). Explanation with no text: only the heading.
@@ -592,6 +592,7 @@ Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks
 (unresolved) = string_id not resolved; don't guess it. (not in indexed modules) = say so; don't assume it's missing from the game.
 '!!' or (not read) = the TOOL failed: never state those values, or their absence, as facts; tell the user. 'warning: definition GUID mismatch' = the values were read; use them and mention the warning.
 copies: N (differ) = the tag differs between update layers (game versions); tools read the latest layer. tag_copies lists every version; module= reads another. Say which you used.
+in xbox: different = that build's copy of the tag holds other data; diff_tags(a='forge:<tag>', b='xbox:<tag>') shows which fields.
 Field names and help text are hints about behaviour, not proof; say where an explanation comes from.
 What a change affects (guide §2.1): diff_tags against a tag that already behaves as wanted; the fields that differ are candidates, not causes.
 Check a candidate on a third tag or across the class (query_field) before calling it the cause.

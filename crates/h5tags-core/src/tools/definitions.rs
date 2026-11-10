@@ -172,7 +172,7 @@ impl Tool for Outline {
             (Some(tag), None) => {
                 let t = args::tag_copy(s, tag, &self.build, self.module.as_deref())?;
                 let identity = copy_identity(t.build, t.tag).map_err(present::read_error)?;
-                title(t.build, t.tag, t.copy, identity, Detail::Normal, &mut view);
+                title(s.builds(), &t, identity, Detail::Normal, &mut view);
                 let Some(def) = load_definition(t.build, t.tag).map_err(present::definition_error)? else {
                     view.title_lines.push(present::no_definition(&t.build.class_name(t.tag.class)));
                     return Ok(Output::Tag(view));
