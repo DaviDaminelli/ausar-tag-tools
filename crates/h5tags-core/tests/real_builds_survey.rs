@@ -47,6 +47,76 @@ fn layouts(b: &Build) -> HashMap<FourCc, HashSet<[u8; 16]>> {
     out
 }
 
+/// M6 step 4: shared tags compared by their tag data fingerprints (D81), each
+/// build's default copy; the platform variants (another path) apart. The
+/// scans are built in a fresh cache folder, not the config's.
+#[test]
+#[ignore]
+fn shared_tags_by_fingerprint() {
+    use h5tags_core::references::header_scan;
+    let config = PathBuf::from(std::env::var("H5_CONFIG").expect("set H5_CONFIG to a config with two builds"));
+    let cache = h5_module::testutil::TempDir::new("builds-by-fingerprint");
+    let mut config = Config::load(&config).unwrap();
+    config.cache_dir = Some(cache.0.clone());
+    let s = Session::open(config).unwrap();
+    let (a, b) = (&s.builds()[0], &s.builds()[1]);
+    let start = Instant::now();
+    let (sa, sb) = (header_scan(a).0, header_scan(b).0);
+    println!("both scans built: {:.1?}", start.elapsed());
+    let print = |x: &Build, scan: &h5tags_core::references::ScanIndex, t: &Tag| {
+        choose_copy(x, t, None).and_then(|c| scan.outgoing(c)).map(|s| s.data_print)
+    };
+    let start = Instant::now();
+    let (mut same, mut different, mut variant_same, mut variant_different, mut unscanned) = (0, 0, 0, 0, 0);
+    for t in &a.tags {
+        let Some(u) = b.tag_by_id(t.global_id) else { continue };
+        let (Some(p), Some(q)) = (print(a, sa, t), print(b, sb, u)) else {
+            unscanned += 1;
+            continue;
+        };
+        match (t.path_lower == u.path_lower, p == q) {
+            (true, true) => same += 1,
+            (true, false) => different += 1,
+            (false, true) => variant_same += 1,
+            (false, false) => variant_different += 1,
+        }
+    }
+    println!(
+        "shared, same path: same data {same}, different {different}; platform variants: same data {variant_same}, different {variant_different}; not scanned {unscanned} ({:.1?})",
+        start.elapsed()
+    );
+}
+
+/// M6 step 4: `compare_builds` as the agent reads it, on the first two builds
+/// (scans built in a fresh cache folder), with how long each call took.
+#[test]
+#[ignore]
+fn compare_builds_as_the_agent_reads_it() {
+    use h5tags_core::output::Format;
+    use h5tags_core::tools::args::PageArgs;
+    use h5tags_core::tools::{CompareBuilds, RowStatus, Tool};
+    let config = PathBuf::from(std::env::var("H5_CONFIG").expect("set H5_CONFIG to a config with two builds"));
+    let cache = h5_module::testutil::TempDir::new("compare-builds-real");
+    let mut config = Config::load(&config).unwrap();
+    config.cache_dir = Some(cache.0.clone());
+    let mut s = Session::open(config).unwrap();
+    let (a, b) = (s.builds()[0].name.clone(), s.builds()[1].name.clone());
+    let calls: [(Option<&str>, Option<RowStatus>, usize); 3] =
+        [(None, None, 3), (Some("weap"), Some(RowStatus::Different), 5), (Some("scnr"), None, 5)];
+    for (class, status, limit) in calls {
+        let t = CompareBuilds {
+            build_a: a.clone(),
+            build_b: b.clone(),
+            class: class.map(Into::into),
+            status,
+            page: PageArgs { offset: 0, limit: Some(limit) },
+        };
+        let start = Instant::now();
+        let text = t.run(&mut s).map(|o| o.render(Format::Text)).unwrap_or_else(|e| e.render(Format::Text));
+        println!("== class {class:?}, status {status:?} ({:.0?})\n{text}", start.elapsed());
+    }
+}
+
 #[test]
 #[ignore]
 fn how_two_builds_relate() {
