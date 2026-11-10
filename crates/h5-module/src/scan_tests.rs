@@ -100,3 +100,16 @@ fn an_update_rescans_only_changed_modules_and_round_trips_its_cache() {
     changed.save(&cache).unwrap();
     assert_eq!(HeaderScan::load(&cache), Some(changed));
 }
+
+/// M6 (D81): each copy's tag data fingerprint, MurmurHash3 x64-128 of the
+/// decompressed tag data: equal data, equal fingerprint; other data, another.
+#[test]
+fn a_scan_fingerprints_each_copys_tag_data() {
+    let (_, tag_data) = build_tag(&sample_tag());
+    let dir = TempDir::new("scan-print");
+    let (s, _) = scan(&deploy(&dir, None), None);
+    assert_eq!(weapon(&s).data_print, crate::murmur3::murmur3_x64_128(&tag_data, 0));
+    let other = TempDir::new("scan-print-other");
+    let (t, _) = scan(&deploy(&other, Some(0x0040_3000)), None);
+    assert_ne!(weapon(&t).data_print, weapon(&s).data_print, "another reference in the data");
+}

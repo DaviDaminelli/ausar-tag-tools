@@ -16,6 +16,7 @@ use crate::fourcc::FourCc;
 use crate::global_id::GlobalId;
 use crate::index::{FailedModule, FileStamp, Index, ModuleRecord, Progress, UpdateReport};
 use crate::module::{EntryKind, Module, ModuleError, Section, map_file};
+use crate::murmur3::murmur3_x64_128;
 use crate::tag::{TagHeader, string_at};
 use crate::text::decode_cp1252;
 
@@ -43,6 +44,9 @@ pub struct TagScan {
     pub dependencies: Vec<GlobalId>,
     /// The tag's string table (Windows-1252): listed names and string_id strings.
     pub strings: Vec<u8>,
+    /// MurmurHash3 x64-128 (seed 0) of the decompressed tag data: copies with
+    /// the same fingerprint hold the same data, in any module or build (M6, D81).
+    pub data_print: (u64, u64),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -62,7 +66,6 @@ pub struct HeaderScan {
     pub failed: Vec<FailedModule>,
 }
 
-/// Bump `format` when the scan's types change shape.
 impl TagScan {
     /// `r`'s listed name (the referenced tag's path as this tag stores it).
     pub fn listed_name(&self, r: &OutReference) -> Option<std::borrow::Cow<'_, str>> {
@@ -70,7 +73,8 @@ impl TagScan {
     }
 }
 
-const CACHE: CacheFile = CacheFile { magic: b"H5TAGSCN", format: 2, what: "header scan" };
+/// Bump `format` when the scan's types change shape (3: the tag data fingerprint, D81).
+const CACHE: CacheFile = CacheFile { magic: b"H5TAGSCN", format: 3, what: "header scan" };
 
 impl Progress {
     pub const SCANNING_HEADERS: &'static str = "scanning tag headers";
@@ -102,6 +106,7 @@ fn scan_tag(module: &Module<'_>, entry: u32, global_id: GlobalId) -> Result<TagS
         references,
         dependencies: header.dependencies.iter().map(|d| d.global_id).collect(),
         strings: std::mem::take(&mut header.string_table),
+        data_print: murmur3_x64_128(&data, 0),
     })
 }
 
