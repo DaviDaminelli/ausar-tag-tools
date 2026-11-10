@@ -335,6 +335,25 @@ pub fn scan_built(b: Option<crate::references::ScanBuilt>) -> Option<crate::outp
     b.map(|b| built("header scan built", "header_scan_built", b.tags, b.elapsed))
 }
 
+/// `compare_builds`: each build's header scan, on the call that had to build it (D82).
+pub fn scans_built(
+    a: Option<crate::references::ScanBuilt>,
+    b: Option<crate::references::ScanBuilt>,
+) -> Vec<crate::output::Summary> {
+    let mut out = Vec::new();
+    out.extend(a.map(|x| built("a's header scan built", "header_scan_built_a", x.tags, x.elapsed)));
+    out.extend(b.map(|x| built("b's header scan built", "header_scan_built_b", x.tags, x.elapsed)));
+    out
+}
+
+/// `compare_builds`: shared tags whose copy a scan couldn't read (D82).
+pub fn not_compared_hint(n: usize, example: &str) -> String {
+    let tags = if n == 1 { "1 tag".to_owned() } else { format!("{n} tags") };
+    format!(
+        "{tags} in both builds couldn't be compared: a header scan couldn't read its copy (e.g. {example}); find_references says why"
+    )
+}
+
 /// `definition check built: N tags, T s`, on the call that had to check (PRD §6.9).
 pub fn check_built(b: Option<crate::def_check::CheckBuilt>) -> Option<crate::output::Summary> {
     b.map(|b| built("definition check built", "definition_check_built", b.tags, b.elapsed))

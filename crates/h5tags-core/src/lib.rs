@@ -2,6 +2,7 @@
 //! (decisions D1, D7). No MCP code here.
 
 pub mod catalog;
+pub mod compare;
 pub mod config;
 pub mod def_check;
 pub mod def_view;

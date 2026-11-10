@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 pub const INSTRUCTIONS: &str = "\
 h5tags reads Halo 5 .module tags (builds: see list_modules / the build parameter). Values come only from these tools; never fill them in from memory.
 Guide: AGENT_GUIDE.md, resource h5tags://guide. Read it before a task that needs more context about the tool or the game: what a change would affect, whether something is used in the game (§2.2), tag internals (dependencies, string tables, resources), or a result these lines don't explain. Simple lookups don't need it.
-Questions about many tags: ask the build, not tag by tag. query_field (one field in every tag of a class; nested [*] works: barrels[*].firing effects[*].firing effect), find_references direction=in (every tag that uses a tag), search_values (tags by text they hold), which_maps (the maps that load a tag, scripts too) / map_tags (a map's tags).
+Questions about many tags: ask the build, not tag by tag. query_field (one field in every tag of a class; nested [*] works: barrels[*].firing effects[*].firing effect), find_references direction=in (every tag that uses a tag), search_values (tags by text they hold), which_maps (the maps that load a tag, scripts too) / map_tags (a map's tags), compare_builds (what differs between two builds).
 Find a tag: search_tags (by path or class), browse (a folder's shape), list_entries (assets by kind or size), search_definitions (which class and field control something).
 One tag: outline(tag) → read_tag(section= or path=) → diff_tags against another. outline(class=) is the short get_definition.
 Never read a whole large tag (scnr, effe, vehi, bipd, char, gint, unit, weap): call outline first.

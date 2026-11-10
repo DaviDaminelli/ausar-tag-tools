@@ -21,6 +21,7 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
    - `find_references(tag, direction=in)`: every tag that uses a tag.
    - `search_values`: tags by text they hold (string_id names, names of referenced tags).
    - `which_maps(tag)`: the maps that load a tag, of any class (scripts too); `map_tags(module=…)`: the tags a map loads.
+   - `compare_builds(build_a, build_b)`: what differs between two builds (tags only in one, tags whose data differs), with `class=` and `status=`.
 2. **Find** the tag: `search_tags` by part of its path or by class; `browse` for a folder's shape; `list_entries` for assets by kind or size; `search_definitions` if you know what you want but not which class controls it.
 3. **Orient**: `outline(tag)` before reading anything large. It's cheap and shows sections, field paths and entry counts.
 4. **Read** only what you need: `read_tag(tag, section=...)` or `read_tag(tag, path=...)`.
@@ -58,7 +59,8 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "What kinds of assets exist?" | `list_resource_kinds()` |
 | "Is this tag the same in every module?" | `tag_copies(tag)` |
 | "Which tags use something named `flyby`?" (string_id names: HUD logic, sound events, markers; and names of referenced tags) | `search_values("flyby")` |
-| "What's in the Xbox build but not Forge?" | `compare_builds("xbox", "forge")` |
+| "What's in the Xbox build but not Forge?" | `compare_builds(build_a="xbox", build_b="forge", status="only_in_a")` |
+| "Which weapons changed between the builds?" | `compare_builds(build_a="forge", build_b="xbox", class="weap", status="different")` |
 | "What does this texture look like?" | `view_bitmap(tag)`: read the text summary first; the sheet shows each channel separately |
 | "What would it take to make X behave like Y, and what else would change?" | §2.1 below |
 
@@ -237,7 +239,8 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `hint: no map's module path contains '…'; …` (`which_maps`) | `module=` matched no map with a load manifest, so nothing was checked | Not a finding about the tag: fix `module=` (`list_modules` shows the module paths) |
 | `hint: no tag's string table contains '…'; …` (`search_values`) | No string_id name or referenced tag name holds the term. Field values (numbers, enums) aren't in string tables | Try `search_definitions` for field names, or `read_tag` for values |
 | `hint: no class code or name contains '…'; …` (`list_classes`) | Neither a class with tags nor a definition has that text in its code or name | Try a shorter part, or `search_definitions` for what the class would hold; don't say the game has no such thing |
-| `compare_builds` `only in A` / `only in B` / `different` | By global ID: tags present in one build only, or in both with different stored data | `different` means the data differs, not necessarily a gameplay change; diff the tags to see what |
+| `compare_builds` counts and rows | `a:` and `b:` name the two builds; `different` = tags in both whose tag data differs, `only in a` / `only in b` = tags in one build only, `same` = tags in both with the same data, `not compared` = tags in both whose copy couldn't be scanned. Tags are matched by global ID; each build's copy read by default (its latest layer) is compared. Rows list every tag that isn't the same: `status`, class, global ID and name, by status, class and path; `status=` keeps one kind (the counts stay whole). A name followed by `(b: …)` is a tag both builds have under another path: the same asset named for each platform (`__chore\pc__\…{pc}`, `__chore\x1__\…{x1}`). `a's header scan built` / `b's header scan built`: this call first had to scan that build | `different` means the stored data differs, not necessarily a gameplay change; read the tag in each build (`read_tag(tag=<global ID>, build=…)`) to see what. A tag only in one build may still be in modules of the other that aren't indexed |
+| `hint: N tags in both builds couldn't be compared: …` (`compare_builds`) | A header scan couldn't read the tag's copy in one build | They aren't in `different` or `same`; say so if they matter |
 | `find_references` `(see above)` (recursive) | That tag was already listed earlier in this walk; it isn't expanded again | Not a new reference; look it up above |
 | `find_references` rows | `out`: each non-null reference of the tag: its field path (empty without a definition), the target's class, ID and name, grouped by class. `in`: each tag whose copies reference it; `copies` = in how many of its copies (`1 of 2`: the other copy doesn't), `count` = how many of its fields do, `field path` = those fields in that tag (`crate palette[8].name`; three named, then `(+N more)`; empty without a definition for its class, `(not read)` if the tag couldn't be read), from its copy with the most such fields. `recursive`: depth first, in the order the tags list their references; with `class=` only that class is listed, though the walk follows every class. References come from the fields in the tag data, so they include references the tag header has no dependency entry for | The links are real; what they do in game needs reading the tags. A target marked `(not in indexed modules)` exists as a reference, not as a tag you can read here |
 | `hint: N tags skipped: <name> (<why>); …` (`query_field`) | Those tags couldn't be read, or the path doesn't reach a value in them (an empty tag block, a part not read); they have no row | The list is missing them; say so if it matters |
@@ -262,7 +265,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `module` | Module path, relative to the build's deploy folder |
 | `version` | Module format version (27 = Forge PC, 23 = Xbox One) |
 | `load manifest` | Whether the module lists the tags a map loads |
-| `status` | `ok`, or `!! …` (§4.6) |
+| `status` | `list_modules`: `ok`, or `!! …` (§4.6). `compare_builds`: `different`, `only in a` or `only in b` |
 | `type` | `tag`, `resource` (an asset owned by a tag) or `file` (e.g. `loadmanifest`) |
 | `kind` | Class code for tags, asset kind for resources (`mesh resource`), `file` otherwise |
 | `size` | Uncompressed size |

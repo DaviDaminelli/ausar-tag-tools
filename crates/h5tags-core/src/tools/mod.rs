@@ -7,6 +7,7 @@
 //! values; [`present`] and `output` turn the results into what the agent reads.
 
 pub mod args;
+mod compare_builds;
 mod definition_status;
 mod definitions;
 mod diff_tags;
@@ -25,6 +26,7 @@ mod tag_copies;
 #[cfg(test)]
 mod tests;
 
+pub use compare_builds::{CompareBuilds, RowStatus};
 pub use definition_status::DefinitionStatus;
 pub use definitions::{GetDefinition, Outline, Scope, SearchDefinitions};
 pub use diff_tags::DiffTags;
@@ -113,6 +115,7 @@ tools!(
     DiffTags,
     MapTags,
     WhichMaps,
+    CompareBuilds,
     Reindex
 );
 

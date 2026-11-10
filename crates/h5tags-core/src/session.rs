@@ -113,6 +113,12 @@ impl Session {
         }
     }
 
+    /// The builds, out of the session (tests put several into one session).
+    #[cfg(any(test, feature = "testutil"))]
+    pub fn into_builds(self) -> Vec<Build> {
+        self.builds
+    }
+
     pub fn builds(&self) -> &[Build] {
         &self.builds
     }

@@ -10,7 +10,7 @@ The tools were built aiming at a fast, efficient and reliable local use with an 
 
 - **Indexing.** The first run reads every module's file list into an index: each tag's path, class, size, resources, and the modules holding a copy of it. Later runs re-read only the modules whose files changed. Searching, browsing and listing use the index and don't open the modules.
 - **Caches.** Besides the index, two results that take a full pass over the tags are kept on disk and reused until the files they depend on change: a scan of every tag's references and strings (behind `find_references` and `search_values`), and a check of every tag against its definition (behind `definition_status`). A running server also keeps recently read tags in memory (`tag_cache_mb`).
-- **One tool per kind of question.** Finding: `search_tags`, `browse`, `search_definitions`, `search_values`. Structure: `outline`, `get_definition`. Reading: `read_tag`. Relations: `find_references`, `tag_copies`, `map_tags`, `which_maps`. Comparing: `query_field` (one field across every tag of a class, in one call), `diff_tags` (only the fields that differ between two tags). Status: `list_modules`, `list_classes`, `list_entries`, `list_resource_kinds`, `definition_status`.
+- **One tool per kind of question.** Finding: `search_tags`, `browse`, `search_definitions`, `search_values`. Structure: `outline`, `get_definition`. Reading: `read_tag`. Relations: `find_references`, `tag_copies`, `map_tags`, `which_maps`. Comparing: `query_field` (one field across every tag of a class, in one call), `diff_tags` (only the fields that differ between two tags), `compare_builds` (what differs between two builds). Status: `list_modules`, `list_classes`, `list_entries`, `list_resource_kinds`, `definition_status`.
 - **Parameters that keep results small.** `path=` and `section=` read one part of a tag; `depth=` and `detail=brief|normal|full` set how much of it; `class=`, `module=` and `filter=` narrow lists; `offset` and `limit` page them. A whole read above about 3,000 tokens returns the tag's outline instead, unless `confirm_large=true`.
 
 For reliability, results explain both the tags and their fields, so the agent doesn't have to guess what it reads:
@@ -230,6 +230,7 @@ The assistant and the command line have the same tools: over MCP they're named w
 | `diff-tags`           | The fields that differ between two tags of a class; block entries matched by label       |
 | `map-tags`            | The tags a map loads (its load manifest)                                                 |
 | `which-maps`          | The maps that load a tag (`module=` for some of them)                                    |
+| `compare-builds`      | What differs between two builds: tags only in one, and tags whose data differs           |
 | `reindex`             | Rebuilds the index or the caches (rarely needed: they update themselves)                 |
 | `identify`            | Command line only: what a folder of modules is, and a build name for it; needs no config |
 | `header-dump`         | Command line only: a tag's header lists as stored (for development)                      |

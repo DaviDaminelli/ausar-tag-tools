@@ -60,6 +60,12 @@ pub struct TestDeploy {
     pub session: Session,
 }
 
+/// Two test builds in one session ([`TestDeploy::two_builds`]).
+pub struct TwoBuilds {
+    pub session: Session,
+    _dirs: [TempDir; 2],
+}
+
 /// What a test deploy holds besides the weapon, its bullet and the mesh.
 struct Options<'a> {
     second: SecondCopy,
@@ -195,6 +201,20 @@ impl TestDeploy {
                 .with_scan_cache(dir.0.join("cache").join("forge.scan"))
                 .with_check_cache(dir.0.join("cache").join("forge.check"));
         TestDeploy { session: Session::from_builds(dir.0.join("cache"), vec![build]), dir }
+    }
+
+    /// Two builds in one session (M6): `forge` with more weapons `a`, `xbox`
+    /// with more weapons `b` (see [`TestDeploy::with_weapons`]); the folders
+    /// are kept for the session's life.
+    pub fn two_builds(name: &str, a: &[Option<i32>], b: &[Option<i32>]) -> TwoBuilds {
+        let first = TestDeploy::with_weapons(&format!("{name}-a"), a);
+        let second = TestDeploy::with_weapons(&format!("{name}-b"), b);
+        let mut builds = first.session.into_builds();
+        let mut xbox = second.session.into_builds().remove(0);
+        xbox.name = "xbox".into();
+        xbox.config.name = "xbox".into();
+        builds.push(xbox);
+        TwoBuilds { session: Session::from_builds(first.dir.0.join("cache"), builds), _dirs: [first.dir, second.dir] }
     }
 
     pub fn module_file(&self) -> PathBuf {
