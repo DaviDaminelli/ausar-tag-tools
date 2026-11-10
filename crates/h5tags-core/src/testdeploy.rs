@@ -42,6 +42,24 @@ pub const WEAPON_DEFINITION: &str = r#"<plugin>
 	<_field_long_integer name="count" />
 </plugin>"#;
 
+/// The first script tag [`TestDeploy::with_scripts`] adds: `scripts\script_<i>.lua`
+/// (class `hsc*`), global ID `SCRIPT_ID + i`.
+pub const SCRIPT_ID: i32 = 0x50;
+
+/// An `hsc*` definition with the sample tag's layout: its data reference is
+/// `source file.source`, where the real `hsc*` definition keeps the script.
+pub const SCRIPT_DEFINITION: &str = r#"<plugin>
+	<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_tag_reference_64 name="target" />
+	</_field_block_64>
+	<_field_pad name="pad" length="4" />
+	<_field_tag_reference_64 name="projectile" />
+	<_field_struct name="source file">
+		<_field_data_64 name="source" />
+	</_field_struct>
+	<_field_long_integer name="count" />
+</plugin>"#;
+
 /// A second copy of the weapon, in an update-layer module.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SecondCopy {
@@ -76,6 +94,8 @@ struct Options<'a> {
     map: Option<&'a [&'a str]>,
     /// The weapon's definition.
     definition: &'a str,
+    /// Script tags' scripts (see [`TestDeploy::with_scripts`]).
+    scripts: &'a [&'a [u8]],
 }
 
 impl Default for Options<'_> {
@@ -86,6 +106,7 @@ impl Default for Options<'_> {
             counts: &[],
             map: None,
             definition: WEAPON_DEFINITION,
+            scripts: &[],
         }
     }
 }
@@ -134,8 +155,15 @@ impl TestDeploy {
         TestDeploy::build(name, Options { second, definition, ..Options::default() })
     }
 
+    /// With script tags after the weapons, in the same module: `scripts\script_<i>.lua`
+    /// (class `hsc*`, global ID `SCRIPT_ID + i`), each the sample tag with
+    /// `scripts[i]` as the data its `source file.source` points to.
+    pub fn with_scripts(name: &str, scripts: &[&[u8]]) -> TestDeploy {
+        TestDeploy::build(name, Options { scripts, ..Options::default() })
+    }
+
     fn build(name: &str, o: Options<'_>) -> TestDeploy {
-        let Options { second, tag_cache_bytes, counts, map, definition } = o;
+        let Options { second, tag_cache_bytes, counts, map, definition, scripts } = o;
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -160,6 +188,14 @@ impl TestDeploy {
             more.blocks[0][0x5C..0x60].copy_from_slice(&count.to_le_bytes());
             let (header, tag_data) = build_tag(&more);
             let mut e = TestEntry::tag(&path, id, "weap", &tag_data);
+            e.sections.0 = header;
+            entries.push(e);
+        }
+        for (i, script) in scripts.iter().enumerate() {
+            let mut t = sample_tag();
+            t.blocks[2] = script.to_vec();
+            let (header, tag_data) = build_tag(&t);
+            let mut e = TestEntry::tag(&format!(r"scripts\script_{i}.lua"), SCRIPT_ID + i as i32, "hsc*", &tag_data);
             e.sections.0 = header;
             entries.push(e);
         }
@@ -192,6 +228,9 @@ impl TestDeploy {
         let defs = dir.0.join("defs");
         fs::create_dir_all(&defs).unwrap();
         fs::write(defs.join("(weap)weapon.xml"), definition).unwrap();
+        if !scripts.is_empty() {
+            fs::write(defs.join("(hsc_)lua.xml"), SCRIPT_DEFINITION).unwrap();
+        }
 
         let (index, _) = Index::update(&deploy, None, &|_| false).unwrap();
         let definitions = Definitions::load(&defs).unwrap();

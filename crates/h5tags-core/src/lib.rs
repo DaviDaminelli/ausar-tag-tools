@@ -14,6 +14,7 @@ pub mod maps;
 pub mod output;
 pub mod query;
 pub mod references;
+pub mod script;
 pub mod session;
 pub mod stored;
 pub mod tag_view;
