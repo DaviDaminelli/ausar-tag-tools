@@ -131,6 +131,30 @@ fn top(counts: BTreeMap<FourCc, usize>, n: usize) -> String {
     format!("{}{}", parts.join(", "), if v.len() > n { format!(" (+{} classes)", v.len() - n) } else { String::new() })
 }
 
+/// How many bytes the header scan and the definition check read (every
+/// stored tag copy: at most its compressed bytes from disk, its uncompressed
+/// bytes to decompress), to tell from their times whether a pass waits on the
+/// disk or on the CPU.
+#[test]
+#[ignore]
+fn bytes_the_scans_read() {
+    let dir = PathBuf::from(std::env::var("H5_CACHES").expect("set H5_CACHES"));
+    for name in std::env::var("H5_BUILDS").expect("set H5_BUILDS=a,b").split(',') {
+        let index = Index::load(&dir.join(format!("{name}.index"))).expect("index");
+        let tags = index.modules.iter().flat_map(|m| &m.entries).filter(|e| e.kind() == EntryKind::Tag && e.stored);
+        let (copies, compressed, uncompressed) = tags.fold((0usize, 0u64, 0u64), |(n, c, u), e| {
+            (n + 1, c + u64::from(e.compressed_size), u + e.uncompressed_size)
+        });
+        let on_disk: u64 = index.modules.iter().map(|m| m.stamp.size).sum();
+        println!(
+            "{name}: {copies} stored tag copies, {:.2} GB compressed, {:.2} GB uncompressed (modules {:.1} GB on disk)",
+            compressed as f64 / 1e9,
+            uncompressed as f64 / 1e9,
+            on_disk as f64 / 1e9
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn full_builds_from_their_caches() {
