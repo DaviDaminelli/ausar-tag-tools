@@ -117,6 +117,46 @@ fn compare_builds_as_the_agent_reads_it() {
     }
 }
 
+/// M6 step 6 (D84): what the tag line's note costs. The shared tags with the
+/// most data in build b's default copy, each compared as `read_tag` does after
+/// reading the tag in a (its copy already in the tag cache): the time is b's
+/// read and the comparison. Each status checked against the fingerprints.
+#[test]
+#[ignore]
+fn the_tag_line_note_on_the_largest_shared_tags() {
+    use h5tags_core::compare::{Status, tag_in_other_build};
+    use h5tags_core::references::header_scan;
+    let config = PathBuf::from(std::env::var("H5_CONFIG").expect("set H5_CONFIG to a config with two builds"));
+    let cache = h5_module::testutil::TempDir::new("tag-line-note");
+    let mut config = Config::load(&config).unwrap();
+    config.cache_dir = Some(cache.0.clone());
+    let s = Session::open(config).unwrap();
+    let (a, b) = (&s.builds()[0], &s.builds()[1]);
+    let mut shared: Vec<(&Tag, &Tag, u64)> = a
+        .tags
+        .iter()
+        .filter_map(|t| {
+            let u = b.tag_by_id(t.global_id)?;
+            Some((t, u, b.entry(choose_copy(b, u, None)?).uncompressed_size))
+        })
+        .collect();
+    shared.sort_by_key(|x| std::cmp::Reverse(x.2));
+    let (sa, sb) = (header_scan(a).0, header_scan(b).0);
+    for (t, u, size) in shared.iter().take(10) {
+        let copy = choose_copy(a, t, None).unwrap();
+        read_stored_tag(a, copy).unwrap();
+        let start = Instant::now();
+        let status = tag_in_other_build(a, t, copy, b).unwrap();
+        let took = start.elapsed();
+        let print = |x: &Build, scan: &h5tags_core::references::ScanIndex, t: &Tag| {
+            choose_copy(x, t, None).and_then(|c| scan.outgoing(c)).map(|s| s.data_print)
+        };
+        let by_print = if print(a, sa, t) == print(b, sb, u) { Status::Same } else { Status::Different };
+        assert_eq!(status, by_print, "{}", t.path);
+        println!("{} {} ({} MB entry in b): {status:?}, {took:.1?}", t.class, t.path, size / 1_000_000);
+    }
+}
+
 #[test]
 #[ignore]
 fn how_two_builds_relate() {
