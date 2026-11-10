@@ -152,6 +152,50 @@ fn classify(b: &Build, last_parts: &HashMap<String, usize>, s: &str, names: &mut
     }
 }
 
+/// M7 step 2: the domain (`script::read_script`) reads every script copy as
+/// this survey's own code does: the same form, the same text without its
+/// trailing NULs, the same compiled strings.
+#[test]
+#[ignore]
+fn the_domain_reads_every_script_as_the_survey_does() {
+    use h5tags_core::script::{Form, read_script};
+    let config = PathBuf::from(std::env::var("H5_CONFIG").expect("set H5_CONFIG"));
+    let s = Session::open(Config::load(&config).unwrap()).unwrap();
+    for b in s.builds() {
+        let (mut text, mut compiled, mut not_utf8, mut strings) = (0, 0, 0, 0);
+        for (code, field) in SCRIPT_FIELDS {
+            let class = h5_module::FourCc::from_code(code).unwrap();
+            for t in b.tags.iter().filter(|t| t.class == class) {
+                for &copy in &t.copies {
+                    let bytes = script_bytes(b, t, copy, field).unwrap();
+                    let script = read_script(b, t, copy).unwrap_or_else(|e| panic!("{}: {e}", b.display_name(t)));
+                    assert_eq!(script.size, bytes.len());
+                    match script.form {
+                        Form::Compiled { header, strings: found } => {
+                            assert!(bytes.starts_with(BYTECODE_SIGNATURE));
+                            assert_eq!(header, bytes[..16]);
+                            assert_eq!(found, length_prefixed_strings(&bytes), "{}", b.display_name(t));
+                            compiled += 1;
+                            strings += found.len();
+                        }
+                        Form::Text { text: found, not_utf8: lossy } => {
+                            let body = &bytes[..bytes.len() - bytes.iter().rev().take_while(|&&c| c == 0).count()];
+                            assert_eq!(found, String::from_utf8_lossy(body));
+                            assert_eq!(lossy, std::str::from_utf8(body).is_err());
+                            text += 1;
+                            not_utf8 += usize::from(lossy);
+                        }
+                    }
+                }
+            }
+        }
+        println!(
+            "{}: text {text} (not UTF-8 {not_utf8}), compiled {compiled} ({strings} strings): all as the survey reads them",
+            b.name
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn what_the_script_tags_hold() {

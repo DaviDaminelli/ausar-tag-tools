@@ -647,6 +647,8 @@ After the rerun (D64): `diff_tags` results with differences end with the candida
 
 ## M7: scripts (survey only, 2026-11-10; the milestone itself not started)
 - Survey `real_scripts_survey` (Forge and Xbox samples, debug, 1.4 s for every script copy of both builds, read through the definitions): `hsc*` 70 + 77 copies, all Lua source text (one trailing NUL, CRLF); `luas` 286 + 336 copies, all compiled, one 16-byte header in every copy; 0 unreadable. Tag names: source literals Forge 124 of 174 path-like resolve to one tag, Xbox 135 of 186 (the rest mostly campaign scenarios the samples lack); compiled strings (8-byte big-endian length, bytes, NUL) Forge 330 of 331, Xbox 471 of 472. Every script tag with several copies differs between them. Details in format-notes "Scripts".
+- Plan approved (2026-11-10, D85): 7 steps, 21 tools (script diffs in `diff_tags`), no decompiler.
+- Step 2, domain `script.rs` (2026-11-10): a script tag's script through its definition, as text (trailing NULs removed; not UTF-8 shown with U+FFFD and flagged) or compiled (header bytes, strings). Unit tests on built scripts and a test-deploy `hsc*` tag. `real_scripts_survey::the_domain_reads_every_script_as_the_survey_does` (samples, debug, 1.2 s): every copy read the same as by the survey's own code: Forge text 70 (3 not UTF-8), compiled 286 (25,256 strings); Xbox text 77 (3), compiled 336 (27,915 strings).
 
 ## M5d: improvements from agent feedback (planned 2026-11-08, D67)
 Planned from two agent reports on the full Xbox build: reading through size mismatches (anchors), `outline` on any tag, instructions leading with the build-wide tools, `diff_tags` by label, field paths in `find_references(in)`, `list_classes(query=)`, `query_field(also=)`.
