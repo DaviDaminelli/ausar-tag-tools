@@ -37,6 +37,93 @@ fn tags(index: &Index) -> HashMap<GlobalId, Seen> {
     out
 }
 
+/// `path` without its `{…}` parts (platform tags such as `{pc}`).
+fn without_braces(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut depth = 0;
+    for c in path.chars() {
+        match c {
+            '{' => depth += 1,
+            '}' if depth > 0 => depth -= 1,
+            _ if depth == 0 => out.push(c),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// `path` without a leading platform folder (`__chore\pc__\`, `__chore\x1__\`)
+/// and its `{…}` parts.
+fn platform_free(path: &str) -> String {
+    let rest = path.strip_prefix("__chore\\").and_then(|p| p.split_once("__\\")).map_or(path, |(_, rest)| rest);
+    without_braces(rest)
+}
+
+/// How two paths of one global ID differ (M6 step 3).
+fn path_change(a: &str, b: &str) -> &'static str {
+    if without_braces(a) == without_braces(b) {
+        return "a {…} part only";
+    }
+    if platform_free(a) == platform_free(b) {
+        return "platform folder and {…} part only";
+    }
+    fn split(p: &str) -> (&str, &str) {
+        p.rsplit_once('\\').unwrap_or(("", p))
+    }
+    let ((fa, na), (fb, nb)) = (split(a), split(b));
+    match (fa == fb, without_braces(na) == without_braces(nb)) {
+        (false, true) => "same name, another folder",
+        (true, false) => "same folder, another name",
+        _ => "another folder and name",
+    }
+}
+
+/// M6 step 3: the global IDs both builds have, but under another path. Index
+/// files only (no game files): `H5_CACHES`, `H5_BUILDS` as above.
+#[test]
+#[ignore]
+fn shared_ids_with_another_path() {
+    let dir = PathBuf::from(std::env::var("H5_CACHES").expect("set H5_CACHES"));
+    let names: Vec<String> =
+        std::env::var("H5_BUILDS").expect("set H5_BUILDS=a,b").split(',').map(str::to_owned).collect();
+    let [a, b] = [&names[0], &names[1]].map(|n| tags(&Index::load(&dir.join(format!("{n}.index"))).expect("index")));
+    /// Per kind of change: how many, by class, and a few (path in a, path in b).
+    type Kind = (usize, BTreeMap<FourCc, usize>, Vec<(String, String)>);
+    let mut kinds: BTreeMap<&str, Kind> = BTreeMap::new();
+    for (id, s) in &a {
+        let Some(t) = b.get(id) else { continue };
+        if s.path == t.path {
+            continue;
+        }
+        let k = kinds.entry(path_change(&s.path, &t.path)).or_default();
+        k.0 += 1;
+        *k.1.entry(s.class).or_default() += 1;
+        if k.2.len() < 4 {
+            k.2.push((s.path.clone(), t.path.clone()));
+        }
+    }
+    // The other way: the same path (without platform parts) and class under another ID.
+    let by_path: std::collections::HashMap<(String, FourCc), GlobalId> =
+        b.iter().map(|(id, t)| ((platform_free(&t.path), t.class), *id)).collect();
+    let other_id: Vec<(&GlobalId, GlobalId, &Seen)> = a
+        .iter()
+        .filter(|(id, _)| !b.contains_key(id))
+        .filter_map(|(id, s)| by_path.get(&(platform_free(&s.path), s.class)).map(|&o| (id, o, s)))
+        .collect();
+    println!("only in one build by ID, but the same path and class in both: {}", other_id.len());
+    for (id, o, s) in other_id.iter().take(4) {
+        println!("   {} {} ({}) / {}", s.class, s.path, id, o);
+    }
+    let total: usize = kinds.values().map(|k| k.0).sum();
+    println!("shared IDs with another path: {total} ({} vs {})", names[0], names[1]);
+    for (kind, (n, classes, examples)) in kinds {
+        println!("== {kind}: {n}  by class: {}", top(classes, 8));
+        for (x, y) in examples {
+            println!("   {x}\n   {y}\n");
+        }
+    }
+}
+
 fn top(counts: BTreeMap<FourCc, usize>, n: usize) -> String {
     let mut v: Vec<(FourCc, usize)> = counts.into_iter().collect();
     v.sort_by_key(|x| std::cmp::Reverse(x.1));
