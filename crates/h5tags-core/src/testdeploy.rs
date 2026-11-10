@@ -207,8 +207,13 @@ impl TestDeploy {
     /// with more weapons `b` (see [`TestDeploy::with_weapons`]); the folders
     /// are kept for the session's life.
     pub fn two_builds(name: &str, a: &[Option<i32>], b: &[Option<i32>]) -> TwoBuilds {
+        TestDeploy::two_builds_with_definition(name, a, b, WEAPON_DEFINITION)
+    }
+
+    /// [`TestDeploy::two_builds`], `xbox` with `definition` as the weapon's definition.
+    pub fn two_builds_with_definition(name: &str, a: &[Option<i32>], b: &[Option<i32>], definition: &str) -> TwoBuilds {
         let first = TestDeploy::with_weapons(&format!("{name}-a"), a);
-        let second = TestDeploy::with_weapons(&format!("{name}-b"), b);
+        let second = TestDeploy::build(&format!("{name}-b"), Options { counts: b, definition, ..Options::default() });
         let mut builds = first.session.into_builds();
         let mut xbox = second.session.into_builds().remove(0);
         xbox.name = "xbox".into();

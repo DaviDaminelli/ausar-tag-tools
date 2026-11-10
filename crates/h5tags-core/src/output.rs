@@ -139,11 +139,14 @@ pub mod marker {
     pub const NOT_READ: &str = "(not read)";
     /// `diff_tags`: the tag has no entry at that index.
     pub const NO_ENTRY: &str = "(no entry)";
+    /// `diff_tags` across builds: that build's definition has no such field (D83).
+    pub const NO_FIELD: &str = "(no field)";
 
     pub const ALL: &[&str] = &[
         GUID_MISMATCH,
         NOT_READ,
         NO_ENTRY,
+        NO_FIELD,
         NOT_STORED,
         INCOMPLETE,
         DAMAGED,

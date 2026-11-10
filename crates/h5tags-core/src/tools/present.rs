@@ -135,6 +135,15 @@ pub fn read_error(e: ReadError) -> ToolError {
 pub const CANDIDATES_HINT: &str =
     "these are candidates, not causes: check one across the class with query_field before naming it the cause";
 
+/// `diff_tags` across builds whose definitions of the class differ (D83).
+pub fn definitions_differ_hint(class: &str) -> String {
+    format!(
+        "the two builds' definitions of {class} differ: fields are matched by name; \
+         {} = that build's definition has no field of that name",
+        marker::NO_FIELD
+    )
+}
+
 /// `read_tag` and `diff_tags`: path= and section= both given.
 pub fn path_and_section() -> ToolError {
     ToolError::new("path= and section= can't be used together").hint("pass one of them")

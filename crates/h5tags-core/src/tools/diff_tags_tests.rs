@@ -1,6 +1,6 @@
 use super::*;
 use crate::output::Format;
-use crate::testdeploy::{BULLET, TestDeploy, WEAPON};
+use crate::testdeploy::{BULLET, TestDeploy, WEAPON, WEAPON_DEFINITION};
 
 const MORE_0: &str = r"objects\test\more_0.weapon";
 const MORE_1: &str = r"objects\test\more_1.weapon";
@@ -8,16 +8,10 @@ const CANDIDATES_HINT_LINE: &str =
     "hint: these are candidates, not causes: check one across the class with query_field before naming it the cause";
 
 fn diff(d: &mut TestDeploy, a: &str, b: &str, path: Option<&str>) -> Result<String, ToolError> {
-    diff_in(d, a, b, path, None)
+    diff_in(&mut d.session, a, b, path, None)
 }
 
-fn diff_in(
-    d: &mut TestDeploy,
-    a: &str,
-    b: &str,
-    path: Option<&str>,
-    section: Option<&str>,
-) -> Result<String, ToolError> {
+fn diff_in(s: &mut Session, a: &str, b: &str, path: Option<&str>, section: Option<&str>) -> Result<String, ToolError> {
     let t = DiffTags {
         a: a.into(),
         b: b.into(),
@@ -26,18 +20,68 @@ fn diff_in(
         build: BuildArg::default(),
         page: PageArgs::default(),
     };
-    t.run(&mut d.session).map(|o| o.render(Format::Text))
+    t.run(s).map(|o| o.render(Format::Text))
+}
+
+const FORGE_MORE_0: &str = r"forge:objects\test\more_0.weapon";
+const XBOX_MORE_0: &str = r"xbox:objects\test\more_0.weapon";
+
+/// D83: two tags in two builds, each read in its own build; with the same
+/// definition, compared field by field as within one build.
+#[test]
+fn tags_in_two_builds() {
+    let mut d = TestDeploy::two_builds("diff-builds", &[Some(36)], &[Some(50)]);
+    let text = diff_in(&mut d.session, FORGE_MORE_0, XBOX_MORE_0, None, None).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], format!("total: 1  a: {FORGE_MORE_0}  b: {XBOX_MORE_0}"));
+    assert_eq!(lines[2], "count\t36\t50");
+}
+
+/// D83: the other build defines the class differently (`count` is `rounds`
+/// there): fields matched by name, a field only one definition has is its
+/// own row, and a hint says the definitions differ.
+#[test]
+fn another_definition_in_the_other_build() {
+    let xml = WEAPON_DEFINITION.replace(r#"name="count""#, r#"name="rounds""#);
+    let mut d = TestDeploy::two_builds_with_definition("diff-defs", &[Some(36)], &[Some(50)], &xml);
+    let text = diff_in(&mut d.session, FORGE_MORE_0, XBOX_MORE_0, None, None).unwrap();
+    assert!(text.contains("\ncount\t36\t(no field)\n"), "{text}");
+    assert!(text.contains("\nrounds\t(no field)\t50\n"), "{text}");
+    assert!(
+        text.contains("\nhint: the two builds' definitions of weapon differ: fields are matched by name"),
+        "{text}"
+    );
+    let err = diff_in(&mut d.session, FORGE_MORE_0, XBOX_MORE_0, None, Some("weapon")).unwrap_err();
+    assert_eq!(err.message, "section= needs the same definition in both builds");
+    // path= is resolved in each build's definition; one without it says which.
+    let err = diff_in(&mut d.session, FORGE_MORE_0, XBOX_MORE_0, Some("count"), None).unwrap_err();
+    assert!(err.message.starts_with("in xbox's definition: "), "{}", err.message);
+    // A field both definitions have compares as usual.
+    let same = diff_in(&mut d.session, FORGE_MORE_0, XBOX_MORE_0, Some("entries"), None).unwrap();
+    assert!(same.starts_with("total: 0 "), "{same}");
+}
+
+/// D83: a tag block only one definition has reads as its short type, as
+/// read_tag writes it (`block[N]`), not as an empty value.
+#[test]
+fn a_block_only_one_definition_has() {
+    let xml = WEAPON_DEFINITION.replace(r#"name="entries""#, r#"name="targets""#);
+    let mut d = TestDeploy::two_builds_with_definition("diff-def-block", &[Some(36)], &[Some(36)], &xml);
+    let text = diff_in(&mut d.session, FORGE_MORE_0, XBOX_MORE_0, None, None).unwrap();
+    let row = |name: &str| text.lines().find(|l| l.starts_with(&format!("{name}\t"))).unwrap_or_default().to_owned();
+    assert!(row("entries").starts_with("entries\tblock[") && row("entries").ends_with("]\t(no field)"), "{text}");
+    assert!(row("targets").starts_with("targets\t(no field)\tblock["), "{text}");
 }
 
 /// section= compares the fields under one heading, as read_tag reads them.
 #[test]
 fn a_section_compares_its_fields() {
     let mut d = TestDeploy::with_weapons("diff-section", &[Some(36), Some(12)]);
-    let text = diff_in(&mut d, MORE_0, MORE_1, None, Some("weapon")).unwrap();
+    let text = diff_in(&mut d.session, MORE_0, MORE_1, None, Some("weapon")).unwrap();
     assert!(text.contains("\ncount\t36\t12\n"), "{text}");
-    let err = diff_in(&mut d, MORE_0, MORE_1, None, Some("nothing")).unwrap_err();
+    let err = diff_in(&mut d.session, MORE_0, MORE_1, None, Some("nothing")).unwrap_err();
     assert!(err.message.contains("nothing"), "{}", err.message);
-    let err = diff_in(&mut d, MORE_0, MORE_1, Some("count"), Some("weapon")).unwrap_err();
+    let err = diff_in(&mut d.session, MORE_0, MORE_1, Some("count"), Some("weapon")).unwrap_err();
     assert_eq!(err.message, "path= and section= can't be used together");
 }
 

@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use super::args::{self, BuildArg, PageArgs};
 use super::{Tool, present};
-use crate::diff::{Difference, Kind, Side, diff_at, diff_section};
+use crate::diff::{Difference, Kind, Side, diff_at, diff_at_by_name, diff_section};
 use crate::output::{Cell, Output, Summary, Table, ToolError, col, marker};
 use crate::session::Session;
 use crate::stored::{load_definition, read_stored_tag};
@@ -16,7 +16,8 @@ use crate::view::{ViewNode, value_column};
 /// Where two tags of the same class differ: only the fields whose values
 /// differ, as field path, a, b; tag blocks by entry count, then entry by
 /// entry. path= or section= compares only that part. Each tag's copy in the
-/// latest layer (tag_copies lists the others). The fields that differ are
+/// latest layer (tag_copies lists the others). The two tags may be in two
+/// builds: a='forge:<tag>', b='xbox:<tag>'. The fields that differ are
 /// candidates, not causes: check one on a third tag or with query_field
 /// first. Next: read_tag on either tag for the rest.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
@@ -87,12 +88,16 @@ fn side_text(
             let label = entry_at(read, path).and_then(entry_label);
             label.map_or_else(|| "present".into(), |l| format!("present: {l}").into())
         }
-        Kind::Changed => {
+        Kind::FieldOnlyIn(s) if s != side => marker::NO_FIELD.into(),
+        // The value the field has here (with `[*]`, in the first entry).
+        Kind::Changed | Kind::FieldOnlyIn(_) => {
             let Ok(sels) = select(&read.root, path) else { return marker::NOT_READ.into() };
             let view = view_selection(&sels, shown, settings, lookup);
             view.nodes
                 .iter()
                 .find_map(|n| match n {
+                    // A whole struct or tag block (a field only one definition has): its type, `block[N]`.
+                    ViewNode::Field(f) if f.container.is_some() => Some(f.short_type.clone()),
                     ViewNode::Field(f) => Some(value_column(f)),
                     _ => None,
                 })
@@ -110,56 +115,71 @@ impl Tool for DiffTags {
             return Err(present::path_and_section());
         }
         let guid_check = s.guid_check;
+        // Each tag in its own build (`xbox:…` picks one, D83).
         let ta = args::tag_copy(s, &self.a, &self.build, None)?;
         let tb = args::tag_copy(s, &self.b, &self.build, None)?;
-        if !std::ptr::eq(ta.build, tb.build) {
-            return Err(
-                ToolError::new("the two tags are in different builds").hint("comparing builds comes later (M6)")
-            );
-        }
-        let b = ta.build;
+        let (ba, bb) = (ta.build, tb.build);
+        let one_build = std::ptr::eq(ba, bb);
         if ta.tag.class != tb.tag.class {
             return Err(ToolError::new(format!(
                 "{} is a {} and {} is a {}",
-                b.display_name(ta.tag),
-                b.class_name(ta.tag.class),
-                b.display_name(tb.tag),
-                b.class_name(tb.tag.class)
+                ba.display_name(ta.tag),
+                ba.class_name(ta.tag.class),
+                bb.display_name(tb.tag),
+                bb.class_name(tb.tag.class)
             ))
             .hint("diff_tags compares two tags of the same class"));
         }
-        let Some(def) = load_definition(b, ta.tag).map_err(present::definition_error)? else {
-            return Err(ToolError::new(present::no_definition(&b.class_name(ta.tag.class))));
+        // Each tag with its own build's definition; two different ones are
+        // compared field by field by name (D83).
+        let definition = |b: &crate::catalog::Build, t: &crate::catalog::Tag| {
+            load_definition(b, t)
+                .map_err(present::definition_error)?
+                .ok_or_else(|| ToolError::new(present::no_definition(&b.class_name(t.class))))
         };
-        let at = match &self.path {
-            Some(p) => parse_path(&def.fields, p).map_err(present::path_error)?,
-            None => FieldPath::default(),
+        let (def_a, def_b) = (definition(ba, ta.tag)?, definition(bb, tb.tag)?);
+        let by_name = def_a != def_b;
+        let in_b = |e: ToolError| ToolError { message: format!("in {}'s definition: {}", bb.name, e.message), ..e };
+        let (at_a, at_b) = match &self.path {
+            Some(p) => (
+                parse_path(&def_a.fields, p).map_err(present::path_error)?,
+                parse_path(&def_b.fields, p).map_err(present::path_error).map_err(in_b)?,
+            ),
+            None => (FieldPath::default(), FieldPath::default()),
         };
         let section = match self.section.as_deref() {
+            Some(_) if by_name => {
+                return Err(ToolError::new("section= needs the same definition in both builds")
+                    .hint("the builds define this class differently: use path= instead"));
+            }
             Some(heading) => {
-                let found = find_sections(&def.fields, heading);
+                let found = find_sections(&def_a.fields, heading);
                 let [sec] = found.as_slice() else {
-                    return Err(present::section_error(heading, &found, &def.fields));
+                    return Err(present::section_error(heading, &found, &def_a.fields));
                 };
                 Some(sec.clone())
             }
             None => None,
         };
-        let (sa, sb) = (read_stored_tag(b, ta.copy), read_stored_tag(b, tb.copy));
+        let (sa, sb) = (read_stored_tag(ba, ta.copy), read_stored_tag(bb, tb.copy));
         let (sa, sb) = (sa.map_err(present::read_error)?, sb.map_err(present::read_error)?);
-        let (ra, rb) =
-            (h5_meta::read_tag(&def, &sa.header, &sa.tag_data), h5_meta::read_tag(&def, &sb.header, &sb.tag_data));
+        let ra = h5_meta::read_tag(&def_a, &sa.header, &sa.tag_data);
+        let rb = h5_meta::read_tag(&def_b, &sb.header, &sb.tag_data);
         let found = match &section {
             Some(sec) => diff_section(&ra.root, &rb.root, &sec.parent, sec.start + 1..sec.end),
             None => {
                 // A part only one tag has (an entry past the other's count) is a difference.
-                if let (Err(e), Err(_)) = (select(&ra.root, &at), select(&rb.root, &at)) {
+                if let (Err(e), Err(_)) = (select(&ra.root, &at_a), select(&rb.root, &at_b)) {
                     return Err(present::path_error(e));
                 }
-                diff_at(&ra.root, &rb.root, &at)
+                if by_name {
+                    diff_at_by_name(&ra.root, &rb.root, &at_a, &at_b)
+                } else {
+                    diff_at(&ra.root, &rb.root, &at_a)
+                }
             }
         };
-        let (la, lb) = (BuildLookup { build: b, copy: ta.copy }, BuildLookup { build: b, copy: tb.copy });
+        let (la, lb) = (BuildLookup { build: ba, copy: ta.copy }, BuildLookup { build: bb, copy: tb.copy });
         let settings =
             ViewSettings { depth: 0, detail: Detail::Brief, options: Options::None, show_hidden: true, guid_check };
         // Values rendered only for the rows shown (D26), from the trees already read.
@@ -168,7 +188,9 @@ impl Tool for DiffTags {
             .page(&found, DEFAULT_LIMIT)
             .iter()
             .map(|d| {
-                let shown = path_text(d, &def.fields);
+                // A field only b's definition has: its path is in b's definition.
+                let fields = if d.kind == Kind::FieldOnlyIn(Side::B) { &def_b.fields } else { &def_a.fields };
+                let shown = path_text(d, fields);
                 vec![
                     shown.clone().into(),
                     side_text(&ra, d, &shown, Side::A, &la, settings),
@@ -176,18 +198,29 @@ impl Tool for DiffTags {
                 ]
             })
             .collect();
+        // Across builds, each name with its build (the tag argument's own syntax).
+        let name = |b: &crate::catalog::Build, t| {
+            if one_build { b.display_name(t) } else { format!("{}:{}", b.name, b.display_name(t)) }
+        };
         let summary = vec![
-            Summary { label: "a", key: "a", value: b.display_name(ta.tag).into() },
-            Summary { label: "b", key: "b", value: b.display_name(tb.tag).into() },
+            Summary { label: "a", key: "a", value: name(ba, ta.tag).into() },
+            Summary { label: "b", key: "b", value: name(bb, tb.tag).into() },
         ];
+        let mut hints = Vec::new();
+        if by_name {
+            hints.push(present::definitions_differ_hint(&ba.class_name(ta.tag.class)));
+        }
+        if !found.is_empty() {
+            hints.push(present::CANDIDATES_HINT.into());
+        }
         Ok(Output::Table(Table {
-            build: s.label(b),
+            build: if one_build { s.label(ba) } else { None },
             total: found.len(),
             summary,
             offset: self.page.offset,
             columns: vec![col::FIELD_PATH, col::A, col::B],
             rows,
-            hints: if found.is_empty() { Vec::new() } else { vec![present::CANDIDATES_HINT.into()] },
+            hints,
             ..Table::default()
         }))
     }

@@ -23,6 +23,9 @@ pub enum Kind {
     OnlyIn(Side),
     /// One side (or both) couldn't be read here: not compared.
     NotRead,
+    /// D83: only that side's definition has this field (the tags were read
+    /// with two definitions, another build's); `[*]` for every entry.
+    FieldOnlyIn(Side),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -52,6 +55,9 @@ impl Difference {
 struct Here {
     a: Vec<Step>,
     b: Vec<Step>,
+    /// D83: the tags were read with two definitions: fields are paired by
+    /// name, and each side's steps index its own definition.
+    by_name: bool,
 }
 
 impl Here {
@@ -133,7 +139,18 @@ pub fn same_value(a: &Value, b: &Value) -> bool {
 pub fn diff_at(a: &Body<'_>, b: &Body<'_>, at: &FieldPath) -> Vec<Difference> {
     let mut out = Vec::new();
     let mut here = Here::default();
-    follow(a, b, &at.steps, &mut here, &mut out, &mut diff_into, false);
+    follow(a, b, (&at.steps, &at.steps), &mut here, &mut out, &mut diff_into, false);
+    out
+}
+
+/// D83: [`diff_at`] for two tags read with different definitions (the same
+/// class in two builds): `at_a` and `at_b` are the same path in each. Fields
+/// are paired by name; a field only one definition has is a
+/// [`Kind::FieldOnlyIn`] difference, whose path is in that side's definition.
+pub fn diff_at_by_name(a: &Body<'_>, b: &Body<'_>, at_a: &FieldPath, at_b: &FieldPath) -> Vec<Difference> {
+    let mut out = Vec::new();
+    let mut here = Here { by_name: true, ..Here::default() };
+    follow(a, b, (&at_a.steps, &at_b.steps), &mut here, &mut out, &mut diff_into, false);
     out
 }
 
@@ -149,12 +166,25 @@ pub fn diff_section(a: &Body<'_>, b: &Body<'_>, parent: &FieldPath, fields: Rang
         }
         for i in fields.clone() {
             if let (Some(x), Some(y)) = (a.children.get(i), b.children.get(i)) {
-                diff_node(x, y, i, here, out);
+                diff_node(x, y, (i, i), here, out);
             }
         }
     };
-    follow(a, b, &parent.steps, &mut here, &mut out, &mut compare, true);
+    follow(a, b, (&parent.steps, &parent.steps), &mut here, &mut out, &mut compare, true);
     out
+}
+
+/// D83: a field only `side`'s definition has, at `here` + field `field` (of
+/// that side's definition), once per path: entries as `[*]`.
+fn record_field_only(here: &Here, field: usize, side: Side, out: &mut Vec<Difference>) {
+    let start = if side == Side::A { &here.a } else { &here.b };
+    let every = |s: &Step| Step { select: s.select.map(|_| Select::Every), ..*s };
+    let mut steps: Vec<Step> = start.iter().map(every).collect();
+    steps.push(Step { field, select: None });
+    let kind = Kind::FieldOnlyIn(side);
+    if !out.iter().any(|d| d.kind == kind && d.path.steps == steps) {
+        out.push(Difference { path: FieldPath { steps }, in_b: None, kind });
+    }
 }
 
 /// A difference at `here`, plus `last` (a's step, b's step) if given.
@@ -179,16 +209,17 @@ fn entry_in<'k, 'd>(k: &'k Block<'d>, i: Option<u32>) -> Option<Option<&'k Body<
     i.filter(|&i| i < k.count).map(|i| k.entries.get(i as usize))
 }
 
-/// Compares entry `ia` of a's tag block at field `field` with entry `ib` of b's.
+/// Compares entry `ia` of a's tag block (field `fa` of a's definition) with
+/// entry `ib` of b's (field `fb`).
 fn diff_entry(
     pe: &Body<'_>,
     qe: &Body<'_>,
-    field: usize,
+    (fa, fb): (usize, usize),
     (ia, ib): (u32, u32),
     here: &mut Here,
     out: &mut Vec<Difference>,
 ) {
-    here.push(entry(field, ia), entry(field, ib));
+    here.push(entry(fa, ia), entry(fb, ib));
     diff_into(pe, qe, here, out);
     here.pop();
 }
@@ -200,43 +231,45 @@ type End<'e> = dyn FnMut(&Body<'_>, &Body<'_>, &mut Here, &mut Vec<Difference>) 
 /// with `end`. The last step's struct or tag block is compared as a node
 /// unless `into_last` (then `end` gets its body, or each picked entry). A
 /// picked entry is a's; b's is the one with its label (D72), else the same
-/// index.
+/// index. `rest`: the path's remaining steps in a's and in b's definition
+/// (the same with one definition).
 fn follow(
     a: &Body<'_>,
     b: &Body<'_>,
-    rest: &[Step],
+    (rest_a, rest_b): (&[Step], &[Step]),
     here: &mut Here,
     out: &mut Vec<Difference>,
     end: &mut End<'_>,
     into_last: bool,
 ) {
-    let Some((step, rest)) = rest.split_first() else { return end(a, b, here, out) };
-    let (Some(x), Some(y)) = (a.children.get(step.field), b.children.get(step.field)) else {
-        return record(here, Some((*step, *step)), Kind::NotRead, out);
+    let (Some((step, rest_a)), Some((step_b, rest_b))) = (rest_a.split_first(), rest_b.split_first()) else {
+        return end(a, b, here, out);
     };
-    let descend = !rest.is_empty() || into_last;
+    let rest = (rest_a, rest_b);
+    let (fa, fb) = (step.field, step_b.field);
+    let (Some(x), Some(y)) = (a.children.get(fa), b.children.get(fb)) else {
+        return record(here, Some((*step, *step_b)), Kind::NotRead, out);
+    };
+    let descend = !rest_a.is_empty() || into_last;
     match (&x.content, &y.content) {
         (Content::Block(p), Content::Block(q)) if descend || step.select.is_some() => {
             let by_label = label_pairs(p, q);
-            let mut visit = |ia: Option<u32>, ib: Option<u32>| {
-                let field = step.field;
-                match (entry_in(p, ia), entry_in(q, ib), ia, ib) {
-                    (Some(Some(pe)), Some(Some(qe)), Some(i), Some(j)) => {
-                        here.push(entry(field, i), entry(field, j));
-                        follow(pe, qe, rest, here, out, end, into_last);
-                        here.pop();
-                    }
-                    (Some(_), None, Some(i), _) => {
-                        record(here, Some((entry(field, i), entry(field, i))), Kind::OnlyIn(Side::A), out)
-                    }
-                    (None, Some(_), _, Some(j)) => {
-                        record(here, Some((entry(field, j), entry(field, j))), Kind::OnlyIn(Side::B), out)
-                    }
-                    (None, None, ..) => {}
-                    (.., i, j) => {
-                        let e = i.or(j).unwrap_or_default();
-                        record(here, Some((entry(field, e), entry(field, e))), Kind::NotRead, out)
-                    }
+            let mut visit = |ia: Option<u32>, ib: Option<u32>| match (entry_in(p, ia), entry_in(q, ib), ia, ib) {
+                (Some(Some(pe)), Some(Some(qe)), Some(i), Some(j)) => {
+                    here.push(entry(fa, i), entry(fb, j));
+                    follow(pe, qe, rest, here, out, end, into_last);
+                    here.pop();
+                }
+                (Some(_), None, Some(i), _) => {
+                    record(here, Some((entry(fa, i), entry(fb, i))), Kind::OnlyIn(Side::A), out)
+                }
+                (None, Some(_), _, Some(j)) => {
+                    record(here, Some((entry(fa, j), entry(fb, j))), Kind::OnlyIn(Side::B), out)
+                }
+                (None, None, ..) => {}
+                (.., i, j) => {
+                    let e = i.or(j).unwrap_or_default();
+                    record(here, Some((entry(fa, e), entry(fb, e))), Kind::NotRead, out)
                 }
             };
             match (step.select, &by_label) {
@@ -256,11 +289,11 @@ fn follow(
             }
         }
         (Content::Struct(p), Content::Struct(q)) | (Content::Array(p), Content::Array(q)) if descend => {
-            here.push(*step, *step);
+            here.push(*step, *step_b);
             follow(p, q, rest, here, out, end, into_last);
             here.pop();
         }
-        _ => diff_node(x, y, step.field, here, out),
+        _ => diff_node(x, y, (fa, fb), here, out),
     }
 }
 
@@ -268,15 +301,38 @@ fn diff_into(a: &Body<'_>, b: &Body<'_>, here: &mut Here, out: &mut Vec<Differen
     if a.problem.is_some() || b.problem.is_some() {
         record(here, None, Kind::NotRead, out);
     }
-    for (i, (x, y)) in a.children.iter().zip(&b.children).enumerate() {
-        diff_node(x, y, i, here, out);
+    if !here.by_name {
+        for (i, (x, y)) in a.children.iter().zip(&b.children).enumerate() {
+            diff_node(x, y, (i, i), here, out);
+        }
+        return;
+    }
+    // D83: paired by name (unique among siblings); a linear search, no map
+    // (only classes whose definitions differ between builds come here).
+    for (i, x) in a.children.iter().enumerate() {
+        let Some(name) = x.name else { continue };
+        match b.children.iter().position(|y| y.name == Some(name)) {
+            Some(j) => diff_node(x, &b.children[j], (i, j), here, out),
+            // b's read stopped before it: already said by the NotRead above.
+            None if b.problem.is_some() => {}
+            None => record_field_only(here, i, Side::A, out),
+        }
+    }
+    if a.problem.is_none() {
+        for (j, y) in b.children.iter().enumerate() {
+            let Some(name) = y.name else { continue };
+            if !a.children.iter().any(|x| x.name == Some(name)) {
+                record_field_only(here, j, Side::B, out);
+            }
+        }
     }
 }
 
-/// Compares field `i` of the body at `here` in both tags.
-fn diff_node(x: &Node<'_>, y: &Node<'_>, i: usize, here: &mut Here, out: &mut Vec<Difference>) {
-    let field = Step { field: i, select: None };
-    let at = Some((field, field));
+/// Compares field `fa` of a's body at `here` with field `fb` of b's (the same
+/// field: the same position with one definition, the same name with two).
+fn diff_node(x: &Node<'_>, y: &Node<'_>, (fa, fb): (usize, usize), here: &mut Here, out: &mut Vec<Difference>) {
+    let (field, field_b) = (Step { field: fa, select: None }, Step { field: fb, select: None });
+    let at = Some((field, field_b));
     match (&x.content, &y.content) {
         (Content::Value(p), Content::Value(q)) => {
             if !same_value(p, q) {
@@ -293,7 +349,7 @@ fn diff_node(x: &Node<'_>, y: &Node<'_>, i: usize, here: &mut Here, out: &mut Ve
             }
         }
         (Content::Struct(p), Content::Struct(q)) | (Content::Array(p), Content::Array(q)) => {
-            here.push(field, field);
+            here.push(field, field_b);
             diff_into(p, q, here, out);
             here.pop();
         }
@@ -308,10 +364,10 @@ fn diff_node(x: &Node<'_>, y: &Node<'_>, i: usize, here: &mut Here, out: &mut Ve
                 for (ia, ib) in pairs {
                     match (ia, ib) {
                         (Some(e), Some(f)) => {
-                            diff_entry(&p.entries[e as usize], &q.entries[f as usize], i, (e, f), here, out)
+                            diff_entry(&p.entries[e as usize], &q.entries[f as usize], (fa, fb), (e, f), here, out)
                         }
-                        (Some(e), None) => record(here, Some((entry(i, e), entry(i, e))), Kind::OnlyIn(Side::A), out),
-                        (None, Some(f)) => record(here, Some((entry(i, f), entry(i, f))), Kind::OnlyIn(Side::B), out),
+                        (Some(e), None) => record(here, Some((entry(fa, e), entry(fb, e))), Kind::OnlyIn(Side::A), out),
+                        (None, Some(f)) => record(here, Some((entry(fa, f), entry(fb, f))), Kind::OnlyIn(Side::B), out),
                         (None, None) => {}
                     }
                 }
@@ -319,12 +375,12 @@ fn diff_node(x: &Node<'_>, y: &Node<'_>, i: usize, here: &mut Here, out: &mut Ve
             }
             // By position: no pairs list (D26).
             for (e, (pe, qe)) in p.entries.iter().zip(&q.entries).enumerate() {
-                diff_entry(pe, qe, i, (e as u32, e as u32), here, out);
+                diff_entry(pe, qe, (fa, fb), (e as u32, e as u32), here, out);
             }
             let (longer, side) =
                 if p.entries.len() > q.entries.len() { (&p.entries, Side::A) } else { (&q.entries, Side::B) };
             for e in p.entries.len().min(q.entries.len())..longer.len() {
-                record(here, Some((entry(i, e as u32), entry(i, e as u32))), Kind::OnlyIn(side), out);
+                record(here, Some((entry(fa, e as u32), entry(fb, e as u32))), Kind::OnlyIn(side), out);
             }
         }
         _ => {}

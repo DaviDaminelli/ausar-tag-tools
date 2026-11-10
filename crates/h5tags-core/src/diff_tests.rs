@@ -229,6 +229,76 @@ fn entries_without_usable_labels_are_matched_by_position() {
     assert_eq!(labelled_diffs(&one, &two, ""), [(s("barrels[0].name"), None, Kind::Changed)]);
 }
 
+/// Another build's definition of the class: `extra` added before the block,
+/// and `spare` gone from its entries.
+const OTHER: &str = r#"<plugin>
+	<_field_real name="speed" />
+	<_field_long_integer name="extra" />
+	<_field_block_64 name="barrels" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_long_integer name="rounds" />
+	</_field_block_64>
+	<_field_long_integer name="count" />
+</plugin>"#;
+
+/// A tag laid out as `OTHER`.
+fn other_tag(speed: f32, extra: i32, count: i32, rounds: &[i32]) -> TestTag {
+    let mut main = Vec::new();
+    main.extend(speed.to_le_bytes());
+    main.extend(extra.to_le_bytes());
+    main.extend(vec![0u8; 0x1C]);
+    main.extend(count.to_le_bytes());
+    let block: Vec<u8> = rounds.iter().flat_map(|r| r.to_le_bytes()).collect();
+    let mut t = tag(speed, count, &[]);
+    t.blocks = vec![main, block];
+    t.structs = vec![(0, 0, -1, 0, [1; 16], 0), (1, 1, 0, 0x08, [2; 16], rounds.len() as i32)];
+    t
+}
+
+/// D83: the two tags' differences under `path`, each read with its own
+/// definition, fields matched by name; a path in b's definition for a field
+/// only b has, in a's otherwise.
+fn by_name(a: &TestTag, b: &TestTag, path: &str) -> Vec<(String, Kind)> {
+    let (da, db) = (Definition::parse(DEFINITION).unwrap(), Definition::parse(OTHER).unwrap());
+    let (ha, a_data) = build_tag(a);
+    let (hb, b_data) = build_tag(b);
+    let ra = read_tag(&da, &TagHeader::parse(&ha).unwrap(), &a_data);
+    let rb = read_tag(&db, &TagHeader::parse(&hb).unwrap(), &b_data);
+    let at =
+        |def: &Definition| if path.is_empty() { FieldPath::default() } else { parse_path(&def.fields, path).unwrap() };
+    diff_at_by_name(&ra.root, &rb.root, &at(&da), &at(&db))
+        .into_iter()
+        .map(|d| {
+            let fields = if d.kind == Kind::FieldOnlyIn(Side::B) { &db.fields } else { &da.fields };
+            (d.path.display(fields), d.kind)
+        })
+        .collect()
+}
+
+/// D83: another definition (another build's): fields matched by name, not
+/// position (`barrels` is the 2nd field in a, the 3rd in b); a field only one
+/// definition has is one row, `[*]` for every entry.
+#[test]
+fn another_definition_matches_fields_by_name() {
+    let a = tag(10.0, 7, &[1, 2]);
+    let b = other_tag(15.0, 3, 7, &[1, 5]);
+    let s = |t: &str| t.to_owned();
+    assert_eq!(
+        by_name(&a, &b, ""),
+        [
+            (s("speed"), Kind::Changed),
+            (s("barrels[*].spare"), Kind::FieldOnlyIn(Side::A)),
+            (s("barrels[1].rounds"), Kind::Changed),
+            (s("extra"), Kind::FieldOnlyIn(Side::B)),
+        ]
+    );
+    // path= is found in each definition.
+    assert_eq!(
+        by_name(&a, &b, "barrels[1]"),
+        [(s("barrels[1].rounds"), Kind::Changed), (s("barrels[*].spare"), Kind::FieldOnlyIn(Side::A))]
+    );
+    assert_eq!(by_name(&a, &b, "count"), []);
+}
+
 /// NaN is the same as NaN (the stored bits), unlike `==` on floats.
 #[test]
 fn equal_bits_are_the_same_value() {
