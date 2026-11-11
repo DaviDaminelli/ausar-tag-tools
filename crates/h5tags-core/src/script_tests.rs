@@ -102,3 +102,27 @@ fn a_script_tags_script() {
     let err = read_script(b, weapon, weapon.copies[0]).unwrap_err();
     assert!(matches!(err, ScriptError::NotAScript), "{err}");
 }
+
+/// D89: changed lines only, in order: a line only `a` has, then the lines
+/// only `b` has where they stand; equal lines at the start, middle and end
+/// are matched.
+#[test]
+fn line_diff_lists_removed_and_added_lines() {
+    let a = ["x", "keep", "old", "same", "end"];
+    let b = ["x", "keep", "new", "same", "more", "end"];
+    let d = diff_lines(&a, &b).unwrap();
+    assert_eq!(d, [LineChange::Removed(2), LineChange::Added(2), LineChange::Added(4)]);
+    assert_eq!(diff_lines(&a, &a).unwrap(), []);
+    assert_eq!(diff_lines(&[], &["a"]).unwrap(), [LineChange::Added(0)]);
+    assert_eq!(diff_lines(&["a", "b"], &[]).unwrap(), [LineChange::Removed(0), LineChange::Removed(1)]);
+}
+
+/// Past the size cap the middle isn't matched line by line: an error says so.
+#[test]
+fn line_diff_has_a_size_cap() {
+    let a: Vec<String> = (0..5000).map(|i| format!("a{i}")).collect();
+    let b: Vec<String> = (0..5000).map(|i| format!("b{i}")).collect();
+    let (a, b): (Vec<&str>, Vec<&str>) =
+        (a.iter().map(String::as_str).collect(), b.iter().map(String::as_str).collect());
+    assert_eq!(diff_lines(&a, &b), Err(TooLarge { a: 5000, b: 5000 }));
+}

@@ -132,6 +132,19 @@ pub fn script_error(e: crate::script::ScriptError) -> ToolError {
     }
 }
 
+/// `diff_tags` on two script tags with changed lines (D89).
+pub const SCRIPT_DIFF_HINT: &str = "changed lines only; read_script(tag, offset=<line - 1>) shows the lines around them; \
+     path= compares the tags' fields instead";
+
+/// `diff_tags` on two script tags whose scripts are equal.
+pub const SCRIPTS_SAME_HINT: &str = "the scripts are the same; path= compares the tags' other fields";
+
+/// `diff_tags` on two scripts whose changed middle is too long to match.
+pub fn script_diff_too_large(e: crate::script::TooLarge) -> ToolError {
+    ToolError::new(format!("the scripts differ in too much to compare: {e}"))
+        .hint("read_script each tag, or search_scripts for the part you need")
+}
+
 /// `search_scripts`: a class given that holds no scripts.
 pub fn not_a_script_class(class: FourCc) -> ToolError {
     ToolError::new(format!(

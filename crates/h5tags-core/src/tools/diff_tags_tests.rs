@@ -1,6 +1,6 @@
 use super::*;
 use crate::output::Format;
-use crate::testdeploy::{BULLET, TestDeploy, WEAPON, WEAPON_DEFINITION};
+use crate::testdeploy::{BULLET, SecondCopy, TestDeploy, WEAPON, WEAPON_DEFINITION};
 
 const MORE_0: &str = r"objects\test\more_0.weapon";
 const MORE_1: &str = r"objects\test\more_1.weapon";
@@ -11,16 +11,66 @@ fn diff(d: &mut TestDeploy, a: &str, b: &str, path: Option<&str>) -> Result<Stri
     diff_in(&mut d.session, a, b, path, None)
 }
 
-fn diff_in(s: &mut Session, a: &str, b: &str, path: Option<&str>, section: Option<&str>) -> Result<String, ToolError> {
-    let t = DiffTags {
+fn args(a: &str, b: &str) -> DiffTags {
+    DiffTags {
         a: a.into(),
         b: b.into(),
-        path: path.map(Into::into),
-        section: section.map(Into::into),
+        path: None,
+        section: None,
+        module_a: None,
+        module_b: None,
         build: BuildArg::default(),
         page: PageArgs::default(),
-    };
+    }
+}
+
+fn diff_in(s: &mut Session, a: &str, b: &str, path: Option<&str>, section: Option<&str>) -> Result<String, ToolError> {
+    let t = DiffTags { path: path.map(Into::into), section: section.map(Into::into), ..args(a, b) };
     t.run(s).map(|o| o.render(Format::Text))
+}
+
+const SCRIPT_0: &str = r"scripts\script_0.lua";
+const SCRIPT_1: &str = r"scripts\script_1.lua";
+
+/// D89: two script tags compare their scripts line by line: the changed
+/// lines only, each with its line number in a or in b.
+#[test]
+fn scripts_compare_line_by_line() {
+    let mut d = TestDeploy::with_scripts(
+        "diff-scripts",
+        &[b"a\r\nb\r\nc\r\n\0", b"a\r\n  B\r\nc\r\nd\r\n\0", b"a\r\nb\r\nc\r\n\0"],
+    );
+    let text = diff(&mut d, SCRIPT_0, SCRIPT_1, None).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            &format!("total: 3  a: {SCRIPT_0}  b: {SCRIPT_1}  lines: 3 / 4"),
+            "a\tb\ttext",
+            "2\t\t- b",
+            "\t2\t+ B",
+            "\t4\t+ d",
+            "hint: changed lines only; read_script(tag, offset=<line - 1>) shows the lines around them; path= compares the tags' fields instead",
+        ]
+    );
+    let same = diff(&mut d, SCRIPT_0, r"scripts\script_2.lua", None).unwrap();
+    assert!(same.starts_with("total: 0 "), "{same}");
+    assert!(same.contains("\nhint: the scripts are the same; path= compares the tags' other fields\n"), "{same}");
+    // path= compares fields, as for any tag.
+    let fields = diff(&mut d, SCRIPT_0, SCRIPT_1, Some("source file")).unwrap();
+    assert!(fields.contains("\nsource file.source\t"), "{fields}");
+}
+
+/// D89: module_a / module_b read another layer's copy, for any tag; a copy
+/// that isn't the latest layer's names its module.
+#[test]
+fn copies_from_two_layers() {
+    let mut d = TestDeploy::with("diff-layers", SecondCopy::Changed);
+    let t = DiffTags { module_a: Some("test-rtx-1.module".into()), ..args(WEAPON, WEAPON) };
+    let text = t.run(&mut d.session).unwrap().render(Format::Text);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], format!(r"total: 1  a: {WEAPON} (any\levels\test-rtx-1.module)  b: {WEAPON}"));
+    assert_eq!(lines[2], "count\t0\t9");
 }
 
 const FORGE_MORE_0: &str = r"forge:objects\test\more_0.weapon";

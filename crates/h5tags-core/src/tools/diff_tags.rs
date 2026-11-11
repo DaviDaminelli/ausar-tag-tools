@@ -4,10 +4,12 @@ use h5_defs::definition::Field;
 use h5_meta::{Body, Content, FieldPath, ReadTag, find_sections, parse_path, select, suffix};
 use serde::Deserialize;
 
-use super::args::{self, BuildArg, PageArgs};
+use super::args::{self, BuildArg, PageArgs, TagCopy};
 use super::{Tool, present};
 use crate::diff::{Difference, Kind, Side, diff_at, diff_at_by_name, diff_section};
 use crate::output::{Cell, Output, Summary, Table, ToolError, col, marker};
+use crate::query::choose_copy;
+use crate::script::{Form, LineChange, diff_lines, diff_units, read_script, script_field};
 use crate::session::Session;
 use crate::stored::{load_definition, read_stored_tag};
 use crate::tag_view::{BuildLookup, Detail, Lookup, Options, ViewSettings, entry_label, view_selection};
@@ -15,11 +17,12 @@ use crate::view::{ViewNode, value_column};
 
 /// Where two tags of the same class differ: only the fields whose values
 /// differ, as field path, a, b; tag blocks by entry count, then entry by
-/// entry. path= or section= compares only that part. Each tag's copy in the
-/// latest layer (tag_copies lists the others). The two tags may be in two
-/// builds: a='forge:<tag>', b='xbox:<tag>'. The fields that differ are
-/// candidates, not causes: check one on a third tag or with query_field
-/// first. Next: read_tag on either tag for the rest.
+/// entry. path= or section= compares only that part. Two script tags (hsc*,
+/// luas): their changed script lines instead. Each tag's copy in the latest
+/// layer; module_a= / module_b= pick another (the same tag twice compares two
+/// updates). The two tags may be in two builds: a='forge:<tag>',
+/// b='xbox:<tag>'. The fields that differ are candidates, not causes: check
+/// one on a third tag or with query_field first. Next: read_tag on either tag.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct DiffTags {
     /// The first tag (global ID, tag path or display name).
@@ -32,6 +35,12 @@ pub struct DiffTags {
     /// Only this section: a class section, explanation or group heading (as outline shows them).
     #[arg(long)]
     pub section: Option<String>,
+    /// Read a's copy in the module whose path contains this.
+    #[arg(long)]
+    pub module_a: Option<String>,
+    /// Read b's copy in the module whose path contains this.
+    #[arg(long)]
+    pub module_b: Option<String>,
     #[command(flatten)]
     #[serde(flatten)]
     pub build: BuildArg,
@@ -116,8 +125,8 @@ impl Tool for DiffTags {
         }
         let guid_check = s.guid_check;
         // Each tag in its own build (`xbox:…` picks one, D83).
-        let ta = args::tag_copy(s, &self.a, &self.build, None)?;
-        let tb = args::tag_copy(s, &self.b, &self.build, None)?;
+        let ta = args::tag_copy(s, &self.a, &self.build, self.module_a.as_deref())?;
+        let tb = args::tag_copy(s, &self.b, &self.build, self.module_b.as_deref())?;
         let (ba, bb) = (ta.build, tb.build);
         let one_build = std::ptr::eq(ba, bb);
         if ta.tag.class != tb.tag.class {
@@ -129,6 +138,14 @@ impl Tool for DiffTags {
                 bb.class_name(tb.tag.class)
             ))
             .hint("diff_tags compares two tags of the same class"));
+        }
+        let summary = vec![
+            Summary { label: "a", key: "a", value: copy_label(&ta, one_build).into() },
+            Summary { label: "b", key: "b", value: copy_label(&tb, one_build).into() },
+        ];
+        let build = if one_build { s.label(ba) } else { None };
+        if script_field(ta.tag.class).is_some() && self.path.is_none() && self.section.is_none() {
+            return self.script_diff(&ta, &tb, summary, build);
         }
         // Each tag with its own build's definition; two different ones are
         // compared field by field by name (D83).
@@ -198,14 +215,6 @@ impl Tool for DiffTags {
                 ]
             })
             .collect();
-        // Across builds, each name with its build (the tag argument's own syntax).
-        let name = |b: &crate::catalog::Build, t| {
-            if one_build { b.display_name(t) } else { format!("{}:{}", b.name, b.display_name(t)) }
-        };
-        let summary = vec![
-            Summary { label: "a", key: "a", value: name(ba, ta.tag).into() },
-            Summary { label: "b", key: "b", value: name(bb, tb.tag).into() },
-        ];
         let mut hints = Vec::new();
         if by_name {
             hints.push(present::definitions_differ_hint(&ba.class_name(ta.tag.class)));
@@ -214,7 +223,7 @@ impl Tool for DiffTags {
             hints.push(present::CANDIDATES_HINT.into());
         }
         Ok(Output::Table(Table {
-            build: if one_build { s.label(ba) } else { None },
+            build,
             total: found.len(),
             summary,
             offset: self.page.offset,
@@ -224,6 +233,61 @@ impl Tool for DiffTags {
             ..Table::default()
         }))
     }
+}
+
+impl DiffTags {
+    /// Two script tags: their changed lines (D89), each with its line number
+    /// in a or in b, `- ` removed, `+ ` added, without indentation.
+    fn script_diff(
+        &self,
+        ta: &TagCopy<'_>,
+        tb: &TagCopy<'_>,
+        mut summary: Vec<Summary>,
+        build: Option<String>,
+    ) -> Result<Output, ToolError> {
+        let sa = read_script(ta.build, ta.tag, ta.copy).map_err(present::script_error)?;
+        let sb = read_script(tb.build, tb.tag, tb.copy).map_err(present::script_error)?;
+        let (la, lb) = (diff_units(&sa), diff_units(&sb));
+        let changes = diff_lines(&la, &lb).map_err(present::script_diff_too_large)?;
+        let unit = if matches!(sa.form, Form::Compiled { .. }) { "strings" } else { "lines" };
+        summary.push(Summary { label: unit, key: unit, value: format!("{} / {}", la.len(), lb.len()).into() });
+        let rows = self
+            .page
+            .page(&changes, DEFAULT_LIMIT)
+            .iter()
+            .map(|c| match *c {
+                LineChange::Removed(i) => {
+                    vec![Cell::Int(i as i64 + 1), Cell::Empty, format!("- {}", la[i].trim()).into()]
+                }
+                LineChange::Added(j) => {
+                    vec![Cell::Empty, Cell::Int(j as i64 + 1), format!("+ {}", lb[j].trim()).into()]
+                }
+            })
+            .collect();
+        let hint = if changes.is_empty() { present::SCRIPTS_SAME_HINT } else { present::SCRIPT_DIFF_HINT };
+        Ok(Output::Table(Table {
+            build,
+            total: changes.len(),
+            summary,
+            offset: self.page.offset,
+            columns: vec![col::A, col::B, col::TEXT],
+            rows,
+            hints: vec![hint.into()],
+            ..Table::default()
+        }))
+    }
+}
+
+/// A tag's name above the table: across builds with its build (the tag
+/// argument's own syntax), and a copy other than the latest layer's with its
+/// module (D89).
+fn copy_label(t: &TagCopy<'_>, one_build: bool) -> String {
+    let name = t.build.display_name(t.tag);
+    let mut label = if one_build { name } else { format!("{}:{name}", t.build.name) };
+    if choose_copy(t.build, t.tag, None) != Some(t.copy) {
+        label.push_str(&format!(" ({})", t.build.module(t.copy).rel_path));
+    }
+    label
 }
 
 #[cfg(test)]

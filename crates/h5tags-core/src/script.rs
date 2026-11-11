@@ -158,6 +158,73 @@ pub fn search_scripts<'b>(b: &'b Build, class: Option<FourCc>, matches: &dyn Fn(
     out
 }
 
+/// One changed line of a line diff (positions from 0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineChange {
+    /// Line of `a` that `b` doesn't have.
+    Removed(usize),
+    /// Line of `b` that `a` doesn't have.
+    Added(usize),
+}
+
+/// The changed middle of two scripts is too long to match line by line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("{a} and {b} changed lines are too many to compare line by line")]
+pub struct TooLarge {
+    pub a: usize,
+    pub b: usize,
+}
+
+/// Cells of the table matching the changed middle (2 bytes each: 32 MB).
+const MAX_DIFF_CELLS: usize = 16_000_000;
+
+/// The lines only one of `a` and `b` has, in order (D89): the equal lines at
+/// the start and end are matched first, then the middle by its longest common
+/// subsequence; where a line was replaced, the removed line comes first.
+pub fn diff_lines(a: &[&str], b: &[&str]) -> Result<Vec<LineChange>, TooLarge> {
+    let start = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let end = a[start..].iter().rev().zip(b[start..].iter().rev()).take_while(|(x, y)| x == y).count();
+    let (ma, mb) = (&a[start..a.len() - end], &b[start..b.len() - end]);
+    let (n, m) = (ma.len(), mb.len());
+    if n > u16::MAX as usize || m > u16::MAX as usize || (n + 1) * (m + 1) > MAX_DIFF_CELLS {
+        return Err(TooLarge { a: n, b: m });
+    }
+    // lcs[i * w + j]: longest common subsequence of ma[i..] and mb[j..].
+    let w = m + 1;
+    let mut lcs = vec![0u16; (n + 1) * w];
+    for i in (0..n).rev() {
+        for j in (0..m).rev() {
+            lcs[i * w + j] = if ma[i] == mb[j] {
+                lcs[(i + 1) * w + j + 1] + 1
+            } else {
+                lcs[(i + 1) * w + j].max(lcs[i * w + j + 1])
+            };
+        }
+    }
+    let mut out = Vec::new();
+    let (mut i, mut j) = (0, 0);
+    while i < n || j < m {
+        if i < n && j < m && ma[i] == mb[j] {
+            (i, j) = (i + 1, j + 1);
+        } else if j == m || (i < n && lcs[(i + 1) * w + j] >= lcs[i * w + j + 1]) {
+            out.push(LineChange::Removed(start + i));
+            i += 1;
+        } else {
+            out.push(LineChange::Added(start + j));
+            j += 1;
+        }
+    }
+    Ok(out)
+}
+
+/// The lines a diff compares: source lines, or compiled strings.
+pub fn diff_units(script: &Script) -> Vec<&str> {
+    match &script.form {
+        Form::Text { text, .. } => text.lines().collect(),
+        Form::Compiled { strings, .. } => strings.iter().map(String::as_str).collect(),
+    }
+}
+
 /// A string a script holds that names a tag by its path (D85 step 4).
 #[derive(Clone, Debug)]
 pub struct TagName<'b> {
