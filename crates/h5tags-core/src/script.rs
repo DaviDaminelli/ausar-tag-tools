@@ -4,7 +4,7 @@
 use h5_meta::{Content, Value, parse_path, select};
 use h5_module::FourCc;
 
-use crate::catalog::{Build, Copy, Tag};
+use crate::catalog::{Build, Copy, Tag, TagLookupError, TagSpec};
 use crate::stored::{DefinitionLoadError, ReadError, load_definition, read_stored_tag};
 
 /// Each script class and the data field that holds its script.
@@ -101,6 +101,104 @@ fn compiled_strings(bytes: &[u8]) -> Vec<String> {
             }
             _ => i += 1,
         }
+    }
+    out
+}
+
+/// A string a script holds that names a tag by its path (D85 step 4).
+#[derive(Clone, Debug)]
+pub struct TagName<'b> {
+    /// The line it is on, in source text (from 1); `None` in compiled code.
+    pub line: Option<usize>,
+    /// As written in the script.
+    pub text: String,
+    /// As looked up: one path however it is written (`\\`, `/`, case).
+    pub path: String,
+    /// The tags with that path: one, several (the same path in several
+    /// classes), or none (no indexed tag has it).
+    pub tags: Vec<&'b Tag>,
+}
+
+/// Every string in `script` that looks like a tag path, in order, each with
+/// the tags of build `b` it names (format-notes "Scripts"): source string
+/// literals outside comments, or compiled strings but the `@…` source file
+/// name. A string looks like a path if it has a `\` or `/`, at least 3
+/// characters and only letters, digits and `\/_.-`.
+pub fn tag_names<'b>(b: &'b Build, script: &Script) -> Vec<TagName<'b>> {
+    let candidates: Vec<(Option<usize>, &str)> = match &script.form {
+        Form::Text { text, .. } => source_strings(text).into_iter().map(|(line, s)| (Some(line), s)).collect(),
+        Form::Compiled { strings, .. } => {
+            strings.iter().filter(|s| !s.starts_with('@')).map(|s| (None, s.as_str())).collect()
+        }
+    };
+    candidates
+        .into_iter()
+        .filter(|(_, s)| looks_like_path(s))
+        .map(|(line, s)| {
+            let path = as_tag_path(s);
+            TagName { line, text: s.to_owned(), tags: tags_at(b, &path), path }
+        })
+        .collect()
+}
+
+fn looks_like_path(s: &str) -> bool {
+    (s.contains('\\') || s.contains('/'))
+        && s.len() >= 3
+        && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '\\' | '/' | '_' | '.' | '-'))
+}
+
+/// A script's string as a tag path: `\\` read as `\`, `/` as `\`, lowercase,
+/// without a leading `\`.
+fn as_tag_path(s: &str) -> String {
+    s.replace("\\\\", "\\").replace('/', "\\").to_ascii_lowercase().trim_start_matches('\\').to_owned()
+}
+
+/// The tags at `path`: as written (a class suffix picks the class), else
+/// without a `.lua` source extension (compiled code names scripts so).
+fn tags_at<'b>(b: &'b Build, path: &str) -> Vec<&'b Tag> {
+    let find = |p: &str| match b.find_tag(&TagSpec::Name(p.to_owned())) {
+        Ok(t) => vec![t],
+        Err(TagLookupError::Ambiguous(tags)) => tags,
+        Err(_) => Vec::new(),
+    };
+    match find(path) {
+        found if found.is_empty() && path.ends_with(".lua") => find(path.trim_end_matches(".lua")),
+        found => found,
+    }
+}
+
+/// The string literals of Lua source with their line (from 1), comments
+/// and long strings (`[[…]]`) skipped. A backslash and the character after
+/// it stay in the literal as written; only a quote after a backslash doesn't
+/// end it.
+fn source_strings(text: &str) -> Vec<(usize, &str)> {
+    let bytes = text.as_bytes();
+    let (mut out, mut i, mut line) = (Vec::new(), 0, 1);
+    // Where the next `]]` ends (a long string or block comment), or the end.
+    let long_end = |from: usize| text[from..].find("]]").map_or(bytes.len(), |k| from + k + 2);
+    while i < bytes.len() {
+        let start = i;
+        i = match bytes[i] {
+            b'-' if bytes.get(i + 1) == Some(&b'-') => {
+                if bytes[i + 2..].starts_with(b"[[") {
+                    long_end(i + 4)
+                } else {
+                    text[i..].find('\n').map_or(bytes.len(), |k| i + k)
+                }
+            }
+            b'[' if bytes.get(i + 1) == Some(&b'[') => long_end(i + 2),
+            q @ (b'\'' | b'"') => {
+                let mut j = i + 1;
+                while j < bytes.len() && bytes[j] != q && bytes[j] != b'\n' {
+                    j += if bytes[j] == b'\\' { 2 } else { 1 };
+                }
+                let end = j.min(bytes.len());
+                out.push((line, &text[i + 1..end]));
+                end + 1
+            }
+            _ => i + 1,
+        };
+        line += bytes[start..i.min(bytes.len())].iter().filter(|&&c| c == b'\n').count();
     }
     out
 }

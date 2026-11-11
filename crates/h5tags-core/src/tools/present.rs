@@ -132,6 +132,11 @@ pub fn script_error(e: crate::script::ScriptError) -> ToolError {
     }
 }
 
+/// `read_script`: under the tag line, the tags the script names by path.
+pub fn tag_paths_line(names: usize, indexed: usize) -> String {
+    format!("tag paths: {names} ({indexed} indexed, {} not in indexed modules); names=true lists them", names - indexed)
+}
+
 /// `read_script`: under the tag line of source that isn't UTF-8.
 pub const NOT_UTF8_LINE: &str = "encoding: not UTF-8 (other bytes shown as \u{fffd})";
 

@@ -1,14 +1,40 @@
 use super::*;
 use crate::output::Format;
-use crate::testdeploy::{TestDeploy, WEAPON};
+use crate::testdeploy::{BULLET, TestDeploy, WEAPON};
+
+fn args(tag: &str) -> ReadScript {
+    ReadScript { tag: tag.into(), names: false, module: None, build: BuildArg::default(), page: PageArgs::default() }
+}
 
 fn read(d: &mut TestDeploy, tag: &str, limit: Option<usize>, format: Format) -> Result<String, ToolError> {
-    let t =
-        ReadScript { tag: tag.into(), module: None, build: BuildArg::default(), page: PageArgs { offset: 0, limit } };
+    let t = ReadScript { page: PageArgs { offset: 0, limit }, ..args(tag) };
     t.run(&mut d.session).map(|o| o.render(format))
 }
 
 const SCRIPT: &str = r"scripts\script_0.lua";
+
+/// D85 step 4: a line under the tag line counts the tags the script names
+/// by path (each path once), and names=true lists them, with the tags.
+#[test]
+fn the_tags_a_script_names() {
+    let src = b"local a = 'objects\\weapons\\rifle\\ar\\bullet'\r\nlocal b = 'objects/weapons/rifle/ar/bullet'\r\nlocal c = 'sound\\missing\\thing'\r\n\0";
+    let mut d = TestDeploy::with_scripts("read-script-names", &[src]);
+    let text = read(&mut d, SCRIPT, None, Format::Text).unwrap();
+    assert!(text.contains("\n  tag paths: 2 (1 indexed, 1 not in indexed modules); names=true lists them\n"), "{text}");
+    let t = ReadScript { names: true, ..args(SCRIPT) };
+    let text = t.run(&mut d.session).unwrap().render(Format::Text);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(!text.contains("names=true lists them"), "{text}");
+    assert_eq!(
+        lines[1..],
+        [
+            "total: 2  indexed: 1  not indexed: 1",
+            "line\ttext\tclass\tglobal ID\tdisplay name",
+            &format!("1\tobjects\\weapons\\rifle\\ar\\bullet\tproj\t0x00401000\t{BULLET}"),
+            "3\tsound\\missing\\thing\t\t\t(not in indexed modules)",
+        ]
+    );
+}
 
 /// D85: the tag line, then the source lines, numbered and paged.
 #[test]

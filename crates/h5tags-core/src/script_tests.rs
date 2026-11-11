@@ -1,6 +1,55 @@
 use super::*;
 use crate::query::choose_copy;
-use crate::testdeploy::{SCRIPT_ID, TestDeploy, WEAPON_ID};
+use crate::testdeploy::{BULLET_ID, SCRIPT_ID, TestDeploy, WEAPON_ID};
+
+/// Each name found: (line, text as written, global IDs of the tags it names).
+fn found(b: &Build, script: &Script) -> Vec<(Option<usize>, String, Vec<i32>)> {
+    tag_names(b, script).into_iter().map(|n| (n.line, n.text, n.tags.iter().map(|t| t.global_id.0).collect())).collect()
+}
+
+/// D85 step 4: string literals that look like tag paths, looked up exactly:
+/// single or escaped backslashes, `/`, a class suffix or none; comments and
+/// strings with spaces skipped; a name no indexed tag has listed without tags.
+#[test]
+fn source_names_tags_by_path() {
+    let d = TestDeploy::with_scripts("script-names", &[]);
+    let b = &d.session.builds()[0];
+    let src = concat!(
+        "-- 'objects\\weapons\\rifle\\ar\\bullet' in a comment\r\n",
+        "local a = 'objects\\weapons\\rifle\\ar\\bullet'\r\n",
+        "local b = \"objects\\\\test\\\\test.weapon\" --[[ 'objects\\test\\test' ]]\r\n",
+        "local c = 'objects/weapons/rifle/ar/bullet'; local s = 'it\\'s'\r\n",
+        "local d = 'sound\\missing\\thing'\r\n",
+        "local e = 'two words\\here'\r\n",
+    );
+    let script = parse(format!("{src}\0").as_bytes());
+    assert_eq!(
+        found(b, &script),
+        [
+            (Some(2), r"objects\weapons\rifle\ar\bullet".into(), vec![BULLET_ID]),
+            (Some(3), r"objects\\test\\test.weapon".into(), vec![WEAPON_ID]),
+            (Some(4), "objects/weapons/rifle/ar/bullet".into(), vec![BULLET_ID]),
+            (Some(5), r"sound\missing\thing".into(), vec![]),
+        ]
+    );
+}
+
+/// Compiled code names other scripts with a leading `\` and the `.lua`
+/// source extension; its `@…` source file name isn't a tag name.
+#[test]
+fn compiled_strings_name_scripts() {
+    let d = TestDeploy::with_scripts("script-names-compiled", &[b"return 1\0"]);
+    let b = &d.session.builds()[0];
+    let script =
+        parse(&compiled(&[r"@data\scripts\script_0.lua", r"\scripts\script_0", r"\scripts\script_0.lua", "OnLoad"]));
+    assert_eq!(
+        found(b, &script),
+        [
+            (None, r"\scripts\script_0".into(), vec![SCRIPT_ID]),
+            (None, r"\scripts\script_0.lua".into(), vec![SCRIPT_ID])
+        ]
+    );
+}
 
 /// A compiled script as the survey found them stored (format-notes "Scripts"):
 /// the 16 header bytes, then strings as an 8-byte big-endian length (bytes +
