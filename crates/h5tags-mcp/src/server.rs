@@ -23,6 +23,7 @@ Guide: AGENT_GUIDE.md, resource h5tags://guide. Read it before a task that needs
 Questions about many tags: ask the build, not tag by tag. query_field (one field in every tag of a class; nested [*] works: barrels[*].firing effects[*].firing effect), find_references direction=in (every tag that uses a tag), search_values (tags by text they hold), which_maps (the maps that load a tag, scripts too) / map_tags (a map's tags), compare_builds (what differs between two builds).
 Find a tag: search_tags (by path or class), browse (a folder's shape), list_entries (assets by kind or size), search_definitions (which class and field control something).
 One tag: outline(tag) → read_tag(section= or path=) → diff_tags against another. outline(class=) is the short get_definition.
+Scripts (hsc* Lua source; luas compiled, shown as its strings): search_scripts (text in every script) → read_script(tag, offset=); names=true lists the tags a script names by path; diff_tags on two scripts compares lines (module_a= for an earlier update).
 Never read a whole large tag (scnr, effe, vehi, bipd, char, gint, unit, weap): call outline first.
 name#2 = another field with the same name (flags, flags#2), not an entry. References are tag fields only: objects a map variant places aren't seen.
 detail: brief for many tags, normal by default, full only for fields you explain or change.

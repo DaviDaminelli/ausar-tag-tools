@@ -22,6 +22,7 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
    - `search_values`: tags by text they hold (string_id names, names of referenced tags).
    - `which_maps(tag)`: the maps that load a tag, of any class (scripts too); `map_tags(module=…)`: the tags a map loads.
    - `compare_builds(build_a, build_b)`: what differs between two builds (tags only in one, tags whose data differs), with `class=` and `status=`.
+   - `search_scripts(term)`: the script lines (and compiled scripts' strings) holding a text, in every script.
 2. **Find** the tag: `search_tags` by part of its path or by class; `browse` for a folder's shape; `list_entries` for assets by kind or size; `search_definitions` if you know what you want but not which class controls it.
 3. **Orient**: `outline(tag)` before reading anything large. It's cheap and shows sections, field paths and entry counts.
 4. **Read** only what you need: `read_tag(tag, section=...)` or `read_tag(tag, path=...)`.
