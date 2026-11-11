@@ -22,6 +22,7 @@ mod read_script;
 mod read_tag;
 mod reindex;
 mod search;
+mod search_scripts;
 mod search_values;
 mod tag_copies;
 #[cfg(test)]
@@ -41,6 +42,7 @@ pub use read_script::ReadScript;
 pub use read_tag::ReadTag;
 pub use reindex::{Reindex, What};
 pub use search::{Browse, SearchTags};
+pub use search_scripts::SearchScripts;
 pub use search_values::SearchValues;
 pub use tag_copies::TagCopies;
 
@@ -107,6 +109,7 @@ tools!(
     ListResourceKinds,
     ReadTag,
     ReadScript,
+    SearchScripts,
     GetDefinition,
     Outline,
     SearchDefinitions,

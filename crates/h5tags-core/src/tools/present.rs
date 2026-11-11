@@ -132,6 +132,28 @@ pub fn script_error(e: crate::script::ScriptError) -> ToolError {
     }
 }
 
+/// `search_scripts`: a class given that holds no scripts.
+pub fn not_a_script_class(class: FourCc) -> ToolError {
+    ToolError::new(format!(
+        "{} isn't a script class: scripts are in hsc* (lua) and luas (lua_script) tags",
+        class.to_string().trim_end()
+    ))
+}
+
+/// `search_scripts`: no line or string holds the term.
+pub fn no_script_holds(term: &str) -> String {
+    format!(
+        "no script holds '{term}'; compiled (luas) scripts are searched by the strings they hold, not their code; \
+         names built at runtime aren't seen"
+    )
+}
+
+/// `search_scripts`: script tags that couldn't be read, so weren't searched.
+pub fn skipped_scripts(skipped: &[(&Tag, crate::script::ScriptError)]) -> Option<String> {
+    let (first, why) = skipped.first()?;
+    Some(format!("{} script tags couldn't be read and weren't searched, e.g. {} ({why})", skipped.len(), first.path))
+}
+
 /// `read_script`: under the tag line, the tags the script names by path.
 pub fn tag_paths_line(names: usize, indexed: usize) -> String {
     format!("tag paths: {names} ({indexed} indexed, {} not in indexed modules); names=true lists them", names - indexed)

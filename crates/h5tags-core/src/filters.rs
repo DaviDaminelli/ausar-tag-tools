@@ -31,13 +31,17 @@ pub enum Mode {
 pub struct Substring(Regex);
 
 impl Substring {
-    fn new(text: &str) -> Substring {
+    pub fn new(text: &str) -> Substring {
         Substring(
             RegexBuilder::new(&regex::escape(text))
                 .case_insensitive(true)
                 .build()
                 .expect("an escaped literal is a valid regex"),
         )
+    }
+
+    pub fn is_match(&self, text: &str) -> bool {
+        self.0.is_match(text)
     }
 }
 

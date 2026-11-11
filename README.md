@@ -227,6 +227,7 @@ The assistant and the command line have the same tools: over MCP they're named w
 | `find-references`     | What a tag references, and what references it, with the fields (recursively if asked)    |
 | `tag-copies`          | Every copy of a tag across modules and update layers                                     |
 | `search-values`       | Tags holding a string_id name or a referenced tag's name                                 |
+| `search-scripts`      | Script lines (or compiled scripts' strings) holding a text                               |
 | `query-field`         | One field across every tag of a class, with `filter=`, `sort=` and more fields (`also=`) |
 | `diff-tags`           | The fields that differ between two tags of a class; block entries matched by label       |
 | `map-tags`            | The tags a map loads (its load manifest)                                                 |

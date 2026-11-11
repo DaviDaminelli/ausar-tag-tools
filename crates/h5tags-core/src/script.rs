@@ -5,6 +5,7 @@ use h5_meta::{Content, Value, parse_path, select};
 use h5_module::FourCc;
 
 use crate::catalog::{Build, Copy, Tag, TagLookupError, TagSpec};
+use crate::query::choose_copy;
 use crate::stored::{DefinitionLoadError, ReadError, load_definition, read_stored_tag};
 
 /// Each script class and the data field that holds its script.
@@ -100,6 +101,58 @@ fn compiled_strings(bytes: &[u8]) -> Vec<String> {
                 i += 8 + len;
             }
             _ => i += 1,
+        }
+    }
+    out
+}
+
+/// A source line or compiled string that matched a search.
+#[derive(Clone, Debug)]
+pub struct ScriptHit<'b> {
+    pub tag: &'b Tag,
+    /// Source line (from 1); `None` for a compiled string.
+    pub line: Option<usize>,
+    /// The line without its indentation, or the string.
+    pub text: String,
+}
+
+/// What [`search_scripts`] found.
+#[derive(Debug, Default)]
+pub struct ScriptSearch<'b> {
+    /// In catalog order (by path), then by line.
+    pub hits: Vec<ScriptHit<'b>>,
+    /// Script tags read.
+    pub searched: usize,
+    /// Script tags that couldn't be read.
+    pub skipped: Vec<(&'b Tag, ScriptError)>,
+}
+
+/// Every script tag of `b` (of `class` only, if given), its copy read by
+/// default (D58): the source lines, or compiled strings, `matches` accepts.
+pub fn search_scripts<'b>(b: &'b Build, class: Option<FourCc>, matches: &dyn Fn(&str) -> bool) -> ScriptSearch<'b> {
+    let mut out = ScriptSearch::default();
+    let wanted = |t: &&Tag| script_field(t.class).is_some() && class.is_none_or(|c| c == t.class);
+    for tag in b.tags.iter().filter(wanted) {
+        let Some(copy) = choose_copy(b, tag, None) else { continue };
+        let script = match read_script(b, tag, copy) {
+            Ok(s) => s,
+            Err(e) => {
+                out.skipped.push((tag, e));
+                continue;
+            }
+        };
+        out.searched += 1;
+        match &script.form {
+            Form::Text { text, .. } => {
+                for (i, line) in text.lines().enumerate().filter(|(_, l)| matches(l)) {
+                    out.hits.push(ScriptHit { tag, line: Some(i + 1), text: line.trim().to_owned() });
+                }
+            }
+            Form::Compiled { strings, .. } => {
+                for s in strings.iter().filter(|s| matches(s)) {
+                    out.hits.push(ScriptHit { tag, line: None, text: s.clone() });
+                }
+            }
         }
     }
     out
