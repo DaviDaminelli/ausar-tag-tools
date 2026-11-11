@@ -196,6 +196,77 @@ fn the_domain_reads_every_script_as_the_survey_does() {
     }
 }
 
+/// M7 step 4: the tag names the domain finds (`script::tag_names`) against
+/// this survey's own count: path-like strings, naming one tag, several, and
+/// the distinct names no indexed tag has.
+#[test]
+#[ignore]
+fn the_domain_finds_the_tag_names_the_survey_counts() {
+    use h5tags_core::script::{read_script, tag_names};
+    let config = PathBuf::from(std::env::var("H5_CONFIG").expect("set H5_CONFIG"));
+    let s = Session::open(Config::load(&config).unwrap()).unwrap();
+    for b in s.builds() {
+        let last_parts: HashMap<String, usize> = HashMap::new();
+        for (code, field) in SCRIPT_FIELDS {
+            let class = h5_module::FourCc::from_code(code).unwrap();
+            let mut survey = Names::default();
+            let (mut paths, mut one, mut several) = (0, 0, 0);
+            let mut not_indexed: BTreeSet<String> = BTreeSet::new();
+            let mut differences: Vec<String> = Vec::new();
+            for t in b.tags.iter().filter(|t| t.class == class) {
+                for &copy in &t.copies {
+                    let bytes = script_bytes(b, t, copy, field).unwrap();
+                    let before = survey.paths;
+                    // The survey skips source that isn't UTF-8; the domain reads it lossily.
+                    let mut survey_read = true;
+                    if bytes.starts_with(BYTECODE_SIGNATURE) {
+                        for r in length_prefixed_strings(&bytes) {
+                            classify(b, &last_parts, &r, &mut survey);
+                        }
+                    } else if let Ok(src) =
+                        std::str::from_utf8(&bytes[..bytes.len() - bytes.iter().rev().take_while(|&&c| c == 0).count()])
+                    {
+                        for lit in literals(src, &mut BTreeMap::new()) {
+                            classify(b, &last_parts, &lit, &mut survey);
+                        }
+                    } else {
+                        survey_read = false;
+                    }
+                    let script = read_script(b, t, copy).unwrap();
+                    let names = tag_names(b, &script);
+                    if survey_read {
+                        assert_eq!(names.len(), survey.paths - before, "{}", b.display_name(t));
+                    } else {
+                        differences.push(format!("{} (not UTF-8): domain {}", b.display_name(t), names.len()));
+                    }
+                    for n in names {
+                        paths += 1;
+                        match n.tags.len() {
+                            0 => {
+                                not_indexed.insert(n.text.replace("\\\\", "\\").to_ascii_lowercase());
+                            }
+                            1 => one += 1,
+                            _ => several += 1,
+                        }
+                    }
+                }
+            }
+            println!(
+                "{} {code}: domain path-like {paths}, one tag {one}, several {several}, not indexed {} distinct | survey {}, {}, {}, {}",
+                b.name,
+                not_indexed.len(),
+                survey.paths,
+                survey.one_tag,
+                survey.several,
+                survey.not_indexed.len()
+            );
+            for d in &differences {
+                println!("  only the domain reads: {d}");
+            }
+        }
+    }
+}
+
 #[test]
 #[ignore]
 fn what_the_script_tags_hold() {
