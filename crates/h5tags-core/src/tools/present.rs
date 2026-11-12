@@ -168,8 +168,11 @@ pub fn skipped_scripts(skipped: &[(&Tag, crate::script::ScriptError)]) -> Option
 }
 
 /// `read_script`: under the tag line, the tags the script names by path.
-pub fn tag_paths_line(names: usize, indexed: usize) -> String {
-    format!("tag paths: {names} ({indexed} indexed, {} not in indexed modules); names=true lists them", names - indexed)
+pub fn tag_paths_line(paths: usize, strings: usize, indexed: usize) -> String {
+    format!(
+        "tag paths: {paths} ({strings} strings; {indexed} indexed, {} not in indexed modules); names=true lists them",
+        paths - indexed
+    )
 }
 
 /// `read_script`: under the tag line of source that isn't UTF-8.

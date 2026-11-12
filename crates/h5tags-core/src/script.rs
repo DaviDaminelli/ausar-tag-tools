@@ -227,11 +227,11 @@ pub fn diff_units(script: &Script) -> Vec<&str> {
 
 /// A string a script holds that names a tag by its path (D85 step 4).
 #[derive(Clone, Debug)]
-pub struct TagName<'b> {
+pub struct TagName<'b, 's> {
     /// The line it is on, in source text (from 1); `None` in compiled code.
     pub line: Option<usize>,
     /// As written in the script.
-    pub text: String,
+    pub text: &'s str,
     /// As looked up: one path however it is written (`\\`, `/`, case).
     pub path: String,
     /// The tags with that path: one, several (the same path in several
@@ -244,21 +244,25 @@ pub struct TagName<'b> {
 /// literals outside comments, or compiled strings but the `@…` source file
 /// name. A string looks like a path if it has a `\` or `/`, at least 3
 /// characters and only letters, digits and `\/_.-`.
-pub fn tag_names<'b>(b: &'b Build, script: &Script) -> Vec<TagName<'b>> {
-    let candidates: Vec<(Option<usize>, &str)> = match &script.form {
-        Form::Text { text, .. } => source_strings(text).into_iter().map(|(line, s)| (Some(line), s)).collect(),
-        Form::Compiled { strings, .. } => {
-            strings.iter().filter(|s| !s.starts_with('@')).map(|s| (None, s.as_str())).collect()
-        }
+pub fn tag_names<'b, 's>(b: &'b Build, script: &'s Script) -> Vec<TagName<'b, 's>> {
+    // One allocation per path-like string (its lookup form); the text is borrowed.
+    let name = |line, text: &'s str| {
+        let path = as_tag_path(text);
+        TagName { line, text, tags: tags_at(b, &path), path }
     };
-    candidates
-        .into_iter()
-        .filter(|(_, s)| looks_like_path(s))
-        .map(|(line, s)| {
-            let path = as_tag_path(s);
-            TagName { line, text: s.to_owned(), tags: tags_at(b, &path), path }
-        })
-        .collect()
+    match &script.form {
+        Form::Text { text, .. } => source_strings(text)
+            .into_iter()
+            .filter(|(_, s)| looks_like_path(s))
+            .map(|(line, s)| name(Some(line), s))
+            .collect(),
+        Form::Compiled { strings, .. } => strings
+            .iter()
+            .map(String::as_str)
+            .filter(|s| !s.starts_with('@') && looks_like_path(s))
+            .map(|s| name(None, s))
+            .collect(),
+    }
 }
 
 fn looks_like_path(s: &str) -> bool {
@@ -267,10 +271,18 @@ fn looks_like_path(s: &str) -> bool {
         && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '\\' | '/' | '_' | '.' | '-'))
 }
 
-/// A script's string as a tag path: `\\` read as `\`, `/` as `\`, lowercase,
-/// without a leading `\`.
+/// A script's string as a tag path, built in one pass: a run of `\` or `/`
+/// read as one `\` (so `\\` is `\`), lowercase, without a leading `\`.
 fn as_tag_path(s: &str) -> String {
-    s.replace("\\\\", "\\").replace('/', "\\").to_ascii_lowercase().trim_start_matches('\\').to_owned()
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' | '/' if out.is_empty() || out.ends_with('\\') => {}
+            '\\' | '/' => out.push('\\'),
+            c => out.push(c.to_ascii_lowercase()),
+        }
+    }
+    out
 }
 
 /// The tags at `path`: as written (a class suffix picks the class), else

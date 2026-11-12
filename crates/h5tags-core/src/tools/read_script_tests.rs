@@ -20,7 +20,11 @@ fn the_tags_a_script_names() {
     let src = b"local a = 'objects\\weapons\\rifle\\ar\\bullet'\r\nlocal b = 'objects/weapons/rifle/ar/bullet'\r\nlocal c = 'sound\\missing\\thing'\r\n\0";
     let mut d = TestDeploy::with_scripts("read-script-names", &[src]);
     let text = read(&mut d, SCRIPT, None, Format::Text).unwrap();
-    assert!(text.contains("\n  tag paths: 2 (1 indexed, 1 not in indexed modules); names=true lists them\n"), "{text}");
+    // Two strings name the bullet (`\` and `/`): 2 paths, 3 strings.
+    assert!(
+        text.contains("\n  tag paths: 2 (3 strings; 1 indexed, 1 not in indexed modules); names=true lists them\n"),
+        "{text}"
+    );
     let t = ReadScript { names: true, ..args(SCRIPT) };
     let text = t.run(&mut d.session).unwrap().render(Format::Text);
     let lines: Vec<&str> = text.lines().collect();
@@ -28,10 +32,10 @@ fn the_tags_a_script_names() {
     assert_eq!(
         lines[1..],
         [
-            "total: 2  indexed: 1  not indexed: 1",
-            "line\ttext\tclass\tglobal ID\tdisplay name",
-            &format!("1\tobjects\\weapons\\rifle\\ar\\bullet\tproj\t0x00401000\t{BULLET}"),
-            "3\tsound\\missing\\thing\t\t\t(not in indexed modules)",
+            "total: 2  indexed: 1  not indexed: 1  strings: 3",
+            "line\tcount\ttext\tclass\tglobal ID\tdisplay name",
+            &format!("1\t2\tobjects\\weapons\\rifle\\ar\\bullet\tproj\t0x00401000\t{BULLET}"),
+            "3\t1\tsound\\missing\\thing\t\t\t(not in indexed modules)",
         ]
     );
 }

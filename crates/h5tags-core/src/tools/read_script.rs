@@ -1,6 +1,7 @@
 //! `read_script` (M7, decisions D85): a script tag's script.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 use serde::Deserialize;
 
@@ -56,19 +57,17 @@ impl Tool for ReadScript {
             tag.title_lines.push(present::NOT_UTF8_LINE.into());
         }
         let limit = self.page.limit.unwrap_or(DEFAULT_LIMIT);
-        // Each path once, where it first appears.
-        let mut seen = HashSet::new();
-        let names: Vec<TagName> =
-            tag_names(t.build, &script).into_iter().filter(|n| seen.insert(n.path.clone())).collect();
-        let indexed = names.iter().filter(|n| !n.tags.is_empty()).count();
+        let all = tag_names(t.build, &script);
+        let paths = distinct_paths(&all);
+        let indexed = paths.iter().filter(|(n, _)| !n.tags.is_empty()).count();
         if self.names {
             return Ok(Output::Tagged {
                 tag: Box::new(tag),
-                table: names_table(t.build, &names, indexed, &self.page, limit),
+                table: names_table(t.build, &paths, all.len(), indexed, &self.page, limit),
             });
         }
-        if !names.is_empty() {
-            tag.title_lines.push(present::tag_paths_line(names.len(), indexed));
+        if !paths.is_empty() {
+            tag.title_lines.push(present::tag_paths_line(paths.len(), all.len(), indexed));
         }
         let size = Summary { label: "size", key: "size", value: Cell::Size(script.size as u64) };
         let table = match &script.form {
@@ -111,38 +110,69 @@ impl Tool for ReadScript {
     }
 }
 
-/// names=true: one row per tag a name finds (a name in several classes, one
-/// row each), or one row for a name no indexed tag has.
-fn names_table(b: &Build, names: &[TagName], indexed: usize, page: &PageArgs, limit: usize) -> Table {
+/// Each path once, where it first appears, with how many strings name it
+/// (`\\`, `/` and case aside, D91). Keys borrow the names: nothing is
+/// allocated per string.
+fn distinct_paths<'n, 'b, 's>(all: &'n [TagName<'b, 's>]) -> Vec<(&'n TagName<'b, 's>, usize)> {
+    let mut at: HashMap<&str, usize> = HashMap::with_capacity(all.len());
+    let mut paths: Vec<(&TagName, usize)> = Vec::new();
+    for n in all {
+        match at.entry(n.path.as_str()) {
+            Entry::Occupied(e) => paths[*e.get()].1 += 1,
+            Entry::Vacant(e) => {
+                e.insert(paths.len());
+                paths.push((n, 1));
+            }
+        }
+    }
+    paths
+}
+
+/// names=true: one row per tag a path finds (a path in several classes, one
+/// row each), or one row for a path no indexed tag has. Only the page's rows
+/// are built (D26).
+fn names_table(
+    b: &Build,
+    paths: &[(&TagName, usize)],
+    strings: usize,
+    indexed: usize,
+    page: &PageArgs,
+    limit: usize,
+) -> Table {
     let line = |n: &TagName| n.line.map_or(Cell::Empty, |l| Cell::Int(l as i64));
-    let rows: Vec<Vec<Cell>> = names
+    let rows = paths
         .iter()
-        .flat_map(|n| {
+        .flat_map(|&(n, count)| {
             let found = n.tags.iter().map(move |t| {
                 vec![
                     line(n),
-                    n.text.as_str().into(),
+                    Cell::Int(count as i64),
+                    n.text.into(),
                     t.class.to_string().into(),
                     t.global_id.to_string().into(),
                     b.display_name(t).into(),
                 ]
             });
-            let missing = n
-                .tags
-                .is_empty()
-                .then(|| vec![line(n), n.text.as_str().into(), Cell::Empty, Cell::Empty, marker::NOT_IN_INDEX.into()]);
+            let missing = n.tags.is_empty().then(|| {
+                let not_indexed = marker::NOT_IN_INDEX.into();
+                vec![line(n), Cell::Int(count as i64), n.text.into(), Cell::Empty, Cell::Empty, not_indexed]
+            });
             found.chain(missing)
         })
+        .skip(page.offset)
+        .take(limit)
         .collect();
+    let int = |n: usize| Cell::Int(n as i64);
     Table {
-        total: rows.len(),
+        total: paths.iter().map(|(n, _)| n.tags.len().max(1)).sum(),
         summary: vec![
-            Summary { label: "indexed", key: "indexed", value: Cell::Int(indexed as i64) },
-            Summary { label: "not indexed", key: "not_indexed", value: Cell::Int((names.len() - indexed) as i64) },
+            Summary { label: "indexed", key: "indexed", value: int(indexed) },
+            Summary { label: "not indexed", key: "not_indexed", value: int(paths.len() - indexed) },
+            Summary { label: "strings", key: "strings", value: int(strings) },
         ],
         offset: page.offset,
-        columns: vec![col::LINE, col::TEXT, col::CLASS, col::GLOBAL_ID, col::DISPLAY_NAME],
-        rows: page.page(&rows, limit).to_vec(),
+        columns: vec![col::LINE, col::COUNT, col::TEXT, col::CLASS, col::GLOBAL_ID, col::DISPLAY_NAME],
+        rows,
         ..Table::default()
     }
 }

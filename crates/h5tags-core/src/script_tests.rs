@@ -4,7 +4,10 @@ use crate::testdeploy::{BULLET_ID, SCRIPT_ID, TestDeploy, WEAPON_ID};
 
 /// Each name found: (line, text as written, global IDs of the tags it names).
 fn found(b: &Build, script: &Script) -> Vec<(Option<usize>, String, Vec<i32>)> {
-    tag_names(b, script).into_iter().map(|n| (n.line, n.text, n.tags.iter().map(|t| t.global_id.0).collect())).collect()
+    tag_names(b, script)
+        .into_iter()
+        .map(|n| (n.line, n.text.to_owned(), n.tags.iter().map(|t| t.global_id.0).collect()))
+        .collect()
 }
 
 /// D85 step 4: string literals that look like tag paths, looked up exactly:
