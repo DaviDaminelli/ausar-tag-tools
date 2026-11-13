@@ -644,3 +644,7 @@ From the script survey (format-notes "Scripts"): `hsc*` holds Lua source text, `
 - **Each version read once:** copies with the same data letter hold the same bytes, so the first copy of a version is read and its rows reused for the others (D26).
 - **One rule for values, shared:** `present::value_cell` and `present::value_settings` (moved out of `query_field`), and `present::units` (the angle rule, moved too); `query_field` uses the same three. The path is checked as in `query_field` (`value_field`: a struct, a block entry or a curve is refused with the same message).
 - **No `allow(clippy::too_many_arguments)`:** the copies as listed (versions, order) are one `Listed` value with the two tables as methods.
+
+## D103. M9 step 5: PRD and instructions (2026-11-13)
+- **PRD §6.6** describes `query_field` on a parent class (D99–D101) and `tag_copies(path=)` with layer order (D102); the M9 row gets its done-when from D97 and says the summary is dropped.
+- **Instructions (PRD §9a and the server): no new line**, two lines extended, 22 lines as before: the "many tags" line says a parent class such as `object` covers every class inheriting it; the copies line says `tag_copies(path=)` gives one field in each copy.

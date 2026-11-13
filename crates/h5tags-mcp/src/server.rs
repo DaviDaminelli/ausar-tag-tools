@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 pub const INSTRUCTIONS: &str = "\
 h5tags reads Halo 5 .module tags (builds: see list_modules / the build parameter). Values come only from these tools; never fill them in from memory.
 Guide: AGENT_GUIDE.md, resource h5tags://guide. Read it before a task that needs more context about the tool or the game: what a change would affect, whether something is used in the game (§2.2), tag internals (dependencies, string tables, resources), or a result these lines don't explain. Simple lookups don't need it.
-Questions about many tags: ask the build, not tag by tag. query_field (one field in every tag of a class; nested [*] works: barrels[*].firing effects[*].firing effect), find_references direction=in (every tag that uses a tag), search_values (tags by text they hold), which_maps (the maps that load a tag, scripts too) / map_tags (a map's tags), compare_builds (what differs between two builds).
+Questions about many tags: ask the build, not tag by tag. query_field (one field in every tag of a class; a parent class such as object covers every class inheriting it; nested [*] works: barrels[*].firing effects[*].firing effect), find_references direction=in (every tag that uses a tag), search_values (tags by text they hold), which_maps (the maps that load a tag, scripts too) / map_tags (a map's tags), compare_builds (what differs between two builds).
 Find a tag: search_tags (by path or class), browse (a folder's shape), list_entries (assets by kind or size), search_definitions (which class and field control something).
 One tag: outline(tag) → read_tag(section= or path=) → diff_tags against another. outline(class=) is the short get_definition.
 Scripts (hsc* Lua source; luas compiled, shown as its strings): search_scripts (text in every script) → read_script(tag, offset=); names=true lists the tags a script names by path; diff_tags on two scripts compares lines (module_a= for an earlier update).
@@ -33,7 +33,7 @@ Text output: '# ' tag line, '## ' class section, '### '+ sections/structs/blocks
 (empty) (none) (none set) = real facts about the tag. (no definition…) (no option…) (unnamed…) = value is real, meaning unknown.
 (unresolved) = string_id not resolved; don't guess it. (not in indexed modules) = say so; don't assume it's missing from the game.
 '!!' or (not read) = the TOOL failed: never state those values, or their absence, as facts; tell the user. 'warning: definition GUID mismatch' = the values were read; use them and mention the warning.
-copies: N (differ) = the tag differs between update layers (game versions); tools read the latest layer. tag_copies lists every version; module= reads another. Say which you used.
+copies: N (differ) = the tag differs between update layers (game versions); tools read the latest layer. tag_copies lists every version (path= gives one field in each); module= reads another. Say which you used.
 in xbox: different = that build's copy of the tag holds other data; diff_tags(a='forge:<tag>', b='xbox:<tag>') shows which fields.
 Field names and help text are hints about behaviour, not proof; say where an explanation comes from.
 What a change affects (guide §2.1): diff_tags against a tag that already behaves as wanted; the fields that differ are candidates, not causes.
