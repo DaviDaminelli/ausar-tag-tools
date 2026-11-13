@@ -115,14 +115,7 @@ impl Tool for LookupText {
             .collect();
 
         let lang_name = lang.map_or("all", |l| languages[l].as_str());
-        let differ: Vec<(String, &str, usize)> = found
-            .differing()
-            .into_iter()
-            .map(|(id, l, n)| {
-                (id.text.clone().unwrap_or_else(|| format!("0x{:08X}", id.hash)), languages[l].as_str(), n)
-            })
-            .collect();
-        let mut hints: Vec<String> = present::differing_texts(&differ).into_iter().collect();
+        let mut hints: Vec<String> = present::differing_texts(&found.differing(), &languages).into_iter().collect();
         hints.extend(present::skipped_tags("unic", &found.skipped));
         if found.unreadable > 0 {
             hints.push(present::unreadable_texts(found.unreadable));

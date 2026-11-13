@@ -106,6 +106,9 @@ fn the_domain_reads_every_text_as_the_survey_does() {
     for b in s.builds() {
         assert_eq!(text_languages(b).unwrap(), LANGUAGES);
         let (mut entries, mut texts, mut english) = (0usize, 0usize, HashMap::<u32, HashSet<String>>::new());
+        // Texts holding a backslash, and a backslash before n, r or t (which
+        // the text output's \n \r \t escapes would make ambiguous, D94).
+        let (mut backslash, mut escape_like) = (0usize, 0usize);
         for t in b.tags.iter().filter(|t| t.class == class) {
             let default = choose_copy(b, t, None);
             for &copy in &t.copies {
@@ -123,6 +126,10 @@ fn the_domain_reads_every_text_as_the_survey_does() {
                         };
                         assert_eq!(read, survey);
                         texts += usize::from(read.is_some());
+                        if let Some(r) = read {
+                            backslash += usize::from(r.contains(&b'\\'));
+                            escape_like += usize::from(r.windows(2).any(|w| matches!(w, [b'\\', b'n' | b'r' | b't'])));
+                        }
                         if lang == 0 && default == Some(copy) {
                             english.entry(*hash).or_default().insert(String::from_utf8_lossy(read.unwrap()).into());
                         }
@@ -137,6 +144,8 @@ fn the_domain_reads_every_text_as_the_survey_does() {
         let elapsed = start.elapsed();
         assert_eq!((all.skipped.len(), all.unreadable), (0, 0));
         assert_eq!(all.differing().len(), conflicting);
+        println!("   texts (every copy) with a backslash {backslash}, with a backslash before n, r or t {escape_like}");
+        assert_eq!(escape_like, 0, "a stored \\n, \\r or \\t would read like an escaped line break (D94)");
         println!(
             "== {}: entries {entries}, texts {texts}; string_ids with different English texts {conflicting}; \
              every latest copy searched ({} tags, {} hits) in {elapsed:.2?}",

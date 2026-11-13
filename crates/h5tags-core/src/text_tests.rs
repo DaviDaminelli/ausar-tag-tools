@@ -83,8 +83,21 @@ fn a_string_id_is_found_in_every_list() {
         ]
     );
     assert_eq!((s.searched, s.skipped.len(), s.unreadable), (2, 0, 0));
-    let differ: Vec<_> = s.differing().into_iter().map(|(id, lang, n)| (id.text.clone(), lang, n)).collect();
-    assert_eq!(differ, [(Some("battle_rifle".to_owned()), 0, 2)]);
+    let differ: Vec<_> = s.differing().into_iter().map(|d| (d.id.text.clone(), d.languages, d.texts)).collect();
+    assert_eq!(differ, [(Some("battle_rifle".to_owned()), vec![0], 2)]);
+}
+
+/// A string_id with different texts in several languages is one item, with
+/// those languages; a language where the texts agree isn't among them.
+#[test]
+fn differing_texts_are_one_item_per_string_id() {
+    let a: TestTexts<'_> = &[("x", [Some("One"), Some("Eins"), Some("Un")]), ("y", [Some("Y"), None, None])];
+    let b: TestTexts<'_> = &[("x", [Some("One!"), Some("Eins!"), Some("Un")]), ("y", [Some("Y2"), None, None])];
+    let three: TestTexts<'_> = &[("x", [Some("One?"), None, None])];
+    let d = TestDeploy::with_texts("text-differing", &[a, b, three]);
+    let s = search_texts(&d.session.builds()[0], Scope::Latest, &Lookup::Every, None);
+    let differ: Vec<_> = s.differing().into_iter().map(|d| (d.id.text.clone(), d.languages, d.texts)).collect();
+    assert_eq!(differ, [(Some("x".to_owned()), vec![0, 1], 3), (Some("y".to_owned()), vec![0], 2)]);
 }
 
 /// Every language: one row per language with a text; one language: a

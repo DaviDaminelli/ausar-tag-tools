@@ -216,9 +216,10 @@ impl<'b> TextSearch<'b> {
         self.lists[h.list].1.text(h.entry, h.language)
     }
 
-    /// The string_ids (by hash) the hits give different texts in one
-    /// language: (string_id, language, different texts), in hit order.
-    pub fn differing(&self) -> Vec<(&StringIdValue, usize, usize)> {
+    /// The string_ids (by hash) the hits give different texts in a language,
+    /// in hit order: each once, with those languages (in hit order) and the
+    /// most different texts in one of them.
+    pub fn differing(&self) -> Vec<Differing<'_>> {
         /// A string_id's texts in one language: the first, then any other
         /// (allocated only when a second text turns up).
         struct Texts<'t> {
@@ -245,8 +246,28 @@ impl<'b> TextSearch<'b> {
                 }
             }
         }
-        groups.into_iter().filter(|g| !g.others.is_empty()).map(|g| (g.id, g.language, 1 + g.others.len())).collect()
+        let mut out: Vec<Differing<'_>> = Vec::new();
+        let mut by_id: HashMap<u32, usize> = HashMap::new();
+        for g in groups.into_iter().filter(|g| !g.others.is_empty()) {
+            let d = *by_id.entry(g.id.hash).or_insert_with(|| {
+                out.push(Differing { id: g.id, languages: Vec::new(), texts: 0 });
+                out.len() - 1
+            });
+            out[d].languages.push(g.language);
+            out[d].texts = out[d].texts.max(1 + g.others.len());
+        }
+        out
     }
+}
+
+/// A string_id the hits give different texts ([`TextSearch::differing`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Differing<'s> {
+    pub id: &'s StringIdValue,
+    /// Positions in [`text_languages`].
+    pub languages: Vec<usize>,
+    /// The most different texts in one language.
+    pub texts: usize,
 }
 
 /// The texts of the `unic` copies in `scope` that `lookup` finds, in

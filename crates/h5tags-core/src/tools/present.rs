@@ -188,13 +188,24 @@ pub fn unknown_language(lang: &str, languages: &[String]) -> ToolError {
     ToolError::new(format!("no language '{lang}'")).hint(format!("languages: {}, or all", languages.join(", ")))
 }
 
-/// `lookup_text`: string_ids the tables give different texts (D92): each
-/// (name, language, texts), the first three named.
-pub fn differing_texts(differ: &[(String, &str, usize)]) -> Option<String> {
+/// `lookup_text`: string_ids the tables give different texts (D92), the
+/// first three named: `name (2 english texts)`, or `name (different in 3
+/// languages)`.
+pub fn differing_texts(differ: &[crate::text::Differing<'_>], languages: &[String]) -> Option<String> {
     if differ.is_empty() {
         return None;
     }
-    let named: Vec<String> = differ.iter().take(3).map(|(id, l, n)| format!("{id} ({n} {l} texts)")).collect();
+    let named: Vec<String> = differ
+        .iter()
+        .take(3)
+        .map(|d| {
+            let id = d.id.text.clone().unwrap_or_else(|| format!("0x{:08X}", d.id.hash));
+            match d.languages.as_slice() {
+                [l] => format!("{id} ({} {} texts)", d.texts, languages[*l]),
+                many => format!("{id} (different in {} languages)", many.len()),
+            }
+        })
+        .collect();
     let more = if differ.len() > 3 { format!(" +{} more", differ.len() - 3) } else { String::new() };
     Some(format!(
         "string_ids with different texts in different unic tags: {}{more}; \
