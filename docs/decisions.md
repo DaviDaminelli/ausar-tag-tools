@@ -616,3 +616,10 @@ From the script survey (format-notes "Scripts"): `hsc*` holds Lua source text, `
 - **One rule for a class's definition** (`stored::load_class_definition`): a class with tags uses the one the catalog found for it (by code or name); a class without tags, the definition file with its code. `query_field` loads through it (it read the class list itself). `Build::class_name` follows the same rule, so messages name such a class (`object`, not `obje`).
 - **The answers:** `query_field` on such a class gives `total: 0` and the existing hint (`no tags of class 'obje' (object) in the indexed modules … The class exists (it has a definition) …`, guide §4.6); `definition_status(class=)` the same, with nothing checked, instead of a panic.
 - **For the parents this is an interim answer:** they have no tags anywhere (they are inherited), so "its tags are in modules that aren't indexed" doesn't fit them; step 3 replaces it with the inheriting classes' rows.
+
+## D99. M9 step 1: the parents' definitions against their children (2026-11-13)
+- **Result (format-notes "Custom fields"):** on both samples, every definition with a parent's section (`OBJECT`, `ITEM`, `UNIT`, `DEVICE`) starts it with exactly the parent definition's fields, in order, each identical. Nothing differs; the survey test asserts it, so a definition that breaks it fails there.
+- **Rules for step 2, from it:**
+  - **A class inherits a parent** when its definition has the parent's own section (its definition's last section). `object` → 19 definitions (the other three parents among them), 10 with tags on each sample; `item` 2, `unit` 3, `device` 4.
+  - **The parent's definition is the reference for paths:** `query_field("object", path)` takes only paths of `(obje)object.xml`. A class's own fields inside the parent's section (`scen`'s `flags#2`, `mach`'s `door open time`) aren't the parent's: refused, naming the class to ask.
+  - **The field is checked in each class anyway** (the same definition at that path): cheap, and it keeps a future definition that changes an inherited field from being merged. Never triggered on the samples.

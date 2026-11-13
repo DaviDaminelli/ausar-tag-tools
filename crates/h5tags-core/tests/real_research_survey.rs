@@ -159,6 +159,117 @@ fn fields_shared_by_classes() {
     }
 }
 
+/// The top-level fields of a definition split at its class section labels:
+/// (section, fields); fields before the first label are section "".
+fn sections(fields: &[Field]) -> Vec<(String, &[Field])> {
+    let mut out: Vec<(String, &[Field])> = Vec::new();
+    let (mut name, mut start) = (String::new(), 0);
+    for i in 0..fields.len() {
+        if let Some(Custom::ClassSection(s)) = custom_role(fields, i) {
+            out.push((std::mem::replace(&mut name, s), &fields[start..i]));
+            start = i + 1;
+        }
+    }
+    out.push((name, &fields[start..]));
+    out
+}
+
+/// What differs between two definitions of one field.
+fn what_differs(a: &Field, b: &Field) -> &'static str {
+    match () {
+        _ if a.kind != b.kind => "type",
+        _ if a.name.display != b.name.display => "name",
+        _ if a.name.units != b.name.units => "units",
+        _ if a.name.help != b.name.help => "help",
+        _ if a.raw_name != b.raw_name => "markers or other name parts",
+        _ if a.options != b.options => "options",
+        _ if a.children != b.children => "children",
+        _ if a.step != b.step => "path step",
+        _ => "attributes",
+    }
+}
+
+/// M9 step 1 (D97): each parent class's own section (`obje` → `OBJECT`,
+/// `item` → `ITEM`, `unit` → `UNIT`, `devi` → `DEVICE`) against that section
+/// in every definition that has it: identical fields can be merged across
+/// classes; any other is listed with what differs.
+#[test]
+#[ignore]
+fn parent_definitions_against_inheriting_classes() {
+    let s = session();
+    for b in s.builds() {
+        println!("\n== {}", b.name);
+        let parents: Vec<(FourCc, std::sync::Arc<h5_defs::definition::Definition>)> = ["obje", "item", "unit", "devi"]
+            .iter()
+            .filter_map(|c| {
+                let code = FourCc::from_code(c)?;
+                Some((code, load_class_definition(b, code).ok()??))
+            })
+            .collect();
+        for (parent, pdef) in &parents {
+            let psecs = sections(&pdef.fields);
+            let (own, own_fields) = psecs.last().expect("a section").clone();
+            let mut identical = Vec::new();
+            let mut differ: Vec<String> = Vec::new();
+            for file in b.defs.files() {
+                let Some(code) = FourCc::from_code(&file.file_code) else { continue };
+                if code == *parent {
+                    continue;
+                }
+                let Ok(Some(def)) = load_class_definition(b, code) else { continue };
+                let secs = sections(&def.fields);
+                let Some((_, fields)) = secs.iter().find(|(n, _)| *n == own) else { continue };
+                let tags = b.classes.get(&code).map_or(0, |c| c.tag_count);
+                let chain: Vec<&str> = secs.iter().map(|(n, _)| n.as_str()).filter(|n| !n.is_empty()).collect();
+                let label = format!("{} {tags} [{}]", code.to_string().trim_end(), chain.join(" > "));
+                if *fields == own_fields {
+                    identical.push(label);
+                    continue;
+                }
+                let by_step = |fs: &[Field]| -> HashMap<String, Field> {
+                    fs.iter().filter_map(|f| Some((f.step.clone()?, f.clone()))).collect()
+                };
+                let (mine, theirs) = (by_step(fields), by_step(own_fields));
+                let mut notes: Vec<String> = Vec::new();
+                for f in own_fields {
+                    let Some(step) = &f.step else { continue };
+                    match mine.get(step) {
+                        None => notes.push(format!("{step}: missing")),
+                        Some(g) if g != f => notes.push(format!("{step}: {}", what_differs(f, g))),
+                        _ => {}
+                    }
+                }
+                let changed = notes.len();
+                let extra: Vec<&String> =
+                    fields.iter().filter_map(|f| f.step.as_ref()).filter(|st| !theirs.contains_key(*st)).collect();
+                // The parent's fields first, in its order, the class's own after them.
+                let prefix = fields.len() >= own_fields.len() && fields[..own_fields.len()] == *own_fields;
+                let shown: Vec<&str> = notes.iter().map(String::as_str).take(6).collect();
+                let extras: Vec<&str> = extra.iter().map(|s| s.as_str()).take(4).collect();
+                differ.push(format!(
+                    "{label}: parent fields missing or changed {changed}{}; parent fields first, in order: {prefix}; \
+                     own fields without a section label {} ({}{})",
+                    if shown.is_empty() { String::new() } else { format!(" ({})", shown.join("; ")) },
+                    extra.len(),
+                    extras.join(", "),
+                    if extra.len() > 4 { ", …" } else { "" }
+                ));
+                assert_eq!(changed, 0, "{label}: inherited fields differ");
+            }
+            let named = own_fields.iter().filter(|f| f.step.is_some()).count();
+            println!(
+                "  {} ({own}, {named} top-level fields): identical in {} definitions: {}",
+                parent.to_string().trim_end(),
+                identical.len(),
+                identical.join(", ")
+            );
+            for d in &differ {
+                println!("    differs: {d}");
+            }
+        }
+    }
+}
+
 /// A tag's copies in layer order (base first), each module's layer number.
 fn copies_by_layer(b: &Build, t: &Tag) -> Vec<(u32, Copy)> {
     let mut v: Vec<(u32, Copy)> = t.copies.iter().map(|&c| (module_layer(&b.module(c).rel_path).version, c)).collect();
