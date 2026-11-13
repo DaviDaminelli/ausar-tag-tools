@@ -555,3 +555,14 @@ From the script survey (format-notes "Scripts"): `hsc*` holds Lua source text, `
 - **Why:** on the full build `wargamesterminal.lua` writes 21 tag-path strings, 19 distinct paths (two twice); the tool said 19 and the done-when said 21, and the report asked for both, since a path written twice is a different fact from one written once.
 - **Output:** `tag paths: N (S strings; M indexed, K not in indexed modules)`; `names=true` gains a `count` column (strings per path) after `line`, and `strings` above the table.
 - **Loops (the user: watch for unoptimised loops):** paths are counted with a map that borrows each name's lookup form (it used to clone it per name into a set); `TagName.text` borrows the script instead of copying it; the lookup form is built in one pass instead of four chained replacements (a run of `\` or `/` is one `\`: the same result on every sample script, asserted); the candidate strings are no longer collected into a list first; `names=true` builds only the page's rows.
+
+## D92. M8 narrowed to a `lookup_text` tool; no display text in `read_tag` (2026-11-12, approved by the user)
+- **Original design** (PRD §9 M8 row, from D68 and backlog §10 item 3): a string_id's display text from the `unic` tags, shown in `read_tag` next to string_ids, with one resolver shared with the script reference check.
+- **New scope:** a separate tool, `lookup_text`. It takes a string_id or a term and lists every `unic` tag that holds a match, with the text and its language. Where tables give the same string_id different texts, every text is listed with the tag it comes from. `read_tag` is unchanged.
+- **Why (the M8 survey, format-notes "In-game text"):**
+  - **A string_id has no single text.** 794 (Forge) / 796 (Xbox) string_ids have different texts in different `unic` tags.
+  - **The files don't say which table a tag's text comes from.** Only 228 / 253 tags reference a `unic` tag; weapons reference none, yet weapon name ids have texts.
+  - **Matching by name over-matches.** 42,604 / 26,030 string_id names in other tags equal a text's id, most of them markers, regions and nodes (`effe`, `hlmt`, `mode`, `phmo`, `coll`, `jmad`), not shown text.
+  - So a text shown in `read_tag` would be a guess presented next to a value, and often wrong.
+- **The shared resolver:** the script tag-path resolver (`script::tag_names`, D87) shipped in M7 and is unchanged; M8 doesn't build a second one.
+- **When to go back to the original design:** if a format fact says which `unic` tag the engine reads for a given tag or field (for example a global table of string lists, a per-class rule, or a load order that settles conflicts), and the over-matching names can be told apart from shown text (for example by field, such as only `display name`-like fields). Both need to be verified on real files and recorded in format-notes first. `lookup_text` would stay as it is: `read_tag` would call the same domain lookup.

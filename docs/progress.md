@@ -645,7 +645,8 @@ After the rerun (D64): `diff_tags` results with differences end with the candida
   - Not exercised on the full builds: cross-build `diff_tags` on a weapon (none differs); on `wigl` (definitions differ) 686 rows with the definitions hint (2,768 on the samples).
 - **M6 done** (steps 1–7, D81–D84). Open: how many of the 6,126 different tags are platform variants (D82).
 
-## M8: in-game text (survey only, 2026-11-10; the milestone not planned yet)
+## M8: in-game text (survey 2026-11-10; scope narrowed 2026-11-12, D92; steps not planned yet)
+- Scope (2026-11-12, D92): a separate `lookup_text` tool; no display text in `read_tag`, because of the survey's findings below.
 - Survey `real_text_survey` (Forge and Xbox samples, debug, 5.2 s with both header scans): `unic` Forge 97 tags / 124 copies, Xbox 91 / 110, none unreadable; 47,650 / 22,394 string references, 17 offsets each, -1 = missing, every text NUL-terminated UTF-8; read in 0.73 / 0.32 s. 794 / 796 string_ids have different texts in different `unic` tags; 228 / 253 tags reference a `unic` tag, weapons none. Details in format-notes "In-game text".
 
 ## M7: scripts (started 2026-11-10)
