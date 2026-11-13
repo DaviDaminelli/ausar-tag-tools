@@ -93,6 +93,60 @@ fn text_at(data: &[u8], offset: usize) -> Option<&[u8]> {
     rest.iter().position(|&c| c == 0).map(|end| &rest[..end])
 }
 
+/// M8 step 1 (D93): the domain reads every copy's string_ids and texts as the
+/// survey's own reader does, and finds the same string_ids with different
+/// English texts across the default copies.
+#[test]
+#[ignore]
+fn the_domain_reads_every_text_as_the_survey_does() {
+    use h5tags_core::text::{Lookup, Scope, TextAt, read_text_list, search_texts, text_languages};
+    let config = PathBuf::from(std::env::var("H5_CONFIG").expect("set H5_CONFIG"));
+    let s = Session::open(Config::load(&config).unwrap()).unwrap();
+    let class = h5_module::FourCc::from_code("unic").unwrap();
+    for b in s.builds() {
+        assert_eq!(text_languages(b).unwrap(), LANGUAGES);
+        let (mut entries, mut texts, mut english) = (0usize, 0usize, HashMap::<u32, HashSet<String>>::new());
+        for t in b.tags.iter().filter(|t| t.class == class) {
+            let default = choose_copy(b, t, None);
+            for &copy in &t.copies {
+                let (list, data) = read_unic(b, t, copy).unwrap();
+                let domain = read_text_list(b, t, copy).unwrap();
+                assert_eq!(domain.string_ids.len(), list.len(), "{}", b.display_name(t));
+                for (i, (hash, name, offsets)) in list.iter().enumerate() {
+                    assert_eq!((domain.string_ids[i].hash, &domain.string_ids[i].text), (*hash, name));
+                    for (lang, &off) in offsets.iter().enumerate() {
+                        let survey = (off >= 0).then(|| text_at(&data, off as usize).unwrap());
+                        let read = match domain.text(i, lang) {
+                            TextAt::Text(x) => Some(x.as_bytes()),
+                            TextAt::Missing => None,
+                            TextAt::Unreadable => panic!("unreadable in {}", b.display_name(t)),
+                        };
+                        assert_eq!(read, survey);
+                        texts += usize::from(read.is_some());
+                        if lang == 0 && default == Some(copy) {
+                            english.entry(*hash).or_default().insert(String::from_utf8_lossy(read.unwrap()).into());
+                        }
+                    }
+                }
+                entries += list.len();
+            }
+        }
+        let conflicting = english.values().filter(|v| v.len() > 1).count();
+        let start = Instant::now();
+        let all = search_texts(b, Scope::Latest, &Lookup::Every, Some(0));
+        let elapsed = start.elapsed();
+        assert_eq!((all.skipped.len(), all.unreadable), (0, 0));
+        assert_eq!(all.differing().len(), conflicting);
+        println!(
+            "== {}: entries {entries}, texts {texts}; string_ids with different English texts {conflicting}; \
+             every latest copy searched ({} tags, {} hits) in {elapsed:.2?}",
+            b.name,
+            all.searched,
+            all.hits.len()
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn what_the_unic_tags_hold() {

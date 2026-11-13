@@ -8,7 +8,8 @@ use std::sync::Arc;
 use h5_defs::Definitions;
 use h5_module::Version;
 use h5_module::index::Index;
-use h5_module::testutil::{TempDir, TestEntry, build_module, build_tag, sample_tag};
+use h5_module::murmur3::murmur3_x86_32;
+use h5_module::testutil::{TempDir, TestEntry, TestTag, build_module, build_tag, sample_tag};
 
 use crate::catalog::Build;
 use crate::config::{BuildConfig, DEFAULT_TAG_CACHE_MB, megabytes};
@@ -60,6 +61,31 @@ pub const SCRIPT_DEFINITION: &str = r#"<plugin>
 	<_field_long_integer name="count" />
 </plugin>"#;
 
+/// The first text tag [`TestDeploy::with_texts`] adds:
+/// `ui\strings\list_<i>.multilingual_unicode_string_list` (class `unic`),
+/// global ID `TEXT_ID + i`.
+pub const TEXT_ID: i32 = 0x70;
+
+/// A `unic` definition with the sample tag's layout and three of the real
+/// definition's languages: `string references` (a string_id and one offset per
+/// language) in the block, `string data utf8` in the data reference.
+pub const TEXT_DEFINITION: &str = r#"<plugin>
+	<_field_block_64 name="string references*" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_string_id name="string id^*" />
+		<_field_long_integer name="english offset*" />
+		<_field_long_integer name="german offset*" />
+		<_field_long_integer name="french offset*" />
+	</_field_block_64>
+	<_field_pad name="pad" length="4" />
+	<_field_tag_reference_64 name="projectile" />
+	<_field_data_64 name="string data utf8*" />
+	<_field_long_integer name="count" />
+</plugin>"#;
+
+/// A test `unic` tag's string references: (string_id name, its english,
+/// german and french texts; `None` = no text in that language).
+pub type TestTexts<'a> = &'a [(&'a str, [Option<&'a str>; 3])];
+
 /// A second copy of the weapon, in an update-layer module.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SecondCopy {
@@ -96,6 +122,8 @@ struct Options<'a> {
     definition: &'a str,
     /// Script tags' scripts (see [`TestDeploy::with_scripts`]).
     scripts: &'a [&'a [u8]],
+    /// Text tags' string references (see [`TestDeploy::with_texts`]).
+    texts: &'a [TestTexts<'a>],
 }
 
 impl Default for Options<'_> {
@@ -107,6 +135,7 @@ impl Default for Options<'_> {
             map: None,
             definition: WEAPON_DEFINITION,
             scripts: &[],
+            texts: &[],
         }
     }
 }
@@ -162,8 +191,14 @@ impl TestDeploy {
         TestDeploy::build(name, Options { scripts, ..Options::default() })
     }
 
+    /// With text tags after the scripts, in the same module (see [`TEXT_ID`]),
+    /// each holding `texts[i]`, its texts stored in order.
+    pub fn with_texts(name: &str, texts: &[TestTexts<'_>]) -> TestDeploy {
+        TestDeploy::build(name, Options { texts, ..Options::default() })
+    }
+
     fn build(name: &str, o: Options<'_>) -> TestDeploy {
-        let Options { second, tag_cache_bytes, counts, map, definition, scripts } = o;
+        let Options { second, tag_cache_bytes, counts, map, definition, scripts, texts } = o;
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -199,6 +234,13 @@ impl TestDeploy {
             e.sections.0 = header;
             entries.push(e);
         }
+        for (i, list) in texts.iter().enumerate() {
+            let (header, tag_data) = build_tag(&text_tag(list));
+            let path = format!(r"ui\strings\list_{i}.multilingual_unicode_string_list");
+            let mut e = TestEntry::tag(&path, TEXT_ID + i as i32, "unic", &tag_data);
+            e.sections.0 = header;
+            entries.push(e);
+        }
         let module = build_module(Version::V27, &entries, &[]);
         fs::write(deploy.join("any").join("levels").join("test-rtx-1.module"), module).unwrap();
         if second != SecondCopy::None {
@@ -230,6 +272,9 @@ impl TestDeploy {
         fs::write(defs.join("(weap)weapon.xml"), definition).unwrap();
         if !scripts.is_empty() {
             fs::write(defs.join("(hsc_)lua.xml"), SCRIPT_DEFINITION).unwrap();
+        }
+        if !texts.is_empty() {
+            fs::write(defs.join("(unic)multilingual_unicode_string_list.xml"), TEXT_DEFINITION).unwrap();
         }
 
         let (index, _) = Index::update(&deploy, None, &|_| false).unwrap();
@@ -264,4 +309,31 @@ impl TestDeploy {
     pub fn module_file(&self) -> PathBuf {
         self.dir.0.join("deploy").join("any").join("levels").join("test-rtx-1.module")
     }
+}
+
+/// The sample tag holding `list`'s string references in its block (16 bytes
+/// each: the string_id's hash, then three offsets, -1 = none) and its texts,
+/// NUL-terminated, in its data. The block's own tag references are dropped:
+/// they would overwrite the entries.
+fn text_tag(list: TestTexts<'_>) -> TestTag {
+    let mut t = sample_tag();
+    let (mut refs, mut data) = (Vec::new(), Vec::new());
+    for (name, texts) in list {
+        refs.extend(murmur3_x86_32(name.as_bytes(), 0).to_le_bytes());
+        for text in texts {
+            let offset = text.map_or(-1, |s| {
+                let at = data.len() as i32;
+                data.extend(s.as_bytes());
+                data.push(0);
+                at
+            });
+            refs.extend(offset.to_le_bytes());
+        }
+        t.string_ids.push((*name).to_owned());
+    }
+    t.blocks[1] = refs;
+    t.blocks[2] = data;
+    t.structs[1].5 = list.len() as i32;
+    t.tag_refs.truncate(1);
+    t
 }

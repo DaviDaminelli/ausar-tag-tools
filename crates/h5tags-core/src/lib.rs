@@ -21,6 +21,7 @@ pub mod tag_view;
 /// A real deploy folder for tests (feature `testutil`; no game files).
 #[cfg(any(test, feature = "testutil"))]
 pub mod testdeploy;
+pub mod text;
 pub mod tools;
 pub mod view;
 

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use h5_defs::definition::Definition;
 use h5_module::index::FileStamp;
 use h5_module::tag::{TagError, TagHeader};
-use h5_module::{GlobalId, Module, ModuleError, ModuleLists, Section, map_file};
+use h5_module::{FourCc, GlobalId, Module, ModuleError, ModuleLists, Section, map_file};
 use lru::LruCache;
 
 use crate::catalog::{Build, Copy, Tag};
@@ -298,7 +298,12 @@ pub enum DefinitionLoadError {
 
 /// The parsed definition of `tag`'s class; `None` if the class has none.
 pub fn load_definition(build: &Build, tag: &Tag) -> Result<Option<Arc<Definition>>, DefinitionLoadError> {
-    let Some(path) = build.classes.get(&tag.class).and_then(|c| c.definition.as_ref()) else { return Ok(None) };
+    load_class_definition(build, tag.class)
+}
+
+/// The parsed definition of `class`; `None` if the class has none.
+pub fn load_class_definition(build: &Build, class: FourCc) -> Result<Option<Arc<Definition>>, DefinitionLoadError> {
+    let Some(path) = build.classes.get(&class).and_then(|c| c.definition.as_ref()) else { return Ok(None) };
     build.store.definition(path).map(Some)
 }
 

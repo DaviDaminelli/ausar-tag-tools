@@ -647,6 +647,8 @@ After the rerun (D64): `diff_tags` results with differences end with the candida
 
 ## M8: in-game text (survey 2026-11-10; scope narrowed 2026-11-12, D92; steps not planned yet)
 - Scope (2026-11-12, D92): a separate `lookup_text` tool; no display text in `read_tag`, because of the survey's findings below.
+- Plan approved (2026-11-12, D93): 4 steps, 23 tools.
+- Step 1, domain `text.rs` (2026-11-12, D93), both samples, debug (`real_text_survey::the_domain_reads_every_text_as_the_survey_does`): every copy read by the domain equals the survey's reader, string_id by string_id and text by text: Forge 47,650 string references / 531,129 texts, Xbox 22,394 / 172,329; string_ids with different English texts 794 / 796, as the survey. Every latest copy searched (Forge 97 tags, Xbox 91) in 121 / 80 ms, the tags already in the tag cache. Tests: h5tags-core 216 pass (8 new). Smart App Control blocked two unchanged test exes (`real_definitions`, `real_definition_status`); deleting them to relink fixed it.
 - Survey `real_text_survey` (Forge and Xbox samples, debug, 5.2 s with both header scans): `unic` Forge 97 tags / 124 copies, Xbox 91 / 110, none unreadable; 47,650 / 22,394 string references, 17 offsets each, -1 = missing, every text NUL-terminated UTF-8; read in 0.73 / 0.32 s. 794 / 796 string_ids have different texts in different `unic` tags; 228 / 253 tags reference a `unic` tag, weapons none. Details in format-notes "In-game text".
 
 ## M7: scripts (started 2026-11-10)
