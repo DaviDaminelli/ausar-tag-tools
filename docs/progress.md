@@ -658,6 +658,8 @@ After the rerun (D64): `diff_tags` results with differences end with the candida
   - Weapons' names (`player interface.UI display info[0].display name`), over `weap` tags (leftovers and variants included): Forge 95 of 118 tags have the entry, 40 ids, 35 with text, 22 with different texts in different tables; Xbox 66 of 92, 34 ids, 31 with text, 24 differing (format-notes).
   - Tests: h5tags-core 222 pass (1 new). Smart App Control blocked the relinked release CLI once and four test exes; each ran after deleting it to relink.
 - **M8 done-when met on the samples** but the fresh agent session (acceptance), which needs an MCP server with `lookup_text` (this PC: `h5tags-debug`, rebuilt 2026-11-12 with 23 tools, after a running debug server process that kept the exe locked was gone).
+- Acceptance session (2026-11-12, the user's report, this PC, `h5tags-debug`, Forge sample): asked what the storm magnum is called in the game, a fresh session used `lookup_text` and answered "Magnum", which the user confirms (the tag is a leftover from the previous game, where it was also called Magnum). Tokens and calls weren't recorded.
+- **M8 done** (steps 1–4, D92–D96).
 - Survey `real_text_survey` (Forge and Xbox samples, debug, 5.2 s with both header scans): `unic` Forge 97 tags / 124 copies, Xbox 91 / 110, none unreadable; 47,650 / 22,394 string references, 17 offsets each, -1 = missing, every text NUL-terminated UTF-8; read in 0.73 / 0.32 s. 794 / 796 string_ids have different texts in different `unic` tags; 228 / 253 tags reference a `unic` tag, weapons none. Details in format-notes "In-game text".
 
 ## M7: scripts (started 2026-11-10)
