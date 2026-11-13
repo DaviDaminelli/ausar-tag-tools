@@ -588,3 +588,8 @@ From the script survey (format-notes "Scripts"): `hsc*` holds Lua source text, `
 - **Summary:** `tags` (with a match), `searched` (`unic` tags read).
 - The tool runs after `search_scripts` in the tool list (23 tools); the README lists `lookup-text`. The guide's PRD-facing parts (§6 section, done-when, instructions) are step 3.
 - **Open for step 4:** which field of a weapon holds the string_id its in-game name comes from; the guide says only "the string_id that names it" until it is checked.
+
+## D95. M8 step 3: PRD, done-when, instructions (2026-11-12)
+- **PRD §6.4.8** describes `lookup_text` as built (D93, D94); the M8 row gets its done-when from the approved plan, with the survey's counts.
+- **Instructions (PRD §9a and the server) gain one line**, after the scripts line: `lookup_text(string_id=)` for a name `read_tag` shows, `term=` for words, and that one string_id can have different texts in different tables, each to be given with its tag. 22 lines now (the PRD asks for about 20): the text line is the one rule that keeps an agent from picking one table's text as the answer, so it stays.
+- **Guide:** `lookup_text` joins the "ask the build first" list (§2).
