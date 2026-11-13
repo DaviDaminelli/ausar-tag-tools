@@ -86,6 +86,46 @@ pub const TEXT_DEFINITION: &str = r#"<plugin>
 /// german and french texts; `None` = no text in that language).
 pub type TestTexts<'a> = &'a [(&'a str, [Option<&'a str>; 3])];
 
+/// A parent class [`TestDeploy::with_inheritance`] adds (no tags): `object`,
+/// its `OBJECT` section the sample tag's first three fields.
+pub const OBJECT_DEFINITION: &str = r#"<plugin>
+	<_field_custom name="OBJECT" />
+	<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_tag_reference_64 name="target" />
+	</_field_block_64>
+	<_field_pad name="pad" length="4" />
+	<_field_tag_reference_64 name="projectile" validtags="proj" />
+</plugin>"#;
+
+/// The weapon inheriting [`OBJECT_DEFINITION`]: `OBJECT`, then `WEAPON`.
+pub const WEAPON_OBJECT_DEFINITION: &str = r#"<plugin>
+	<_field_custom name="OBJECT" />
+	<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_tag_reference_64 name="target" />
+	</_field_block_64>
+	<_field_pad name="pad" length="4" />
+	<_field_tag_reference_64 name="projectile" validtags="proj" />
+	<_field_custom name="WEAPON" />
+	<_field_data_64 name="data" />
+	<_field_long_integer name="count" />
+</plugin>"#;
+
+/// The script class with an `OBJECT` section whose `projectile` is defined
+/// otherwise (no `validtags`): not the same field as the parent's.
+pub const SCRIPT_OBJECT_DEFINITION: &str = r#"<plugin>
+	<_field_custom name="OBJECT" />
+	<_field_block_64 name="entries" srcguid="02020202-0202-0202-0202-020202020202">
+		<_field_tag_reference_64 name="target" />
+	</_field_block_64>
+	<_field_pad name="pad" length="4" />
+	<_field_tag_reference_64 name="projectile" />
+	<_field_custom name="LUA" />
+	<_field_struct name="source file">
+		<_field_data_64 name="source" />
+	</_field_struct>
+	<_field_long_integer name="count" />
+</plugin>"#;
+
 /// A second copy of the weapon, in an update-layer module.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SecondCopy {
@@ -213,6 +253,21 @@ impl TestDeploy {
     /// tags here (definition-only classes, D98).
     pub fn with_more_definitions(name: &str, definitions: &[(&str, &str)]) -> TestDeploy {
         TestDeploy::build(name, Options { definitions, ..Options::default() })
+    }
+
+    /// A parent class without tags, `object` ([`OBJECT_DEFINITION`]), and two
+    /// classes with tags inheriting it: the weapon ([`WEAPON_OBJECT_DEFINITION`])
+    /// and one script tag ([`SCRIPT_OBJECT_DEFINITION`]) (M9, D100).
+    pub fn with_inheritance(name: &str) -> TestDeploy {
+        TestDeploy::build(
+            name,
+            Options {
+                definition: WEAPON_OBJECT_DEFINITION,
+                scripts: &[b"return 1\0"],
+                definitions: &[("(obje)object.xml", OBJECT_DEFINITION), ("(hsc_)lua.xml", SCRIPT_OBJECT_DEFINITION)],
+                ..Options::default()
+            },
+        )
     }
 
     fn build(name: &str, o: Options<'_>) -> TestDeploy {

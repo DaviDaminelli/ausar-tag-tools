@@ -270,6 +270,67 @@ fn parent_definitions_against_inheriting_classes() {
     }
 }
 
+/// M9 step 2 (D100): the domain finds the inheriting classes the survey's
+/// sections find (classes with tags), and one query over a parent's field
+/// gives the rows of the single-class queries, in the same order.
+#[test]
+#[ignore]
+fn the_domain_queries_a_parent_as_its_classes_added_up() {
+    use h5tags_core::field_query::{ClassPath, Sort, query_field};
+    use h5tags_core::inherit::{inherited_field, inheriting_classes};
+    let s = session();
+    for b in s.builds() {
+        for (parent, label, path) in [
+            ("obje", "OBJECT", "collision damage"),
+            ("item", "ITEM", "pickup message"),
+            ("unit", "UNIT", "hologram unit reference"),
+            ("devi", "DEVICE", "power transition time"),
+        ] {
+            let code = FourCc::from_code(parent).unwrap();
+            let start = std::time::Instant::now();
+            let found = inheriting_classes(b, code);
+            let took = start.elapsed();
+            let expected: Vec<FourCc> = b
+                .classes
+                .iter()
+                .filter(|(c, i)| **c != code && i.definition.is_some())
+                .filter(|(c, _)| {
+                    let def = load_class_definition(b, **c).unwrap().unwrap();
+                    sections(&def.fields).iter().any(|(n, _)| n == label)
+                })
+                .map(|(c, _)| *c)
+                .collect();
+            assert_eq!(found.classes, expected, "{parent}");
+            assert!(found.unreadable.is_empty());
+            let pdef = load_class_definition(b, code).unwrap().unwrap();
+            let Ok(paths) = inherited_field(b, &pdef, &found.classes, path) else {
+                println!("  {parent} '{path}': not a field of the parent, or differs");
+                continue;
+            };
+            let start = std::time::Instant::now();
+            let all = query_field(b, &paths, path, None, Sort::None).unwrap();
+            let all_took = start.elapsed();
+            let mut single: Vec<(String, usize)> = Vec::new();
+            let mut skipped = 0;
+            for p in &paths {
+                let one = query_field(b, std::slice::from_ref::<ClassPath>(p), path, None, Sort::None).unwrap();
+                single.extend(one.rows.iter().map(|r| (r.tag.path.clone(), r.selection)));
+                skipped += one.skipped.len();
+            }
+            let merged: Vec<(String, usize)> = all.rows.iter().map(|r| (r.tag.path.clone(), r.selection)).collect();
+            assert_eq!(merged, single, "{parent} {path}");
+            assert_eq!(all.skipped.len(), skipped);
+            println!(
+                "== {} {parent}: {} classes found in {took:.2?}; '{path}': {} rows, {} skipped, in {all_took:.2?} (= the single-class queries)",
+                b.name,
+                found.classes.len(),
+                all.rows.len(),
+                all.skipped.len()
+            );
+        }
+    }
+}
+
 /// A tag's copies in layer order (base first), each module's layer number.
 fn copies_by_layer(b: &Build, t: &Tag) -> Vec<(u32, Copy)> {
     let mut v: Vec<(u32, Copy)> = t.copies.iter().map(|&c| (module_layer(&b.module(c).rel_path).version, c)).collect();

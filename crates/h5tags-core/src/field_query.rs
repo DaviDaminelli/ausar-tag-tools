@@ -3,6 +3,7 @@
 
 use std::borrow::Cow;
 use std::cmp::Ordering;
+use std::sync::Arc;
 
 use h5_defs::definition::{Definition, Field, FieldKind};
 use h5_defs::field_type::FieldType;
@@ -176,22 +177,66 @@ pub fn value_field<'d>(fields: &'d [Field], path: &FieldPath, shown: &str) -> Re
     Err(QueryError::NotAValue { field: shown.to_owned(), what })
 }
 
-/// `query_field` (PRD §6.6): the value at `path` in each tag of `class` (its
-/// default copy, §6.4.6), filtered and sorted. A filter or sort that doesn't
-/// fit the values is an error at the first value read; tags that can't be
-/// read are `skipped`.
+/// One class a query reads: its definition, and the field's path in it.
+#[derive(Clone, Debug)]
+pub struct ClassPath {
+    pub class: FourCc,
+    pub def: Arc<Definition>,
+    pub path: FieldPath,
+}
+
+/// `query_field` (PRD §6.6): the value at each class's path in each tag of
+/// the class (its default copy, §6.4.6), filtered and sorted; rows by class
+/// in `classes`' order, then by tag path, unless sorted. Several classes:
+/// one field of a parent they inherit (M9, D100). A filter or sort that
+/// doesn't fit the values is an error at the first value read; tags that
+/// can't be read are `skipped`.
 pub fn query_field<'b>(
     b: &'b Build,
-    class: FourCc,
-    def: &Definition,
-    path: &FieldPath,
+    classes: &[ClassPath],
     shown: &str,
     filter: Option<&FieldFilter>,
     sort: Sort,
 ) -> Result<Rows<'b>, QueryError> {
     let mut out = Rows { rows: Vec::new(), skipped: Vec::new() };
     let mut checked = false;
-    for tag in b.tags.iter().filter(|t| t.class == class) {
+    let wanted = Wanted { shown, filter, sort };
+    for c in classes {
+        query_class(b, c, &wanted, &mut checked, &mut out)?;
+    }
+    let order = |a: &Row<'_>, z: &Row<'_>| match (&a.key, &z.key) {
+        (Some(x), Some(y)) => x.compare(y),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    };
+    match sort {
+        Sort::None => {}
+        Sort::Asc => out.rows.sort_by(order),
+        Sort::Desc => out.rows.sort_by(|a, z| order(z, a)),
+    }
+    Ok(out)
+}
+
+/// What a [`query_field`] keeps: the field as shown, the filter, the order.
+struct Wanted<'q> {
+    shown: &'q str,
+    filter: Option<&'q FieldFilter>,
+    sort: Sort,
+}
+
+/// One class's rows of [`query_field`], appended to `out`; `checked`: the
+/// filter and sort were checked against a value already.
+fn query_class<'b>(
+    b: &'b Build,
+    c: &ClassPath,
+    wanted: &Wanted<'_>,
+    checked: &mut bool,
+    out: &mut Rows<'b>,
+) -> Result<(), QueryError> {
+    let (ClassPath { class, def, path }, Wanted { shown, filter, sort }) = (c, wanted);
+    let (filter, sort) = (*filter, *sort);
+    for tag in b.tags.iter().filter(|t| t.class == *class) {
         let Some(copy) = choose_copy(b, tag, None) else { continue };
         let stored = match read_stored_tag(b, copy) {
             Ok(s) => s,
@@ -210,7 +255,7 @@ pub fn query_field<'b>(
         };
         for (i, s) in selections.iter().enumerate() {
             let Some(v) = row_value(s.node) else { continue };
-            if !checked {
+            if !*checked {
                 let kind = ValueKind::of(&v);
                 if let Some(f) = filter {
                     check_filter(shown, kind, &s.node.field.options, f)?;
@@ -218,7 +263,7 @@ pub fn query_field<'b>(
                 if sort != Sort::None {
                     check_sort(shown, kind)?;
                 }
-                checked = true;
+                *checked = true;
             }
             if filter.is_none_or(|f| passes(b, s.node, f)) {
                 let key = (sort != Sort::None).then(|| SortKey::of(b, s.node)).flatten();
@@ -226,18 +271,7 @@ pub fn query_field<'b>(
             }
         }
     }
-    let order = |a: &Row<'_>, z: &Row<'_>| match (&a.key, &z.key) {
-        (Some(x), Some(y)) => x.compare(y),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => Ordering::Equal,
-    };
-    match sort {
-        Sort::None => {}
-        Sort::Asc => out.rows.sort_by(order),
-        Sort::Desc => out.rows.sort_by(|a, z| order(z, a)),
-    }
-    Ok(out)
+    Ok(())
 }
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]

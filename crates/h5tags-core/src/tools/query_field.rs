@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use super::args::{self, BuildArg, PageArgs};
 use super::{Tool, present};
-use crate::field_query::{Sort, also_at, check_also, query_field, value_field};
+use crate::field_query::{ClassPath, Sort, also_at, check_also, query_field, value_field};
 use crate::output::{Cell, Output, Summary, Table, ToolError, col};
 use crate::query::choose_copy;
 use crate::session::Session;
@@ -75,8 +75,8 @@ impl Tool for QueryField {
             also.push((p, name, star));
         }
         let filter = self.filter.as_deref().map(args::field_filter).transpose()?;
-        let found =
-            query_field(b, class, &def, &path, &shown, filter.as_ref(), self.sort).map_err(present::query_error)?;
+        let one = [ClassPath { class, def: def.clone(), path: path.clone() }];
+        let found = query_field(b, &one, &shown, filter.as_ref(), self.sort).map_err(present::query_error)?;
 
         // Display text only for the rows shown (D26): their tags are read
         // again (from the tag cache) and their values rendered as read_tag does.

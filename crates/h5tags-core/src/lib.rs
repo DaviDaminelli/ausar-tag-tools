@@ -10,6 +10,7 @@ pub mod diff;
 pub mod field_query;
 pub mod filters;
 pub mod identify;
+pub mod inherit;
 pub mod maps;
 pub mod output;
 pub mod query;
