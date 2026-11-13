@@ -301,9 +301,16 @@ pub fn load_definition(build: &Build, tag: &Tag) -> Result<Option<Arc<Definition
     load_class_definition(build, tag.class)
 }
 
-/// The parsed definition of `class`; `None` if the class has none.
+/// The parsed definition of `class`; `None` if the class has none. A class
+/// with tags uses the definition the catalog found for it (by code or name); a
+/// class without tags here (a parent such as `object`) the definition file
+/// with its code (D98).
 pub fn load_class_definition(build: &Build, class: FourCc) -> Result<Option<Arc<Definition>>, DefinitionLoadError> {
-    let Some(path) = build.classes.get(&class).and_then(|c| c.definition.as_ref()) else { return Ok(None) };
+    let path = match build.classes.get(&class) {
+        Some(c) => c.definition.as_deref(),
+        None => build.defs.find(class, None).map(|d| d.path.as_path()),
+    };
+    let Some(path) = path else { return Ok(None) };
     build.store.definition(path).map(Some)
 }
 

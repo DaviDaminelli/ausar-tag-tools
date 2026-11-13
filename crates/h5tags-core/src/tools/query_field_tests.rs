@@ -163,3 +163,20 @@ fn also_needs_the_rows_entries() {
     let err = query(&mut d, "count", |t| t.also = vec!["nothing".into()]).unwrap_err();
     assert!(err.message.contains("nothing"), "{}", err.message);
 }
+
+/// A class with a definition and no tags here (a parent such as `object`):
+/// no rows, with the hint that its tags may be in modules not indexed, never
+/// "no definition" (D98).
+#[test]
+fn a_class_with_only_a_definition_has_no_tags_here() {
+    let object = "<plugin>\n\t<_field_custom name=\"OBJECT\" />\n\t<_field_long_integer name=\"count\" />\n</plugin>";
+    let mut d = TestDeploy::with_more_definitions("query-definition-only", &[("(obje)object.xml", object)]);
+    for class in ["obje", "object"] {
+        let text = query(&mut d, "count", |t| t.class = class.into()).unwrap();
+        assert!(text.starts_with("total: 0\n"), "{text}");
+        assert!(
+            text.contains("\nhint: no tags of class 'obje' (object) in the indexed modules of build 'forge'. The class exists (it has a definition)"),
+            "{text}"
+        );
+    }
+}

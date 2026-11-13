@@ -209,9 +209,15 @@ impl Build {
         self.scan.cache.as_deref()
     }
 
-    /// Borrowed from the class list; the code itself if the class is unknown.
+    /// Borrowed from the class list; for a class without tags here, its
+    /// definition file's class name (D98); the code itself if neither has it.
     pub fn class_name(&self, code: FourCc) -> Cow<'_, str> {
-        self.classes.get(&code).map_or_else(|| Cow::Owned(code.to_string()), |c| Cow::Borrowed(c.name.as_str()))
+        if let Some(c) = self.classes.get(&code) {
+            return Cow::Borrowed(c.name.as_str());
+        }
+        self.defs
+            .find(code, None)
+            .map_or_else(|| Cow::Owned(code.to_string()), |d| Cow::Borrowed(d.class_name.as_str()))
     }
 
     /// Tag path + `.` + class name (PRD §4).

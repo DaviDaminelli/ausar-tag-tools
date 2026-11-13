@@ -126,6 +126,8 @@ struct Options<'a> {
     texts: &'a [TestTexts<'a>],
     /// The first text tag's copy in the update layer.
     updated_texts: Option<TestTexts<'a>>,
+    /// More definition files, for classes without tags: (file name, XML).
+    definitions: &'a [(&'a str, &'a str)],
 }
 
 impl Default for Options<'_> {
@@ -139,6 +141,7 @@ impl Default for Options<'_> {
             scripts: &[],
             texts: &[],
             updated_texts: None,
+            definitions: &[],
         }
     }
 }
@@ -206,8 +209,15 @@ impl TestDeploy {
         TestDeploy::build(name, Options { texts, updated_texts: Some(updated), ..Options::default() })
     }
 
+    /// With more definition files (file name, XML) for classes that have no
+    /// tags here (definition-only classes, D98).
+    pub fn with_more_definitions(name: &str, definitions: &[(&str, &str)]) -> TestDeploy {
+        TestDeploy::build(name, Options { definitions, ..Options::default() })
+    }
+
     fn build(name: &str, o: Options<'_>) -> TestDeploy {
-        let Options { second, tag_cache_bytes, counts, map, definition, scripts, texts, updated_texts } = o;
+        let Options { second, tag_cache_bytes, counts, map, definition, scripts, texts, updated_texts, definitions } =
+            o;
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -295,6 +305,9 @@ impl TestDeploy {
         }
         if !texts.is_empty() {
             fs::write(defs.join("(unic)multilingual_unicode_string_list.xml"), TEXT_DEFINITION).unwrap();
+        }
+        for (file, xml) in definitions {
+            fs::write(defs.join(file), xml).unwrap();
         }
 
         let (index, _) = Index::update(&deploy, None, &|_| false).unwrap();

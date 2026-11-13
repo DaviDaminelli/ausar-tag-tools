@@ -12,7 +12,7 @@ use crate::field_query::{Sort, also_at, check_also, query_field, value_field};
 use crate::output::{Cell, Output, Summary, Table, ToolError, col};
 use crate::query::choose_copy;
 use crate::session::Session;
-use crate::stored::read_stored_tag;
+use crate::stored::{load_class_definition, read_stored_tag};
 use crate::tag_view::{BuildLookup, Detail, Lookup, Options, ViewSettings, view_selection};
 use crate::view::{ViewNode, value_column};
 
@@ -58,10 +58,9 @@ impl Tool for QueryField {
     fn run(&self, s: &mut Session) -> Result<Output, ToolError> {
         let b = args::build(s, &self.build)?;
         let class = args::class_code(b, &self.class)?;
-        let Some(file) = b.classes.get(&class).and_then(|c| c.definition.clone()) else {
+        let Some(def) = load_class_definition(b, class).map_err(present::definition_error)? else {
             return Err(ToolError::new(present::no_definition(&b.class_name(class))));
         };
-        let def = b.store.definition(&file).map_err(present::definition_error)?;
         let path = parse_path(&def.fields, &self.path).map_err(present::path_error)?;
         let shown = path.display(&def.fields);
         let field = value_field(&def.fields, &path, &shown).map_err(present::query_error)?;
@@ -128,6 +127,10 @@ impl Tool for QueryField {
         let units = field.name.units.as_ref().filter(|_| !angle);
         let summary =
             units.map(|u| Summary { label: "units", key: "units", value: u.clone().into() }).into_iter().collect();
+        let mut hints: Vec<String> = present::skipped_hint(b, &found.skipped).into_iter().collect();
+        if !b.classes.contains_key(&class) {
+            hints.push(present::absent_class_hint(b, &self.class, &b.lookup_class(&self.class)));
+        }
         Ok(Output::Table(Table {
             build: s.label(b),
             total: found.rows.len(),
@@ -136,7 +139,7 @@ impl Tool for QueryField {
             columns,
             named_columns: also.into_iter().map(|(_, name, _)| name).collect(),
             rows,
-            hints: present::skipped_hint(b, &found.skipped).into_iter().collect(),
+            hints,
             ..Table::default()
         }))
     }

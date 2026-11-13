@@ -77,3 +77,17 @@ fn a_class_without_a_definition() {
         "{text}"
     );
 }
+
+/// A class with a definition and no tags here: nothing to check, said; it
+/// used to panic (D98).
+#[test]
+fn a_class_with_only_a_definition_has_nothing_to_check() {
+    let object = "<plugin>\n\t<_field_custom name=\"OBJECT\" />\n\t<_field_long_integer name=\"count\" />\n</plugin>";
+    let mut d = TestDeploy::with_more_definitions("status-definition-only", &[("(obje)object.xml", object)]);
+    let text = status(&mut d, Some("object"));
+    assert!(text.starts_with("total: 0"), "{text}");
+    assert!(
+        text.contains("\nhint: no tags of class 'obje' (object) in the indexed modules of build 'forge'."),
+        "{text}"
+    );
+}

@@ -167,3 +167,14 @@ fn a_text_that_cant_be_read_says_so() {
     assert_eq!(list(vec![0], b"\xff\0").text(0, 0), TextAt::Unreadable);
     assert_eq!(list(vec![1], b"ab\0").text(0, 0), TextAt::Text("b"));
 }
+
+/// The `unic` definition is found when no `unic` tag is indexed (D98).
+#[test]
+fn the_languages_need_no_unic_tag() {
+    let defs = [("(unic)multilingual_unicode_string_list.xml", crate::testdeploy::TEXT_DEFINITION)];
+    let d = TestDeploy::with_more_definitions("text-definition-only", &defs);
+    let b = &d.session.builds()[0];
+    assert_eq!(text_languages(b).unwrap(), ["english", "german", "french"]);
+    let s = search_texts(b, Scope::Latest, &Lookup::StringId("x"), Some(0));
+    assert_eq!((s.searched, s.hits.len()), (0, 0));
+}

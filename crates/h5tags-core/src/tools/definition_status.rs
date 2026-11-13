@@ -7,7 +7,7 @@ use serde::Deserialize;
 use super::args::{self, BuildArg, PageArgs};
 use super::{Tool, present};
 use crate::def_check::{GapKind, class_gaps, class_layouts, class_statuses, definition_check, known_guids};
-use crate::output::{Cell, Output, Summary, Table, ToolError, col};
+use crate::output::{Cell, Column, Output, Summary, Table, ToolError, col};
 use crate::session::Session;
 
 /// How well the definitions fit this build's tags: per class, whether it has
@@ -25,6 +25,11 @@ pub struct DefinitionStatus {
     #[command(flatten)]
     #[serde(flatten)]
     pub page: PageArgs,
+}
+
+/// The columns of one class's gap list.
+fn gap_columns() -> Vec<Column> {
+    vec![col::GAP, col::FIELD_PATH, col::GUID, col::COPIES, col::EXAMPLE]
 }
 
 impl Tool for DefinitionStatus {
@@ -86,6 +91,12 @@ impl Tool for DefinitionStatus {
                 ];
                 (statuses.len(), columns, rows)
             }
+            // A class with a definition and no tags here: nothing to check (D98).
+            Some(code) if !b.classes.contains_key(&code) => {
+                let query = self.class.as_deref().unwrap_or_default();
+                hints.push(present::absent_class_hint(b, query, &b.lookup_class(query)));
+                (0, gap_columns(), Vec::new())
+            }
             Some(code) => {
                 let info = &b.classes[&code];
                 if info.definition.is_none() {
@@ -127,7 +138,7 @@ impl Tool for DefinitionStatus {
                         ]
                     })
                     .collect();
-                (gaps.len(), vec![col::GAP, col::FIELD_PATH, col::GUID, col::COPIES, col::EXAMPLE], rows)
+                (gaps.len(), gap_columns(), rows)
             }
         };
         summary.extend(present::check_built(built));
