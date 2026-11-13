@@ -645,6 +645,12 @@ After the rerun (D64): `diff_tags` results with differences end with the candida
   - Not exercised on the full builds: cross-build `diff_tags` on a weapon (none differs); on `wigl` (definitions differ) 686 rows with the definitions hint (2,768 on the samples).
 - **M6 done** (steps 1–7, D81–D84). Open: how many of the 6,126 different tags are platform variants (D82).
 
+## M9: research composites (survey only, 2026-11-12; the milestone not planned yet)
+- Survey `real_research_survey` (both samples, release) and `real_cache_survey::layered_tags_in_the_full_builds` (the full builds' index caches; their scan caches are an older format, so data versions weren't counted there):
+  - **One field across classes:** class sections shared by definitions (inherited fields): `OBJECT` in 10 classes (Forge `bipd bloc ctrl eqip mach proj scen ssce vehi weap`, 4,152 tags; Xbox the same with `crea` for `ssce`, 2,313 tags), 197 paths in every one of them; `UNIT` (bipd, vehi) 590 paths; `ITEM` (eqip, weap) 32; `DEVICE` (ctrl, mach) 29. A field of `OBJECT` now takes one `query_field` per class: 10 calls. Outside any section, 716 / 765 paths are in 2+ classes by a reused struct or a common name (`flags` in 43 classes, `errors[*]…` in 5): not the same field.
+  - **One field across layers:** samples: Forge 195 tags with copies (14 in 3 layers; 13 with 3+ distinct versions; weapons 16), Xbox sample 746 (4 in 3; 3; weapons 9). Between two layers, differing fields per pair: median 2 / 4, p90 1,406 / 487 (whole tables: `unic`, `wpfs`, `mats`). Weapons' most changed fields: aim assist and projectile error values. Full builds: tags in 2+ layers of one stack Forge 237 (weapons 16), Xbox 23,923 (weapons 148); in 3+ layers Forge 14 (3), Xbox 13,149 (133). A field's history now takes `tag_copies` plus one `read_tag(module=)` per layer.
+  - **What orienting on a tag costs** (outline, references out, references in, tag_copies, which_maps; 5 calls), the median and largest tag of 12 classes: median total 3,849 / 3,690 characters (≈ 960 / 920 tokens); object tags (weap, vehi, bipd) and scenarios 13,000–33,000 (≈ 3,300–8,200 tokens), the outline 10,000–12,800 characters of it and references out up to 14,000; bitmaps, sounds, scripts, texts 800–1,800.
+
 ## M8: in-game text (survey 2026-11-10; scope narrowed 2026-11-12, D92; steps not planned yet)
 - Scope (2026-11-12, D92): a separate `lookup_text` tool; no display text in `read_tag`, because of the survey's findings below.
 - Plan approved (2026-11-12, D93): 4 steps, 23 tools.

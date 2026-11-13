@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use h5_module::index::{EntryKind, Index};
-use h5_module::names::{latest_layer, split_tag_name};
+use h5_module::names::{latest_layer, module_layer, module_stack, split_tag_name};
 use h5_module::scan::HeaderScan;
 use h5_module::{FourCc, GlobalId};
 use h5tags_core::def_check::DefinitionCheck;
@@ -152,6 +152,88 @@ fn bytes_the_scans_read() {
             uncompressed as f64 / 1e9,
             on_disk as f64 / 1e9
         );
+    }
+}
+
+/// M9 survey (a field across a tag's update layers): on the full builds, the
+/// tags stored in several modules, how many distinct data versions their
+/// copies hold (the scan's data fingerprint), by class.
+#[test]
+#[ignore]
+fn layered_tags_in_the_full_builds() {
+    let dir = PathBuf::from(std::env::var("H5_CACHES").expect("set H5_CACHES"));
+    for name in std::env::var("H5_BUILDS").expect("set H5_BUILDS=a,b").split(',') {
+        let index = Index::load(&dir.join(format!("{name}.index"))).expect("index");
+        let t = tags(&index);
+        let by_copies: BTreeMap<usize, usize> =
+            t.values().filter(|s| s.copies > 1).fold(BTreeMap::new(), |mut m, s| {
+                *m.entry(s.copies).or_default() += 1;
+                m
+            });
+        println!("\n== {name}: tags {}, with copies by count {by_copies:?}", t.len());
+        // Update layers are modules of one stack; copies in several stacks are
+        // the same tag stored for several maps.
+        let mut layers: HashMap<(GlobalId, &str), HashSet<u32>> = HashMap::new();
+        for m in &index.modules {
+            let (stack, layer) = (module_stack(&m.rel_path), module_layer(&m.rel_path).version);
+            for e in m.entries.iter().filter(|e| e.kind() == EntryKind::Tag) {
+                layers.entry((e.global_id, stack)).or_default().insert(layer);
+            }
+        }
+        let most_layers: HashMap<GlobalId, usize> = layers.iter().fold(HashMap::new(), |mut m, ((id, _), l)| {
+            let e = m.entry(*id).or_default();
+            *e = (*e).max(l.len());
+            m
+        });
+        let stacks: HashMap<GlobalId, usize> = layers.keys().fold(HashMap::new(), |mut m, (id, _)| {
+            *m.entry(*id).or_default() += 1;
+            m
+        });
+        let in_layers = |n: usize| most_layers.values().filter(|&&l| l >= n).count();
+        let weap = FourCc::from_code("weap").unwrap();
+        let weap_layers = |n: usize| most_layers.iter().filter(|(id, l)| **l >= n && t[*id].class == weap).count();
+        println!(
+            "  in 2+ layers of one stack {} (weapons {}), 3+ layers {} (weapons {}); in 2+ stacks {}",
+            in_layers(2),
+            weap_layers(2),
+            in_layers(3),
+            weap_layers(3),
+            stacks.values().filter(|&&n| n >= 2).count()
+        );
+        let layered_classes = most_layers.iter().filter(|(_, l)| **l >= 2).fold(BTreeMap::new(), |mut m, (id, _)| {
+            *m.entry(t[id].class).or_default() += 1;
+            m
+        });
+        println!("  in 2+ layers by class: {}", top(layered_classes, 12));
+        let Some(scan) = HeaderScan::load(&dir.join(format!("{name}.scan"))) else {
+            println!("header scan: missing or another format");
+            continue;
+        };
+        let mut prints: HashMap<GlobalId, HashSet<(u64, u64)>> = HashMap::new();
+        for m in &scan.modules {
+            for c in &m.tags {
+                prints.entry(c.global_id).or_default().insert(c.data_print);
+            }
+        }
+        let prints = &prints;
+        let layered =
+            |n: usize| t.iter().filter(move |(id, s)| s.copies > 1 && prints.get(id).is_some_and(|p| p.len() >= n));
+        let by_class = |n: usize| {
+            layered(n).fold(BTreeMap::new(), |mut m: BTreeMap<FourCc, usize>, (_, s)| {
+                *m.entry(s.class).or_default() += 1;
+                m
+            })
+        };
+        let weap = FourCc::from_code("weap").unwrap();
+        println!(
+            "with copies holding 2+ versions {} (weapons {}), 3+ versions {} (weapons {})",
+            layered(2).count(),
+            layered(2).filter(|(_, s)| s.class == weap).count(),
+            layered(3).count(),
+            layered(3).filter(|(_, s)| s.class == weap).count()
+        );
+        println!("  2+ versions by class: {}", top(by_class(2), 12));
+        println!("  3+ versions by class: {}", top(by_class(3), 12));
     }
 }
 
