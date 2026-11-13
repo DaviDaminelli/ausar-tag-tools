@@ -60,7 +60,7 @@ impl Tool for SearchScripts {
                 ]
             })
             .collect();
-        let mut hints: Vec<String> = present::skipped_scripts(&found.skipped).into_iter().collect();
+        let mut hints: Vec<String> = present::skipped_tags("script", &found.skipped).into_iter().collect();
         if found.hits.is_empty() {
             hints.push(present::no_script_holds(term));
         }

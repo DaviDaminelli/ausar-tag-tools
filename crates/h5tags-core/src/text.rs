@@ -199,6 +199,11 @@ pub struct TextSearch<'b> {
 }
 
 impl<'b> TextSearch<'b> {
+    /// The tags with hits, in hit order.
+    pub fn tags(&self) -> impl Iterator<Item = &'b Tag> + '_ {
+        self.lists.iter().map(|(t, _)| *t)
+    }
+
     pub fn tag(&self, h: &TextHit) -> &'b Tag {
         self.lists[h.list].0
     }

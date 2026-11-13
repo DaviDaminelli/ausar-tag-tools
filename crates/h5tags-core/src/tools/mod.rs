@@ -15,6 +15,7 @@ mod find_references;
 mod header_dump;
 mod identify;
 mod lists;
+mod lookup_text;
 mod maps;
 pub mod present;
 mod query_field;
@@ -36,6 +37,7 @@ pub use find_references::{Direction, FindReferences};
 pub use header_dump::HeaderDump;
 pub use identify::Identify;
 pub use lists::{ListClasses, ListEntries, ListModules, ListResourceKinds};
+pub use lookup_text::LookupText;
 pub use maps::{MapTags, WhichMaps};
 pub use query_field::QueryField;
 pub use read_script::ReadScript;
@@ -110,6 +112,7 @@ tools!(
     ReadTag,
     ReadScript,
     SearchScripts,
+    LookupText,
     GetDefinition,
     Outline,
     SearchDefinitions,

@@ -228,6 +228,7 @@ The assistant and the command line have the same tools: over MCP they're named w
 | `tag-copies`          | Every copy of a tag across modules and update layers                                     |
 | `search-values`       | Tags holding a string_id name or a referenced tag's name                                 |
 | `search-scripts`      | Script lines (or compiled scripts' strings) holding a text                               |
+| `lookup-text`         | In-game text by string_id or by part of a text, in every `unic` tag that has it          |
 | `query-field`         | One field across every tag of a class, with `filter=`, `sort=` and more fields (`also=`) |
 | `diff-tags`           | The fields that differ between two tags of a class; block entries matched by label       |
 | `map-tags`            | The tags a map loads (its load manifest)                                                 |

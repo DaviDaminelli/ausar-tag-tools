@@ -161,10 +161,74 @@ pub fn no_script_holds(term: &str) -> String {
     )
 }
 
-/// `search_scripts`: script tags that couldn't be read, so weren't searched.
-pub fn skipped_scripts(skipped: &[(&Tag, crate::script::ScriptError)]) -> Option<String> {
+/// `search_scripts`, `lookup_text`: tags (`what`: script, unic) that couldn't
+/// be read, so weren't searched.
+pub fn skipped_tags(what: &str, skipped: &[(&Tag, impl std::fmt::Display)]) -> Option<String> {
     let (first, why) = skipped.first()?;
-    Some(format!("{} script tags couldn't be read and weren't searched, e.g. {} ({why})", skipped.len(), first.path))
+    Some(format!("{} {what} tags couldn't be read and weren't searched, e.g. {} ({why})", skipped.len(), first.path))
+}
+
+pub fn text_error(e: crate::text::TextError) -> ToolError {
+    use crate::text::TextError;
+    match e {
+        TextError::NotText => {
+            ToolError::new(e.to_string()).hint("search_tags(class='unic') lists them; omit tag= to search them all")
+        }
+        TextError::Read(r) => read_error(r),
+        TextError::Definition(d) => definition_error(d),
+        TextError::NoDefinition => ToolError::new(no_definition("unic")),
+        TextError::Field { .. } => {
+            ToolError::new(e.to_string()).hint("definition_status(class='unic') lists the class's gaps")
+        }
+    }
+}
+
+/// `lookup_text`: a `lang=` the definition doesn't have.
+pub fn unknown_language(lang: &str, languages: &[String]) -> ToolError {
+    ToolError::new(format!("no language '{lang}'")).hint(format!("languages: {}, or all", languages.join(", ")))
+}
+
+/// `lookup_text`: string_ids the tables give different texts (D92): each
+/// (name, language, texts), the first three named.
+pub fn differing_texts(differ: &[(String, &str, usize)]) -> Option<String> {
+    if differ.is_empty() {
+        return None;
+    }
+    let named: Vec<String> = differ.iter().take(3).map(|(id, l, n)| format!("{id} ({n} {l} texts)")).collect();
+    let more = if differ.len() > 3 { format!(" +{} more", differ.len() - 3) } else { String::new() };
+    Some(format!(
+        "string_ids with different texts in different unic tags: {}{more}; \
+         the files don't say which table a given tag's text comes from",
+        named.join(", ")
+    ))
+}
+
+/// `lookup_text`: hits from tags with copies in other layers.
+pub fn older_text_copies(tags: usize) -> String {
+    format!(
+        "unic tags listed with copies in other layers (they differ): {tags}; tag_copies lists them; \
+         lookup_text(tag=, module=) reads one"
+    )
+}
+
+/// `lookup_text`: nothing found.
+pub fn no_text(string_id: Option<&str>, term: Option<&str>, lang: &str) -> String {
+    match (string_id, term) {
+        (Some(id), _) => format!(
+            "no unic tag has string_id '{id}' (by name, ignoring case); search_values finds the tags using a name"
+        ),
+        (_, Some(t)) if lang == "all" => format!("no text in any language holds '{t}'"),
+        (_, Some(t)) => format!("no {lang} text holds '{t}'; lang=all searches every language"),
+        _ => "this unic tag holds no texts".into(),
+    }
+}
+
+/// `lookup_text`: texts that couldn't be read (offset outside the data, no
+/// end, not UTF-8).
+pub fn unreadable_texts(n: usize) -> String {
+    format!(
+        "{n} texts couldn't be read (stored offset or bytes not as expected) and show (not read) or weren't matched"
+    )
 }
 
 /// `read_script`: under the tag line, the tags the script names by path.

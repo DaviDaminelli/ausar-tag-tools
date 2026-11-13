@@ -76,6 +76,8 @@ pub mod col {
     pub const EXAMPLE: Column = Column { header: "example", key: "example" };
     pub const LINE: Column = Column { header: "line", key: "line" };
     pub const TEXT: Column = Column { header: "text", key: "text" };
+    pub const STRING_ID: Column = Column { header: "string id", key: "string_id" };
+    pub const LANGUAGE: Column = Column { header: "language", key: "language" };
 
     pub const ALL: &[Column] = &[
         GLOBAL_ID,
@@ -118,6 +120,8 @@ pub mod col {
         EXAMPLE,
         LINE,
         TEXT,
+        STRING_ID,
+        LANGUAGE,
     ];
 }
 
@@ -187,8 +191,31 @@ pub enum Cell {
         text: String,
         marks: Vec<Range<usize>>,
     },
+    /// Text that may hold line breaks and tabs (in-game texts): `\n`, `\r`
+    /// and `\t` in text, so a row stays one line; as stored in JSON.
+    Escaped(String),
     /// No value for this row (empty in text, omitted in JSON).
     Empty,
+}
+
+/// `text` with line breaks and tabs written as `\n`, `\r`, `\t` (a CR LF
+/// pair is one `\n`), in one pass.
+fn escape_breaks(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\r' if chars.peek() == Some(&'\n') => {
+                chars.next();
+                out.push_str("\\n");
+            }
+            '\r' => out.push_str("\\r"),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 impl Cell {
@@ -212,6 +239,7 @@ impl Cell {
     fn text(&self) -> String {
         match self {
             Cell::Text(s) | Cell::Marked { text: s, .. } => s.clone(),
+            Cell::Escaped(s) => escape_breaks(s),
             Cell::Int(n) => n.to_string(),
             Cell::Float(x) => format!("{x:.2}"),
             Cell::Size(n) => format_size(*n),
@@ -227,7 +255,7 @@ impl Cell {
 
     fn json(&self) -> Option<Value> {
         match self {
-            Cell::Text(s) | Cell::Marked { text: s, .. } => Some(json!(s)),
+            Cell::Text(s) | Cell::Marked { text: s, .. } | Cell::Escaped(s) => Some(json!(s)),
             Cell::Int(n) => Some(json!(n)),
             Cell::Float(x) => Some(json!(x)),
             Cell::Size(n) => Some(json!(n)),

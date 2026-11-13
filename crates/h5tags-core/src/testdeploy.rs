@@ -124,6 +124,8 @@ struct Options<'a> {
     scripts: &'a [&'a [u8]],
     /// Text tags' string references (see [`TestDeploy::with_texts`]).
     texts: &'a [TestTexts<'a>],
+    /// The first text tag's copy in the update layer.
+    updated_texts: Option<TestTexts<'a>>,
 }
 
 impl Default for Options<'_> {
@@ -136,6 +138,7 @@ impl Default for Options<'_> {
             definition: WEAPON_DEFINITION,
             scripts: &[],
             texts: &[],
+            updated_texts: None,
         }
     }
 }
@@ -197,8 +200,14 @@ impl TestDeploy {
         TestDeploy::build(name, Options { texts, ..Options::default() })
     }
 
+    /// [`TestDeploy::with_texts`], and a copy of the first text tag holding
+    /// `updated` in the update-layer module.
+    pub fn with_text_layers(name: &str, texts: &[TestTexts<'_>], updated: TestTexts<'_>) -> TestDeploy {
+        TestDeploy::build(name, Options { texts, updated_texts: Some(updated), ..Options::default() })
+    }
+
     fn build(name: &str, o: Options<'_>) -> TestDeploy {
-        let Options { second, tag_cache_bytes, counts, map, definition, scripts, texts } = o;
+        let Options { second, tag_cache_bytes, counts, map, definition, scripts, texts, updated_texts } = o;
         let dir = TempDir::new(&format!("core-{name}"));
         let deploy = dir.0.join("deploy");
         fs::create_dir_all(deploy.join("any").join("levels")).unwrap();
@@ -243,6 +252,7 @@ impl TestDeploy {
         }
         let module = build_module(Version::V27, &entries, &[]);
         fs::write(deploy.join("any").join("levels").join("test-rtx-1.module"), module).unwrap();
+        let mut layer = Vec::new();
         if second != SecondCopy::None {
             if second == SecondCopy::Changed {
                 tag.blocks[0][0x5C..0x60].copy_from_slice(&9i32.to_le_bytes());
@@ -253,7 +263,17 @@ impl TestDeploy {
             let (header, tag_data) = build_tag(&tag);
             let mut copy = TestEntry::tag(WEAPON, WEAPON_ID, "weap", &tag_data);
             copy.sections.0 = header;
-            let module = build_module(Version::V27, &[copy], &[]);
+            layer.push(copy);
+        }
+        if let Some(list) = updated_texts {
+            let (header, tag_data) = build_tag(&text_tag(list));
+            let path = r"ui\strings\list_0.multilingual_unicode_string_list";
+            let mut copy = TestEntry::tag(path, TEXT_ID, "unic", &tag_data);
+            copy.sections.0 = header;
+            layer.push(copy);
+        }
+        if !layer.is_empty() {
+            let module = build_module(Version::V27, &layer, &[]);
             fs::write(deploy.join("any").join("levels").join("test-rtx-11587-1.module"), module).unwrap();
         }
         if let Some(folders) = map {

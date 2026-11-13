@@ -176,6 +176,18 @@ pub fn module_filter(text: Option<&str>) -> Option<ModuleFilter> {
     text.map(|t| ModuleFilter::new(&typed_path(t)))
 }
 
+/// `lang=`: one of `languages`, ignoring case, as its position; `all` = `None`.
+pub fn language(text: &str, languages: &[String]) -> Result<Option<usize>, ToolError> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("all") {
+        return Ok(None);
+    }
+    match languages.iter().position(|l| l.eq_ignore_ascii_case(text)) {
+        Some(i) => Ok(Some(i)),
+        None => Err(present::unknown_language(text, languages)),
+    }
+}
+
 /// A tool as MCP lists it (PRD §9a): its name, its description (the
 /// parameter struct's doc comment, also the CLI help), its input schema, and
 /// whether it changes nothing ([`super::Tool::READ_ONLY`]).
