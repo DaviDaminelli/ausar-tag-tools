@@ -71,6 +71,7 @@ How to use the `h5tags` MCP tools to answer questions about Halo 5 tags, and how
 | "Which weapons changed between the builds?" | `compare_builds(build_a="forge", build_b="xbox", class="weap", status="different")` |
 | "What changed in this weapon between the builds?" | `diff_tags(a="forge:<tag>", b="xbox:<tag>")` |
 | "What changed in this script (or tag) between updates?" | `tag_copies(tag)`, then `diff_tags(a=tag, b=tag, module_a=<older module>)` |
+| "How did this weapon's rate of fire change across updates?" (one field) | `tag_copies(tag, path="barrels[0].firing.rounds per second")`: its value in each copy, base first |
 | "What does this texture look like?" | `view_bitmap(tag)`: read the text summary first; the sheet shows each channel separately |
 | "What would it take to make X behave like Y, and what else would change?" | §2.1 below |
 
@@ -244,6 +245,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `hint: class X has no definition: …` (`definition_status(class=)`) | Nothing of that class could be checked | Its tags can still be listed and followed by references |
 | `hint: N module(s) couldn't be checked; …` (`definition_status`) | Those modules' tags aren't in the counts | Say the counts may be incomplete |
 | `tag_copies` `versions: N`, `read by default: <module>` | How many different versions of the tag's data its copies hold (1 = every copy is the same), and the copy every tool reads without `module=`: the one in the latest layer (§1) | N > 1 → values depend on the copy; the default is the latest update. Compare with an earlier one through `read_tag(module=…)` |
+| `tag_copies(tag, path=…)` rows | One field's value in each copy, rows in layer order (base first, the latest last): `module`, `layer`, `data`, then `value`, written as `query_field` writes values (`units:` above when the definition gives them). With `[*]`, one row per entry per copy, with its `field path`. Copies with the same `data` letter hold the same bytes, so the same value. `(empty)` = the copy's tag block has no entries there; `(no entry)` = it has fewer; `(not read)` = the copy couldn't be read (a hint says why). The path must end at one value, as in `query_field`; the checksum and size columns are left out | A value that changes between layers is what that update changed in this field. Say which layer each value is from; the latest is what the game reads now |
 | `map_tags` `manifest: <module>`, `not in indexed modules: N` | The load manifest read: for a map with update layers, its latest layer's (each layer's manifest is a full list, §4.8). N = IDs it lists that are no tag in the indexed modules; they are counted, not listed | The rows are the indexed tags only. The N others exist in the game but can't be named or read here; don't call the list complete without mentioning them |
 | `map_tags` rows | The map's tags by class code, then path | Being listed means the map loads the tag; how it's used needs `find_references(direction=in)` |
 | `which_maps` rows | Each map whose load manifest in effect (its latest layer) lists the tag: the manifest's module, its layer, and how many tags it lists. `module=` keeps only maps whose module path contains it (`wz_`, `multi`); `offset` / `limit` page the rows | Only maps in the indexed modules are checked (with `module=`, only those that match) |
@@ -312,7 +314,7 @@ Sizes use decimal units (`6.1 MB` = 6,100,000 bytes); JSON gives exact bytes.
 | `via` | `find_references(recursive=true)`: the tag holding the reference |
 | `data` | `tag_copies`: copies with the same letter (`A`, `B`, …) hold the same data (compared by their compression blocks' checksums of the uncompressed data, or by the data itself); `versions: N` above the table counts the letters. Every tool reads the copy in the latest layer unless `module=` picks another |
 | `layer` | `tag_copies`: the update the copy's module belongs to: `base`, or the game version and revision from the module name (`11587-1`). Higher = later (§1) |
-| `value` | `query_field`: the field's value, written as `read_tag` at `detail=brief` writes it |
+| `value` | `query_field`, `tag_copies(path=)`: the field's value, written as `read_tag` at `detail=brief` writes it |
 | `a` | `diff_tags`: the value in tag `a`, written as `read_tag` at `detail=brief` writes it; on two scripts, the removed line's number in `a` |
 | `b` | `diff_tags`: the value in tag `b`, written the same way; on two scripts, the added line's number in `b` |
 | `checked` | `definition_status`: tag copies of the class read with its definition (every copy; 0 without a definition) |

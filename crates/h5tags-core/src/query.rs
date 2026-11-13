@@ -147,6 +147,16 @@ pub fn choose_copy(build: &Build, tag: &Tag, module: Option<&ModuleFilter>) -> O
         .max_by_key(|&c| module_layer(&build.module(c).rel_path))
 }
 
+/// The positions of `tag`'s copies in layer order: base first, the latest
+/// last; between modules of one layer, module path order. The order
+/// [`choose_copy`] picks the latest by (D102).
+pub fn layer_order(build: &Build, tag: &Tag) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..tag.copies.len()).collect();
+    // Stable: copies are in module path order already.
+    order.sort_by_key(|&i| module_layer(&build.module(tag.copies[i]).rel_path));
+    order
+}
+
 /// Which entries `entries` looks at.
 #[derive(Clone, Copy, Debug)]
 pub enum EntryScope {

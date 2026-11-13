@@ -2,8 +2,7 @@
 
 use std::borrow::Cow;
 
-use h5_defs::definition::FieldKind;
-use h5_meta::{Content, FieldPath, Select, Selected, parse_path, select};
+use h5_meta::{FieldPath, Select, parse_path, select};
 use serde::Deserialize;
 
 use super::args::{self, BuildArg, PageArgs};
@@ -15,8 +14,7 @@ use crate::query::choose_copy;
 use crate::query::count_by_class;
 use crate::session::Session;
 use crate::stored::{load_class_definition, read_stored_tag};
-use crate::tag_view::{BuildLookup, Detail, Lookup, Options, ViewSettings, view_selection};
-use crate::view::{ViewNode, value_column};
+use crate::tag_view::BuildLookup;
 
 /// The same field in every tag of a class: one row per tag (path with [*]:
 /// one per entry, nested too: node graphs[*].nodes[*].screen wrapper), from
@@ -106,13 +104,7 @@ impl Tool for QueryField {
         let several = path.steps.iter().any(|st| st.select == Some(Select::Every));
         // A row's own entries matter only to also paths with a [*].
         let needs_row_path = also.iter().any(|(_, _, star)| *star);
-        let settings = ViewSettings {
-            depth: 0,
-            detail: Detail::Brief,
-            options: Options::None,
-            show_hidden: true,
-            guid_check: s.guid_check,
-        };
+        let settings = present::value_settings(s.guid_check);
         let mut rows = Vec::new();
         for r in self.page.page(&found.rows, DEFAULT_LIMIT) {
             // The row's class: its definition and paths (a handful of classes).
@@ -132,7 +124,7 @@ impl Tool for QueryField {
             if several {
                 cells.push(sel.path.clone().into());
             }
-            cells.push(value_cell(sel, &shown, settings, &lookup));
+            cells.push(present::value_cell(sel, &shown, settings, &lookup));
             let row_path = if needs_row_path { parse_path(&def.fields, &sel.path).ok() } else { None };
             for (per_class, name, star) in &also {
                 let p = &per_class[i];
@@ -142,7 +134,7 @@ impl Tool for QueryField {
                     _ => Cow::Borrowed(p),
                 };
                 cells.push(match select(&read.root, &at) {
-                    Ok(found) => found.first().map_or(Cell::Empty, |a| value_cell(a, name, settings, &lookup)),
+                    Ok(found) => found.first().map_or(Cell::Empty, |a| present::value_cell(a, name, settings, &lookup)),
                     Err(e) => present::missing_value(&e).into(),
                 });
             }
@@ -153,11 +145,7 @@ impl Tool for QueryField {
             columns.push(col::FIELD_PATH);
         }
         columns.push(col::VALUE);
-        let angle = matches!(field.kind, FieldKind::Known(t) if t.is_angle());
-        // Angles say `rad` in their values; the definition's "degrees" would contradict them.
-        let units = field.name.units.as_ref().filter(|_| !angle);
-        let mut summary: Vec<Summary> =
-            units.map(|u| Summary { label: "units", key: "units", value: u.clone().into() }).into_iter().collect();
+        let mut summary: Vec<Summary> = present::units(field).into_iter().collect();
         let mut hints: Vec<String> = Vec::new();
         if parent {
             // Most first: the first is the class most rows come from.
@@ -187,20 +175,6 @@ impl Tool for QueryField {
             ..Table::default()
         }))
     }
-}
-
-/// One selected value's cell, as `read_tag` writes it (brief); a tag block's
-/// entry count as a number (D75).
-fn value_cell(sel: &Selected<'_, '_>, shown: &str, settings: ViewSettings, lookup: &dyn Lookup) -> Cell {
-    if let (Content::Block(b), None) = (&sel.node.content, sel.entry) {
-        return Cell::Int(i64::from(b.count));
-    }
-    let view = view_selection(std::slice::from_ref(sel), shown, settings, lookup);
-    let value = view.nodes.iter().find_map(|n| match n {
-        ViewNode::Field(f) => Some(value_column(f)),
-        _ => None,
-    });
-    value.unwrap_or_default().into()
 }
 
 #[cfg(test)]

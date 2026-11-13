@@ -6,12 +6,13 @@ use h5_module::{FourCc, ModuleError};
 
 use crate::catalog::{Build, ClassLookup, Tag};
 use crate::filters::Mode;
-use crate::output::{ToolError, format_size, marker};
+use crate::output::{Cell, ToolError, format_size, marker};
 use crate::query::ModuleStatus;
 use crate::session::UnknownBuild;
 use crate::stored::{DefinitionLoadError, ReadError};
-use crate::view::{TagView, ViewNode};
-use h5_meta::{Divergence, PathError, Problem, Section};
+use crate::tag_view::{Detail, GuidCheck, Lookup, Options, ViewSettings, view_selection};
+use crate::view::{TagView, ViewNode, value_column};
+use h5_meta::{Content, Divergence, PathError, Problem, Section, Selected};
 
 pub fn unknown_build(e: UnknownBuild) -> ToolError {
     ToolError::new(format!("unknown build '{}'", e.name)).hint(format!("builds: {}", e.available.join(", ")))
@@ -598,6 +599,42 @@ pub fn layouts_text(layouts: &[([u8; 16], usize)]) -> String {
 
 /// A `query_field` `also` path that reaches no value in a row's tag (D75):
 /// what stopped it, as a marker.
+/// `tag_copies(path=)`: copies that couldn't be read (`module (why)` each);
+/// their rows show `(not read)`.
+pub fn unread_copies(unread: &[String]) -> Option<String> {
+    let first = unread.first()?;
+    Some(format!("{} copies couldn't be read, so their value is (not read), e.g. {first}", unread.len()))
+}
+
+/// `units: …` above a column of one field's values, from its definition.
+/// Angles say `rad` in their values; the definition's "degrees" would contradict them.
+pub fn units(field: &h5_defs::definition::Field) -> Option<crate::output::Summary> {
+    use h5_defs::definition::FieldKind;
+    let angle = matches!(field.kind, FieldKind::Known(t) if t.is_angle());
+    let units = field.name.units.as_ref().filter(|_| !angle)?;
+    Some(crate::output::Summary { label: "units", key: "units", value: units.clone().into() })
+}
+
+/// How `query_field` and `tag_copies(path=)` write values: as `read_tag`
+/// writes them at `detail=brief`, hidden fields included.
+pub fn value_settings(guid_check: GuidCheck) -> ViewSettings {
+    ViewSettings { depth: 0, detail: Detail::Brief, options: Options::None, show_hidden: true, guid_check }
+}
+
+/// One selected value's cell, written with [`value_settings`]; a tag block's
+/// entry count as a number (D75). One rule for `query_field` and `tag_copies` (D102).
+pub fn value_cell(sel: &Selected<'_, '_>, shown: &str, settings: ViewSettings, lookup: &dyn Lookup) -> Cell {
+    if let (Content::Block(b), None) = (&sel.node.content, sel.entry) {
+        return Cell::Int(i64::from(b.count));
+    }
+    let view = view_selection(std::slice::from_ref(sel), shown, settings, lookup);
+    let value = view.nodes.iter().find_map(|n| match n {
+        ViewNode::Field(f) => Some(value_column(f)),
+        _ => None,
+    });
+    value.unwrap_or_default().into()
+}
+
 pub fn missing_value(e: &PathError) -> &'static str {
     match e {
         PathError::Empty { .. } => marker::EMPTY,
