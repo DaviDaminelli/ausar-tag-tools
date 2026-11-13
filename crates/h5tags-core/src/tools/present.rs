@@ -183,6 +183,62 @@ pub fn text_error(e: crate::text::TextError) -> ToolError {
     }
 }
 
+/// Class codes for a message: `hsc*, weap` (trailing spaces of codes like `mat ` dropped).
+fn codes(classes: &[FourCc]) -> String {
+    classes.iter().map(|c| c.to_string().trim_end().to_owned()).collect::<Vec<_>>().join(", ")
+}
+
+/// `query_field` on a parent class (D101): the classes it covers, for the
+/// summary line (a list in JSON).
+pub fn inherited_by(classes: &[FourCc]) -> crate::output::Summary {
+    let names = classes.iter().map(|c| c.to_string().trim_end().to_owned()).collect();
+    crate::output::Summary { label: "inherited by", key: "inherited_by", value: crate::output::Cell::List(names) }
+}
+
+/// `query_field` on a parent class whose rows run past the page: the class
+/// most of them come from, and the narrower calls (D101).
+pub fn many_parent_rows(total: usize, most: FourCc, from_most: usize) -> String {
+    format!(
+        "{total} rows, {from_most} of them from {}: narrow with filter=, sort= to mix the classes, \
+         or ask one class (query_field(class=…)) instead of paging",
+        most.to_string().trim_end()
+    )
+}
+
+/// `query_field` on a parent class: a path that isn't the parent's field alike in every class.
+pub fn inherit_error(parent: &str, path: &str, e: crate::inherit::InheritError) -> ToolError {
+    use crate::inherit::InheritError;
+    match e {
+        InheritError::NotInParent { error, classes } if classes.is_empty() => path_error(error),
+        InheritError::NotInParent { classes, .. } => ToolError::new(format!(
+            "'{path}' isn't a field of {parent}, the parent; these classes each have a field of their own by that name \
+             (not one shared field): {}",
+            codes(&classes)
+        ))
+        .hint(format!(
+            "query_field(class={}) reads it; outline(class={parent}) lists {parent}'s fields",
+            classes[0].to_string().trim_end()
+        )),
+        InheritError::Differs(classes) => ToolError::new(format!(
+            "'{path}' isn't defined the same way in every class inheriting {parent}: {} {}",
+            codes(&classes),
+            if classes.len() == 1 { "differs" } else { "differ" }
+        ))
+        .hint(format!("ask those classes one at a time: query_field(class={})", classes[0].to_string().trim_end())),
+        InheritError::Definition(_, e) => definition_error(e),
+    }
+}
+
+/// `query_field` on a parent class: classes whose definition couldn't be loaded.
+pub fn unreadable_definitions(unreadable: &[(FourCc, DefinitionLoadError)]) -> Option<String> {
+    let (first, why) = unreadable.first()?;
+    Some(format!(
+        "{} classes' definitions couldn't be loaded, so whether they inherit this wasn't checked, e.g. {} ({why})",
+        unreadable.len(),
+        first.to_string().trim_end()
+    ))
+}
+
 /// `lookup_text`: a `lang=` the definition doesn't have.
 pub fn unknown_language(lang: &str, languages: &[String]) -> ToolError {
     ToolError::new(format!("no language '{lang}'")).hint(format!("languages: {}, or all", languages.join(", ")))
@@ -440,15 +496,17 @@ const CLASS_BREAKDOWN_MAX: usize = 8;
 /// `by class: weap 3, proj 2, …` over a list's rows (most first), when they
 /// span more than one class: narrow with `class=` in one step.
 pub fn by_class(counts: Vec<(h5_module::FourCc, usize)>) -> Option<crate::output::Summary> {
+    by_class_up_to(counts, CLASS_BREAKDOWN_MAX)
+}
+
+/// [`by_class`] naming up to `max` classes (`query_field` on a parent: all of
+/// them, the classes being what was asked about, D101).
+pub fn by_class_up_to(counts: Vec<(h5_module::FourCc, usize)>, max: usize) -> Option<crate::output::Summary> {
     if counts.len() < 2 {
         return None;
     }
     let counts = counts.into_iter().map(|(code, n)| (code.to_string(), n)).collect();
-    Some(crate::output::Summary {
-        label: "by class",
-        key: "by_class",
-        value: crate::output::Cell::counts(counts, CLASS_BREAKDOWN_MAX),
-    })
+    Some(crate::output::Summary { label: "by class", key: "by_class", value: crate::output::Cell::counts(counts, max) })
 }
 
 /// An entry's compressed size, or that its data isn't in this module.

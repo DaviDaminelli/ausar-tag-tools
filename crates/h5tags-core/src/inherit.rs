@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use h5_defs::definition::{Custom, Definition, Field, custom_role};
+use h5_defs::definition::{Definition, Field, class_section};
 use h5_meta::{PathError, parse_path};
 use h5_module::FourCc;
 
@@ -23,9 +23,10 @@ pub fn names_class(label: &str, name: &str) -> bool {
     label.len() == name.len() && label.chars().map(norm).eq(name.chars().map(norm))
 }
 
-/// Whether `fields` (a definition's top level) has a class section named after `name`.
+/// Whether `fields` (a definition's top level) has a class section named
+/// after `name`. Nothing is allocated: it runs over every class's definition.
 fn has_section(fields: &[Field], name: &str) -> bool {
-    (0..fields.len()).any(|i| matches!(custom_role(fields, i), Some(Custom::ClassSection(s)) if names_class(&s, name)))
+    (0..fields.len()).any(|i| class_section(fields, i).is_some_and(|s| names_class(s, name)))
 }
 
 /// What [`inheriting_classes`] found.

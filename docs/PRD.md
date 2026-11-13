@@ -639,6 +639,7 @@ Each item reuses the v1 tools; none changes v1 behaviour.
 9. Mapping functions: decode the `function` struct's data into readable curves (research; not documented in AusarDocs).
 10. Definition dumping (research): produce definitions for the classes and struct types in the definition gap list (`definition_status`, §6.5): missing classes, layouts that changed between builds, struct GUIDs in no definition. Field names and layouts are not in the module files, so this needs another source; Reclaimer's code stays off-limits (§3). Whatever it produces is checked with the M3 survey and checks (§9) before use.
 11. Many-tag diff (to evaluate first): `diff_tags(tags=[a, b, c, …], path)`: one column per tag, rows where any tag differs; `path=` required and about 5 tags at most, since two whole weapons already differ in 276 fields. Build it only if an acceptance session shows the agent making many pairwise `diff_tags` calls that `query_field` doesn't cover (D57).
+12. Value distribution in `query_field` (idea, registered 2026-11-13, D101): each distinct value with how many rows hold it (and per class for a parent class), instead of one row per tag, so "what values are there" over thousands of tags (`object` `collision damage`: 4,152 rows) takes a dozen lines; it would help single classes with many tags too (`bitm`). Needs its own plan.
 
 ## 11. Future (v2+)
 

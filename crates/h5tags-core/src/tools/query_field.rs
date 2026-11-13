@@ -3,14 +3,16 @@
 use std::borrow::Cow;
 
 use h5_defs::definition::FieldKind;
-use h5_meta::{Content, Select, Selected, parse_path, select};
+use h5_meta::{Content, FieldPath, Select, Selected, parse_path, select};
 use serde::Deserialize;
 
 use super::args::{self, BuildArg, PageArgs};
 use super::{Tool, present};
 use crate::field_query::{ClassPath, Sort, also_at, check_also, query_field, value_field};
+use crate::inherit::{Inheriting, inherited_field, inheriting_classes};
 use crate::output::{Cell, Output, Summary, Table, ToolError, col};
 use crate::query::choose_copy;
+use crate::query::count_by_class;
 use crate::session::Session;
 use crate::stored::{load_class_definition, read_stored_tag};
 use crate::tag_view::{BuildLookup, Detail, Lookup, Options, ViewSettings, view_selection};
@@ -24,10 +26,12 @@ use crate::view::{ViewNode, value_column};
 /// / 'is empty' ('== (none)' = a null reference). sort: none, asc, desc. A tag
 /// block path without an index gives its entry count. also: more fields per
 /// row, one column each (not filtered or sorted). Tags that can't be read are
-/// listed as skipped. Next: read_tag on a row's tag.
+/// listed as skipped. A parent class (object, item, unit, device) gives the
+/// field in every class inheriting it, with a class column. Next: read_tag on
+/// a row's tag.
 #[derive(Clone, Debug, clap::Args, Deserialize, schemars::JsonSchema)]
 pub struct QueryField {
-    /// Class code or name (weap or weapon).
+    /// Class code or name (weap or weapon); a parent class (object) for every class inheriting it.
     pub class: String,
     /// The field: `magazines[0].rounds loaded maximum`, `barrels[*].rounds per second`; `barrels` = entry count.
     pub path: String,
@@ -61,10 +65,29 @@ impl Tool for QueryField {
         let Some(def) = load_class_definition(b, class).map_err(present::definition_error)? else {
             return Err(ToolError::new(present::no_definition(&b.class_name(class))));
         };
+        // D101: a class without tags may be a parent (`object`): it covers
+        // every class inheriting it, its definition the reference. A class
+        // with tags is queried alone, without looking at other definitions
+        // (every parent of both samples has no tags).
+        let inheriting =
+            if b.classes.contains_key(&class) { Inheriting::default() } else { inheriting_classes(b, class) };
+        let parent = !inheriting.classes.is_empty();
+        let classes = &inheriting.classes;
+        let parent_name = b.class_name(class);
+        // One path per class queried, in `classes`' order.
+        let class_paths = |text: &str| -> Result<Vec<ClassPath>, ToolError> {
+            if parent {
+                return inherited_field(b, &def, classes, text)
+                    .map_err(|e| present::inherit_error(&parent_name, text, e));
+            }
+            let path = parse_path(&def.fields, text).map_err(present::path_error)?;
+            Ok(vec![ClassPath { class, def: def.clone(), path }])
+        };
+        let parts = class_paths(&self.path)?;
         let path = parse_path(&def.fields, &self.path).map_err(present::path_error)?;
         let shown = path.display(&def.fields);
         let field = value_field(&def.fields, &path, &shown).map_err(present::query_error)?;
-        // D75: the also paths, each checked like path, and against it.
+        // D75: the also paths, each checked like path, and against it; one per class (D101).
         let mut also = Vec::with_capacity(self.also.len());
         for text in &self.also {
             let p = parse_path(&def.fields, text).map_err(present::path_error)?;
@@ -72,11 +95,11 @@ impl Tool for QueryField {
             value_field(&def.fields, &p, &name).map_err(present::query_error)?;
             check_also(&p, &path, &def.fields).map_err(present::query_error)?;
             let star = p.steps.iter().any(|st| st.select == Some(Select::Every));
-            also.push((p, name, star));
+            let per_class: Vec<FieldPath> = class_paths(text)?.into_iter().map(|c| c.path).collect();
+            also.push((per_class, name, star));
         }
         let filter = self.filter.as_deref().map(args::field_filter).transpose()?;
-        let one = [ClassPath { class, def: def.clone(), path: path.clone() }];
-        let found = query_field(b, &one, &shown, filter.as_ref(), self.sort).map_err(present::query_error)?;
+        let found = query_field(b, &parts, &shown, filter.as_ref(), self.sort).map_err(present::query_error)?;
 
         // Display text only for the rows shown (D26): their tags are read
         // again (from the tag cache) and their values rendered as read_tag does.
@@ -92,19 +115,27 @@ impl Tool for QueryField {
         };
         let mut rows = Vec::new();
         for r in self.page.page(&found.rows, DEFAULT_LIMIT) {
+            // The row's class: its definition and paths (a handful of classes).
+            let Some(i) = parts.iter().position(|p| p.class == r.tag.class) else { continue };
+            let ClassPath { def, path, .. } = &parts[i];
             let Some(copy) = choose_copy(b, r.tag, None) else { continue };
             let stored = read_stored_tag(b, copy).map_err(present::read_error)?;
-            let read = h5_meta::read_tag(&def, &stored.header, &stored.tag_data);
-            let sels = select(&read.root, &path).map_err(present::path_error)?;
+            let read = h5_meta::read_tag(def, &stored.header, &stored.tag_data);
+            let sels = select(&read.root, path).map_err(present::path_error)?;
             let Some(sel) = sels.get(r.selection) else { continue };
             let lookup = BuildLookup { build: b, copy };
-            let mut cells = vec![b.display_name(r.tag).into()];
+            let mut cells = Vec::with_capacity(3 + also.len());
+            if parent {
+                cells.push(r.tag.class.to_string().into());
+            }
+            cells.push(b.display_name(r.tag).into());
             if several {
                 cells.push(sel.path.clone().into());
             }
             cells.push(value_cell(sel, &shown, settings, &lookup));
             let row_path = if needs_row_path { parse_path(&def.fields, &sel.path).ok() } else { None };
-            for (p, name, star) in &also {
+            for (per_class, name, star) in &also {
+                let p = &per_class[i];
                 // Copied only where a [*] takes the row's entry.
                 let at = match &row_path {
                     Some(row) if *star => Cow::Owned(also_at(p, row)),
@@ -117,7 +148,7 @@ impl Tool for QueryField {
             }
             rows.push(cells);
         }
-        let mut columns = vec![col::DISPLAY_NAME];
+        let mut columns = if parent { vec![col::CLASS, col::DISPLAY_NAME] } else { vec![col::DISPLAY_NAME] };
         if several {
             columns.push(col::FIELD_PATH);
         }
@@ -125,10 +156,23 @@ impl Tool for QueryField {
         let angle = matches!(field.kind, FieldKind::Known(t) if t.is_angle());
         // Angles say `rad` in their values; the definition's "degrees" would contradict them.
         let units = field.name.units.as_ref().filter(|_| !angle);
-        let summary =
+        let mut summary: Vec<Summary> =
             units.map(|u| Summary { label: "units", key: "units", value: u.clone().into() }).into_iter().collect();
-        let mut hints: Vec<String> = present::skipped_hint(b, &found.skipped).into_iter().collect();
-        if !b.classes.contains_key(&class) {
+        let mut hints: Vec<String> = Vec::new();
+        if parent {
+            // Most first: the first is the class most rows come from.
+            let counts = count_by_class(found.rows.iter().map(|r| r.tag.class));
+            if found.rows.len() > self.page.limit.unwrap_or(DEFAULT_LIMIT)
+                && let Some(&(most, n)) = counts.first()
+            {
+                hints.push(present::many_parent_rows(found.rows.len(), most, n));
+            }
+            summary.push(present::inherited_by(classes));
+            summary.extend(present::by_class_up_to(counts, classes.len()));
+        }
+        hints.extend(present::skipped_hint(b, &found.skipped));
+        hints.extend(present::unreadable_definitions(&inheriting.unreadable));
+        if !parent && !b.classes.contains_key(&class) {
             hints.push(present::absent_class_hint(b, &self.class, &b.lookup_class(&self.class)));
         }
         Ok(Output::Table(Table {

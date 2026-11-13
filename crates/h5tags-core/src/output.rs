@@ -194,6 +194,8 @@ pub enum Cell {
     /// Text that may hold line breaks and tabs (in-game texts): `\n`, `\r`
     /// and `\t` in text, so a row stays one line; as stored in JSON.
     Escaped(String),
+    /// Names: `a, b, c` in text, an array in JSON.
+    List(Vec<String>),
     /// No value for this row (empty in text, omitted in JSON).
     Empty,
 }
@@ -240,6 +242,7 @@ impl Cell {
         match self {
             Cell::Text(s) | Cell::Marked { text: s, .. } => s.clone(),
             Cell::Escaped(s) => escape_breaks(s),
+            Cell::List(names) => names.join(", "),
             Cell::Int(n) => n.to_string(),
             Cell::Float(x) => format!("{x:.2}"),
             Cell::Size(n) => format_size(*n),
@@ -256,6 +259,7 @@ impl Cell {
     fn json(&self) -> Option<Value> {
         match self {
             Cell::Text(s) | Cell::Marked { text: s, .. } | Cell::Escaped(s) => Some(json!(s)),
+            Cell::List(names) => Some(json!(names)),
             Cell::Int(n) => Some(json!(n)),
             Cell::Float(x) => Some(json!(x)),
             Cell::Size(n) => Some(json!(n)),

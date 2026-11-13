@@ -180,3 +180,89 @@ fn a_class_with_only_a_definition_has_no_tags_here() {
         );
     }
 }
+
+/// D101: a parent class gives the field in every class inheriting it: a class
+/// column, rows by class, the classes named in the summary.
+#[test]
+fn a_parent_class_queries_every_class_inheriting_it() {
+    let mut d = TestDeploy::with_inheritance("query-parent");
+    let text = query(&mut d, "entries[*].target", |t| t.class = "object".into()).unwrap();
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines[0], "total: 4  inherited by: hsc*, weap  by class: hsc* 2, weap 2", "{text}");
+    assert_eq!(lines[1], "class\tdisplay name\tfield path\tvalue", "{text}");
+    let rows: Vec<(&str, &str)> =
+        lines[2..].iter().filter_map(|l| l.split('\t').next().zip(l.split('\t').nth(2))).collect();
+    assert_eq!(
+        rows,
+        [
+            ("hsc*", "entries[0].target"),
+            ("hsc*", "entries[1].target"),
+            ("weap", "entries[0].target"),
+            ("weap", "entries[1].target")
+        ]
+    );
+    assert!(!text.contains("hint: no tags of class"), "{text}");
+    // also= is read in each class with its own definition.
+    let also = query(&mut d, "entries[*].target", |t| {
+        t.class = "object".into();
+        t.also = vec!["entries".into()];
+    })
+    .unwrap();
+    assert!(also.lines().nth(1).unwrap().ends_with("\tvalue\tentries"), "{also}");
+    assert!(also.lines().skip(2).all(|l| l.ends_with("\t2")), "{also}");
+}
+
+/// Rows past one page: a hint names the class most come from and the
+/// narrower calls; JSON lists the classes (D101).
+#[test]
+fn a_parent_result_past_one_page_points_to_narrower_calls() {
+    let mut d = TestDeploy::with_inheritance("query-parent-pages");
+    let text = query(&mut d, "entries[*].target", |t| {
+        t.class = "object".into();
+        t.page.limit = Some(1);
+    })
+    .unwrap();
+    assert!(
+        text.contains(
+            "\nhint: 4 rows, 2 of them from hsc*: narrow with filter=, sort= to mix the classes, \
+             or ask one class (query_field(class=…)) instead of paging"
+        ),
+        "{text}"
+    );
+    let whole = query(&mut d, "entries[*].target", |t| t.class = "object".into()).unwrap();
+    assert!(!whole.contains("instead of paging"), "{whole}");
+    let t = QueryField {
+        class: "object".into(),
+        path: "entries[*].target".into(),
+        filter: None,
+        sort: Sort::None,
+        also: Vec::new(),
+        build: BuildArg::default(),
+        page: PageArgs::default(),
+    };
+    let json: serde_json::Value = serde_json::from_str(&t.run(&mut d.session).unwrap().render(Format::Json)).unwrap();
+    assert_eq!(json["inherited_by"], serde_json::json!(["hsc*", "weap"]));
+}
+
+/// A path the parent doesn't have, or that a class defines otherwise, is
+/// refused, naming the classes; never merged.
+#[test]
+fn a_parent_refuses_fields_that_arent_inherited_alike() {
+    let mut d = TestDeploy::with_inheritance("query-parent-refused");
+    let own = query(&mut d, "count", |t| t.class = "object".into()).unwrap_err();
+    assert_eq!(
+        own.message,
+        "'count' isn't a field of object, the parent; these classes each have a field of their own by that name \
+         (not one shared field): hsc*, weap"
+    );
+    assert_eq!(
+        own.hint.as_deref(),
+        Some("query_field(class=hsc*) reads it; outline(class=object) lists object's fields")
+    );
+    let differs = query(&mut d, "projectile", |t| t.class = "object".into()).unwrap_err();
+    assert_eq!(
+        differs.message,
+        "'projectile' isn't defined the same way in every class inheriting object: hsc* differs"
+    );
+    assert_eq!(differs.hint.as_deref(), Some("ask those classes one at a time: query_field(class=hsc*)"));
+}

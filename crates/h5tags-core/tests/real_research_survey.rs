@@ -302,6 +302,17 @@ fn the_domain_queries_a_parent_as_its_classes_added_up() {
                 .collect();
             assert_eq!(found.classes, expected, "{parent}");
             assert!(found.unreadable.is_empty());
+            // D97: the guide's class tree (§4.8) names every inheriting class.
+            let guide = include_str!("../../../docs/AGENT_GUIDE.md");
+            let tree = guide.split("**Class inheritance:**").nth(1).and_then(|t| t.split("- **In-game text**").next());
+            let tree = tree.expect("AGENT_GUIDE §4.8 has the class inheritance entry");
+            for c in &found.classes {
+                let shown = format!("`{}`", c.to_string().trim_end());
+                assert!(
+                    tree.contains(&shown),
+                    "AGENT_GUIDE §4.8's class tree doesn't name {shown} (inherits {parent})"
+                );
+            }
             let pdef = load_class_definition(b, code).unwrap().unwrap();
             let Ok(paths) = inherited_field(b, &pdef, &found.classes, path) else {
                 println!("  {parent} '{path}': not a field of the parent, or differs");

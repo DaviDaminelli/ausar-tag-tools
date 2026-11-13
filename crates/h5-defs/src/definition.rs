@@ -129,9 +129,15 @@ pub enum Custom {
     Widget,
 }
 
-/// The role of `fields[i]` if it is a `_field_custom`. Uses the next sibling,
-/// so it takes the whole list.
-pub fn custom_role(fields: &[Field], i: usize) -> Option<Custom> {
+/// [`Custom`], borrowing the names: the one rule behind [`custom_role`] and
+/// [`class_section`].
+enum Role<'f> {
+    ClassSection(&'f str),
+    Group(&'f str),
+    Widget,
+}
+
+fn role(fields: &[Field], i: usize) -> Option<Role<'_>> {
     let f = fields.get(i).filter(|f| f.is(FieldType::Custom))?;
     let label = f.raw_name.trim_matches(|c: char| c == '$' || c == ' ');
     let next_has_same_name = fields.get(i + 1).is_some_and(|n| n.raw_name == f.raw_name);
@@ -140,12 +146,31 @@ pub fn custom_role(fields: &[Field], i: usize) -> Option<Custom> {
             && f.raw_name[w.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric())
     });
     Some(if label.is_empty() || next_has_same_name || tool {
-        Custom::Widget
+        Role::Widget
     } else if label.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == ' ' || c == '_') {
-        Custom::ClassSection(label.to_owned())
+        Role::ClassSection(label)
     } else {
-        Custom::Group(f.name.display.clone())
+        Role::Group(&f.name.display)
     })
+}
+
+/// The role of `fields[i]` if it is a `_field_custom`. Uses the next sibling,
+/// so it takes the whole list.
+pub fn custom_role(fields: &[Field], i: usize) -> Option<Custom> {
+    Some(match role(fields, i)? {
+        Role::ClassSection(s) => Custom::ClassSection(s.to_owned()),
+        Role::Group(s) => Custom::Group(s.to_owned()),
+        Role::Widget => Custom::Widget,
+    })
+}
+
+/// The label of `fields[i]` if it is a class section label (`OBJECT`; as
+/// [`custom_role`] decides), borrowed: for scanning many definitions.
+pub fn class_section(fields: &[Field], i: usize) -> Option<&str> {
+    match role(fields, i)? {
+        Role::ClassSection(s) => Some(s),
+        _ => None,
+    }
 }
 
 /// Each field's name as a path step (PRD §6.4.2): the display name, with
